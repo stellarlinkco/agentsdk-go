@@ -2,18 +2,21 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/tool/mcp"
+	"github.com/cexll/agentsdk-go/pkg/mcp"
 )
 
 // Registry keeps the mapping between tool names and implementations.
 type Registry struct {
-	mu        sync.RWMutex
-	tools     map[string]Tool
-	mcpClient *mcp.Client
-	validator Validator
+	mu         sync.RWMutex
+	tools      map[string]Tool
+	mcpClients []*mcp.Client
+	validator  Validator
 }
 
 // NewRegistry creates a registry backed by the default validator.
@@ -96,4 +99,150 @@ func (r *Registry) Execute(ctx context.Context, name string, params map[string]i
 	}
 
 	return tool.Execute(ctx, params)
+}
+
+// RegisterMCPServer discovers tools exposed by an MCP server and registers them.
+// serverPath accepts either an http(s) URL (SSE transport) or a stdio command.
+func (r *Registry) RegisterMCPServer(serverPath string) error {
+	if strings.TrimSpace(serverPath) == "" {
+		return fmt.Errorf("server path is empty")
+	}
+	opCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	transport, err := buildMCPTransport(context.Background(), serverPath)
+	if err != nil {
+		return err
+	}
+	client := mcp.NewClient(transport)
+	success := false
+	defer func() {
+		if !success {
+			_ = client.Close()
+		}
+	}()
+
+	tools, err := client.ListTools(opCtx)
+	if err != nil {
+		return fmt.Errorf("list MCP tools: %w", err)
+	}
+	if len(tools) == 0 {
+		return fmt.Errorf("MCP server returned no tools")
+	}
+
+	wrappers := make([]Tool, 0, len(tools))
+	for _, desc := range tools {
+		if strings.TrimSpace(desc.Name) == "" {
+			return fmt.Errorf("encountered MCP tool with empty name")
+		}
+		if r.hasTool(desc.Name) {
+			return fmt.Errorf("tool %s already registered", desc.Name)
+		}
+		schema, err := convertMCPSchema(desc.Schema)
+		if err != nil {
+			return fmt.Errorf("parse schema for %s: %w", desc.Name, err)
+		}
+		wrappers = append(wrappers, &remoteTool{
+			name:        desc.Name,
+			description: desc.Description,
+			schema:      schema,
+			client:      client,
+		})
+	}
+
+	for _, tool := range wrappers {
+		if err := r.Register(tool); err != nil {
+			return err
+		}
+	}
+
+	r.mu.Lock()
+	r.mcpClients = append(r.mcpClients, client)
+	r.mu.Unlock()
+
+	success = true
+	return nil
+}
+
+func (r *Registry) hasTool(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, exists := r.tools[name]
+	return exists
+}
+
+func buildMCPTransport(ctx context.Context, spec string) (mcp.Transport, error) {
+	spec = strings.TrimSpace(spec)
+	switch {
+	case spec == "":
+		return nil, fmt.Errorf("server path is empty")
+	case strings.HasPrefix(spec, "http://"), strings.HasPrefix(spec, "https://"):
+		return mcp.NewSSETransport(ctx, mcp.SSEOptions{BaseURL: spec})
+	default:
+		if strings.HasPrefix(spec, "stdio://") {
+			spec = strings.TrimPrefix(spec, "stdio://")
+		}
+		parts := strings.Fields(spec)
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("invalid stdio server path")
+		}
+		cmd := parts[0]
+		args := []string{}
+		if len(parts) > 1 {
+			args = parts[1:]
+		}
+		return mcp.NewSTDIOTransport(ctx, cmd, mcp.STDIOOptions{Args: args})
+	}
+}
+
+func convertMCPSchema(raw json.RawMessage) (*JSONSchema, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var schema JSONSchema
+	if err := json.Unmarshal(raw, &schema); err == nil && schema.Type != "" {
+		return &schema, nil
+	}
+	var generic map[string]interface{}
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return nil, err
+	}
+	schema.Type, _ = generic["type"].(string)
+	if props, ok := generic["properties"].(map[string]interface{}); ok {
+		schema.Properties = props
+	}
+	if req, ok := generic["required"].([]interface{}); ok {
+		for _, value := range req {
+			if name, ok := value.(string); ok {
+				schema.Required = append(schema.Required, name)
+			}
+		}
+	}
+	return &schema, nil
+}
+
+type remoteTool struct {
+	name        string
+	description string
+	schema      *JSONSchema
+	client      *mcp.Client
+}
+
+func (r *remoteTool) Name() string        { return r.name }
+func (r *remoteTool) Description() string { return r.description }
+func (r *remoteTool) Schema() *JSONSchema { return r.schema }
+
+func (r *remoteTool) Execute(ctx context.Context, params map[string]interface{}) (*ToolResult, error) {
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	res, err := r.client.InvokeTool(ctx, r.name, params)
+	if err != nil {
+		return nil, err
+	}
+	return &ToolResult{
+		Success: true,
+		Output:  string(res.Content),
+		Data:    res.Content,
+	}, nil
 }

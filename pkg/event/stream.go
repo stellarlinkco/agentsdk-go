@@ -11,42 +11,37 @@ import (
 	"time"
 )
 
-const defaultHeartbeat = 25 * time.Second
+const (
+	defaultHeartbeat = 15 * time.Second
+	defaultClientBuf = 8
+	heartbeatComment = ": heartbeat %d\n\n"
+	completeFrame    = "event: complete\ndata: {}\n\n"
+)
 
-// Stream 封装 SSE 写入逻辑，将事件安全地推送给 HTTP 客户端。
+// Stream manages Server-Sent Events fan-out for multiple HTTP clients.
 type Stream struct {
-	w         io.Writer
-	flush     func()
 	heartbeat time.Duration
-	mu        sync.Mutex
+	clientBuf int
+	clients   sync.Map // map[string]*subscriber
 }
 
-// NewStream 构造 HTTP SSE 流。
-func NewStream(w http.ResponseWriter) *Stream {
-	headers := w.Header()
-	headers.Set("Content-Type", "text/event-stream")
-	headers.Set("Cache-Control", "no-cache")
-	headers.Set("Connection", "keep-alive")
-
-	var flushFn func()
-	if f, ok := w.(http.Flusher); ok {
-		flushFn = f.Flush
-	}
-
-	return &Stream{
-		w:         w,
-		flush:     flushFn,
-		heartbeat: defaultHeartbeat,
-	}
+// NewStream constructs a broadcast-capable SSE stream.
+func NewStream() *Stream {
+	return &Stream{heartbeat: defaultHeartbeat, clientBuf: defaultClientBuf}
 }
 
-// NewStreamWriter 允许使用自定义 writer（例如测试）。
+// NewStreamWriter attaches a plain writer as a virtual SSE client (useful for tests).
 func NewStreamWriter(w io.Writer) *Stream {
-	return &Stream{w: w}
+	s := NewStream()
+	s.attachWriter(w)
+	return s
 }
 
-// SetHeartbeat 调整心跳间隔，<=0 将关闭心跳。
+// SetHeartbeat sets the interval for per-client heartbeat comments (<=0 disables).
 func (s *Stream) SetHeartbeat(d time.Duration) {
+	if s == nil {
+		return
+	}
 	if d <= 0 {
 		s.heartbeat = 0
 		return
@@ -54,41 +49,116 @@ func (s *Stream) SetHeartbeat(d time.Duration) {
 	s.heartbeat = d
 }
 
-// StreamEvents 将事件通道转成 SSE 响应。
-func (s *Stream) StreamEvents(ctx context.Context, events <-chan Event) error {
+// ServeHTTP registers the caller as an SSE client and streams events until context cancellation.
+func (s *Stream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s == nil {
-		return errors.New("event: stream is nil")
+		http.Error(w, "event: stream not configured", http.StatusServiceUnavailable)
+		return
 	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "event: response does not support streaming", http.StatusInternalServerError)
+		return
+	}
+
+	headers := w.Header()
+	headers.Set("Content-Type", "text/event-stream")
+	headers.Set("Cache-Control", "no-cache")
+	headers.Set("Connection", "keep-alive")
+
+	client := newSubscriber(s.clientBuf)
+	s.clients.Store(client.id, client)
+	defer func() {
+		client.close()
+		s.clients.Delete(client.id)
+	}()
+
+	_, _ = io.WriteString(w, ": connected\n\n")
+	flusher.Flush()
+
 	var ticker *time.Ticker
 	if s.heartbeat > 0 {
 		ticker = time.NewTicker(s.heartbeat)
 		defer ticker.Stop()
 	}
 
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case frame, ok := <-client.queue:
+			if !ok {
+				return
+			}
+			if _, err := w.Write(frame); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-tickChan(ticker):
+			if _, err := fmt.Fprintf(w, heartbeatComment, time.Now().Unix()); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// Send broadcasts a single event to all connected clients.
+func (s *Stream) Send(evt Event) error {
+	if s == nil {
+		return errors.New("event: stream is nil")
+	}
+	frame, err := encodeEvent(evt)
+	if err != nil {
+		return err
+	}
+	s.broadcast(frame)
+	return nil
+}
+
+// StreamEvents consumes an event channel and relays it using SSE format.
+func (s *Stream) StreamEvents(ctx context.Context, events <-chan Event) error {
+	if s == nil {
+		return errors.New("event: stream is nil")
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case evt, ok := <-events:
 			if !ok {
-				return s.write([]byte("event: complete\ndata: {}\n\n"))
+				s.broadcast([]byte(completeFrame))
+				return nil
 			}
 			if err := s.Send(evt); err != nil {
-				return err
-			}
-		case <-heartbeatChan(ticker):
-			if err := s.sendHeartbeat(); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-// Send 将单个事件写入 SSE 流。
-func (s *Stream) Send(evt Event) error {
+func (s *Stream) broadcast(frame []byte) {
 	if s == nil {
-		return errors.New("event: stream is nil")
+		return
 	}
+	s.clients.Range(func(key, value any) bool {
+		client, ok := value.(*subscriber)
+		if !ok {
+			s.clients.Delete(key)
+			return true
+		}
+		select {
+		case client.queue <- frame:
+		default:
+			client.close()
+			s.clients.Delete(key)
+		}
+		return true
+	})
+}
+
+func encodeEvent(evt Event) ([]byte, error) {
 	normalized := normalizeEvent(evt)
 	payload := struct {
 		ID        string    `json:"id"`
@@ -105,43 +175,52 @@ func (s *Stream) Send(evt Event) error {
 		Data:      normalized.Data,
 		Bookmark:  normalized.Bookmark,
 	}
-
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("event: marshal SSE payload: %w", err)
+		return nil, fmt.Errorf("event: marshal SSE payload: %w", err)
 	}
-
 	frame := fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", payload.ID, payload.Type, body)
-	return s.write([]byte(frame))
+	return []byte(frame), nil
 }
 
-func (s *Stream) sendHeartbeat() error {
-	if s == nil || s.w == nil || s.heartbeat <= 0 {
-		return nil
-	}
-	payload := fmt.Sprintf(": ping %d\n\n", time.Now().Unix())
-	return s.write([]byte(payload))
-}
-
-func (s *Stream) write(data []byte) error {
-	if s == nil || s.w == nil {
-		return errors.New("event: stream writer not configured")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, err := s.w.Write(data); err != nil {
-		return err
-	}
-	if s.flush != nil {
-		s.flush()
-	}
-	return nil
-}
-
-func heartbeatChan(t *time.Ticker) <-chan time.Time {
+func tickChan(t *time.Ticker) <-chan time.Time {
 	if t == nil {
 		return nil
 	}
 	return t.C
+}
+
+func (s *Stream) attachWriter(w io.Writer) {
+	client := newSubscriber(s.clientBuf)
+	s.clients.Store(client.id, client)
+	go func() {
+		defer s.clients.Delete(client.id)
+		for frame := range client.queue {
+			if _, err := w.Write(frame); err != nil {
+				return
+			}
+		}
+	}()
+}
+
+type subscriber struct {
+	id    string
+	queue chan []byte
+	once  sync.Once
+}
+
+func newSubscriber(buffer int) *subscriber {
+	if buffer < 1 {
+		buffer = 1
+	}
+	return &subscriber{
+		id:    newEventID(),
+		queue: make(chan []byte, buffer),
+	}
+}
+
+func (s *subscriber) close() {
+	s.once.Do(func() {
+		close(s.queue)
+	})
 }

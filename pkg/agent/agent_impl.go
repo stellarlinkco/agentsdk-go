@@ -8,6 +8,7 @@ import (
 	"maps"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -33,43 +34,96 @@ type basicAgent struct {
 	toolMu sync.RWMutex
 }
 
+const (
+	minStreamBufferSize = 2
+	maxStreamBufferSize = 64
+)
+
 func (a *basicAgent) Run(ctx context.Context, input string) (*RunResult, error) {
-	if ctx == nil {
-		return nil, errors.New("context is nil")
-	}
-	sanitized, err := sanitizeInput(input)
+	ctx, sanitized, runCtx, cancel, err := a.setupRun(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if cancel != nil {
+		defer cancel()
+	}
+	return a.runWithEmitter(ctx, sanitized, runCtx, nil)
+}
+
+func (a *basicAgent) RunStream(ctx context.Context, input string) (<-chan event.Event, error) {
+	ctx, sanitized, runCtx, cancel, err := a.setupRun(ctx, input)
+	if err != nil {
 		return nil, err
 	}
+	buffer := clampStreamBuffer(a.cfg.streamBuffer())
+	ch := make(chan event.Event, buffer)
+	dispatcher := newStreamDispatcher(ctx, ch, runCtx.SessionID, buffer)
 
+	go func() {
+		defer close(ch)
+		if cancel != nil {
+			defer cancel()
+		}
+		if err := dispatcher.emit(progressEvent(runCtx.SessionID, "started", "stream started", nil)); err != nil {
+			return
+		}
+		if _, runErr := a.runWithEmitter(ctx, sanitized, runCtx, dispatcher.emit); runErr != nil {
+			if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+				dispatcher.pushTerminal(progressEvent(runCtx.SessionID, "stopped", runErr.Error(), nil))
+			}
+		}
+	}()
+
+	return ch, nil
+}
+
+func (a *basicAgent) setupRun(ctx context.Context, input string) (context.Context, string, RunContext, context.CancelFunc, error) {
+	if ctx == nil {
+		return nil, "", RunContext{}, nil, errors.New("context is nil")
+	}
+	sanitized, err := sanitizeInput(input)
+	if err != nil {
+		return nil, "", RunContext{}, nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", RunContext{}, nil, err
+	}
 	override, _ := GetRunContext(ctx)
 	runCtx := a.cfg.ResolveContext(override)
 	if runCtx.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, runCtx.Timeout)
-		defer cancel()
+		ctx, cancel := context.WithTimeout(ctx, runCtx.Timeout)
+		return ctx, sanitized, runCtx, cancel, nil
 	}
+	return ctx, sanitized, runCtx, nil, nil
+}
 
-	result := &RunResult{
-		StopReason: "complete",
-		Events: []event.Event{
-			progressEvent(runCtx.SessionID, "accepted", "input accepted", nil),
-		},
+func (a *basicAgent) runWithEmitter(ctx context.Context, input string, runCtx RunContext, emit func(event.Event) error) (*RunResult, error) {
+	if ctx == nil {
+		return nil, errors.New("context is nil")
 	}
-
+	result := &RunResult{StopReason: "complete"}
+	appendAndEmit := func(evt event.Event) error {
+		result.Events = append(result.Events, evt)
+		if emit == nil {
+			return nil
+		}
+		return emit(evt)
+	}
 	if err := runHooks(a.hooks, false, func(h Hook) error {
-		return h.PreRun(ctx, sanitized)
+		return h.PreRun(ctx, input)
 	}); err != nil {
 		return nil, err
 	}
+	if err := appendAndEmit(progressEvent(runCtx.SessionID, "accepted", "input accepted", nil)); err != nil {
+		return result, err
+	}
 
-	name, params, wantsTool, parseErr := parseToolInstruction(sanitized)
+	name, params, wantsTool, parseErr := parseToolInstruction(input)
 	if parseErr != nil {
 		result.StopReason = "input_error"
-		result.Events = append(result.Events, errorEvent(runCtx.SessionID, "input", parseErr, false))
+		if err := appendAndEmit(errorEvent(runCtx.SessionID, "input", parseErr, false)); err != nil {
+			return result, err
+		}
 		if err := a.runPostHooks(ctx, result); err != nil {
 			parseErr = errors.Join(parseErr, err)
 		}
@@ -77,17 +131,25 @@ func (a *basicAgent) Run(ctx context.Context, input string) (*RunResult, error) 
 	}
 
 	if wantsTool {
-		result.Events = append(result.Events, event.NewEvent(
+		toolCall := event.NewEvent(
 			event.EventToolCall,
 			runCtx.SessionID,
 			event.ToolCallData{
 				Name:   name,
 				Params: maps.Clone(params),
 			},
-		))
+		)
+		if err := appendAndEmit(toolCall); err != nil {
+			return result, err
+		}
+		if err := appendAndEmit(toolProgressEvent(runCtx.SessionID, name, "started", map[string]any{
+			"params": maps.Clone(params),
+		})); err != nil {
+			return result, err
+		}
 		call, toolErr := a.executeTool(ctx, name, params)
 		result.ToolCalls = append(result.ToolCalls, call)
-		result.Events = append(result.Events, event.NewEvent(
+		toolResult := event.NewEvent(
 			event.EventToolResult,
 			runCtx.SessionID,
 			event.ToolResultData{
@@ -96,10 +158,24 @@ func (a *basicAgent) Run(ctx context.Context, input string) (*RunResult, error) 
 				Error:    call.Error,
 				Duration: call.Duration,
 			},
-		))
+		)
+		if err := appendAndEmit(toolResult); err != nil {
+			return result, err
+		}
+		details := map[string]any{
+			"duration_ms": call.Duration.Milliseconds(),
+		}
+		if call.Error != "" {
+			details["error"] = call.Error
+		}
+		if err := appendAndEmit(toolProgressEvent(runCtx.SessionID, name, "finished", details)); err != nil {
+			return result, err
+		}
 		if toolErr != nil {
 			result.StopReason = "tool_error"
-			result.Events = append(result.Events, errorEvent(runCtx.SessionID, "tool", toolErr, false))
+			if err := appendAndEmit(errorEvent(runCtx.SessionID, "tool", toolErr, false)); err != nil {
+				return result, err
+			}
 			if err := a.runPostHooks(ctx, result); err != nil {
 				toolErr = errors.Join(toolErr, err)
 			}
@@ -108,53 +184,23 @@ func (a *basicAgent) Run(ctx context.Context, input string) (*RunResult, error) 
 		result.Output = stringify(call.Output)
 		result.StopReason = "tool_call"
 	} else {
-		result.Output = a.defaultResponse(sanitized, runCtx)
+		result.Output = a.defaultResponse(input, runCtx)
 	}
 
-	result.Usage = estimateUsage(sanitized, result.Output)
-	result.Events = append(result.Events,
-		progressEvent(runCtx.SessionID, "completed", "run completed", map[string]any{
-			"stop_reason": result.StopReason,
-		}),
-		event.NewEvent(event.EventCompletion, runCtx.SessionID, completionSummary(result)),
-	)
-
+	result.Usage = estimateUsage(input, result.Output)
+	completed := progressEvent(runCtx.SessionID, "completed", "run completed", map[string]any{
+		"stop_reason": result.StopReason,
+	})
+	if err := appendAndEmit(completed); err != nil {
+		return result, err
+	}
+	if err := appendAndEmit(event.NewEvent(event.EventCompletion, runCtx.SessionID, completionSummary(result))); err != nil {
+		return result, err
+	}
 	if err := a.runPostHooks(ctx, result); err != nil {
 		return result, err
 	}
 	return result, nil
-}
-
-func (a *basicAgent) RunStream(ctx context.Context, input string) (<-chan event.Event, error) {
-	if ctx == nil {
-		return nil, errors.New("context is nil")
-	}
-	if _, err := sanitizeInput(input); err != nil {
-		return nil, err
-	}
-	override, _ := GetRunContext(ctx)
-	runCtx := a.cfg.ResolveContext(override)
-	sessionID := runCtx.SessionID
-
-	ch := make(chan event.Event, a.cfg.streamBuffer())
-	go func() {
-		defer close(ch)
-		if !emitEvent(ctx, ch, progressEvent(sessionID, "started", "stream started", nil)) {
-			return
-		}
-		res, err := a.Run(ctx, input)
-		if err != nil {
-			emitEvent(ctx, ch, errorEvent(sessionID, "run", err, errors.Is(err, context.Canceled)))
-			return
-		}
-		for _, evt := range res.Events {
-			if !emitEvent(ctx, ch, evt) {
-				return
-			}
-		}
-	}()
-
-	return ch, nil
 }
 
 func (a *basicAgent) AddTool(t tool.Tool) error {
@@ -281,15 +327,6 @@ func parseToolInstruction(input string) (string, map[string]any, bool, error) {
 	return name, params, true, nil
 }
 
-func emitEvent(ctx context.Context, ch chan<- event.Event, evt event.Event) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case ch <- evt:
-		return true
-	}
-}
-
 func progressEvent(sessionID, stage, message string, details map[string]any) event.Event {
 	return event.NewEvent(event.EventProgress, sessionID, event.ProgressData{
 		Stage:   stage,
@@ -377,4 +414,116 @@ func runHooks(hooks []Hook, collect bool, fn func(Hook) error) error {
 		}
 	}
 	return joined
+}
+
+func clampStreamBuffer(size int) int {
+	if size < minStreamBufferSize {
+		return minStreamBufferSize
+	}
+	if size > maxStreamBufferSize {
+		return maxStreamBufferSize
+	}
+	return size
+}
+
+type streamDispatcher struct {
+	ctx        context.Context
+	out        chan<- event.Event
+	sessionID  string
+	bufferSize int
+	throttled  atomic.Bool
+}
+
+func newStreamDispatcher(ctx context.Context, out chan<- event.Event, sessionID string, buffer int) *streamDispatcher {
+	if buffer < minStreamBufferSize {
+		buffer = minStreamBufferSize
+	}
+	return &streamDispatcher{
+		ctx:        ctx,
+		out:        out,
+		sessionID:  sessionID,
+		bufferSize: buffer,
+	}
+}
+
+func (d *streamDispatcher) emit(evt event.Event) error {
+	select {
+	case <-d.ctx.Done():
+		return d.ctx.Err()
+	case d.out <- evt:
+		return nil
+	default:
+	}
+	if d.throttled.CompareAndSwap(false, true) {
+		if !d.blockingSend(d.backpressureEvent("throttled")) {
+			return d.ctx.Err()
+		}
+	}
+	if !d.blockingSend(evt) {
+		return d.ctx.Err()
+	}
+	if d.throttled.CompareAndSwap(true, false) {
+		d.tryEmit(d.backpressureEvent("recovered"))
+	}
+	return nil
+}
+
+func (d *streamDispatcher) blockingSend(evt event.Event) bool {
+	for {
+		select {
+		case <-d.ctx.Done():
+			return false
+		case d.out <- evt:
+			return true
+		}
+	}
+}
+
+func (d *streamDispatcher) tryEmit(evt event.Event) {
+	select {
+	case <-d.ctx.Done():
+	case d.out <- evt:
+	default:
+	}
+}
+
+func (d *streamDispatcher) backpressureEvent(state string) event.Event {
+	return progressEvent(d.sessionID, "backpressure", state, map[string]any{
+		"buffer_size": d.bufferSize,
+	})
+}
+
+func (d *streamDispatcher) pushTerminal(evt event.Event) {
+	if evt.Type == "" {
+		return
+	}
+	select {
+	case d.out <- evt:
+		return
+	default:
+	}
+	timer := time.NewTimer(50 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case d.out <- evt:
+	case <-timer.C:
+	}
+}
+
+func toolProgressEvent(sessionID, name, state string, extra map[string]any) event.Event {
+	data := map[string]any{
+		"tool":  name,
+		"state": state,
+	}
+	for k, v := range extra {
+		if v == nil {
+			continue
+		}
+		data[k] = v
+	}
+	return event.NewEvent(event.EventProgress, sessionID, event.ProgressData{
+		Stage:   fmt.Sprintf("tool:%s", name),
+		Message: state,
+		Details: data,
+	})
 }

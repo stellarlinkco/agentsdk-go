@@ -3,7 +3,10 @@ package session
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -110,6 +113,107 @@ func (b *CompositeBackend) routeOrErr(path string) (Backend, error) {
 		return nil, fmt.Errorf("%w: %s", ErrNoBackendRoute, normalizePath(path))
 	}
 	return backend, nil
+}
+
+// FileBackend stores session data on the local filesystem under root.
+type FileBackend struct {
+	root     string
+	fileMode os.FileMode
+}
+
+// NewFileBackend creates a filesystem-backed Backend.
+func NewFileBackend(root string) (*FileBackend, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, errors.New("session: backend root required")
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		return nil, err
+	}
+	return &FileBackend{
+		root:     abs,
+		fileMode: 0o600,
+	}, nil
+}
+
+// Read loads file contents from disk.
+func (f *FileBackend) Read(p string) ([]byte, error) {
+	full, err := f.fullPath(p)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(full)
+}
+
+// Write persists bytes to disk, creating parent directories as needed.
+func (f *FileBackend) Write(p string, data []byte) error {
+	full, err := f.fullPath(p)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(full, data, f.fileMode)
+}
+
+// List enumerates files contained within prefix.
+func (f *FileBackend) List(prefix string) ([]string, error) {
+	full, err := f.fullPath(prefix)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(full)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return []string{normalizePath(prefix)}, nil
+	}
+	var paths []string
+	err = filepath.WalkDir(full, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(f.root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, normalizePath("/"+filepath.ToSlash(rel)))
+		return nil
+	})
+	return paths, err
+}
+
+// Delete removes the file or directory at the provided path.
+func (f *FileBackend) Delete(p string) error {
+	full, err := f.fullPath(p)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(full); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (f *FileBackend) fullPath(p string) (string, error) {
+	norm := strings.TrimPrefix(normalizePath(p), "/")
+	full := filepath.Join(f.root, filepath.FromSlash(norm))
+	full = filepath.Clean(full)
+	if !strings.HasPrefix(full, f.root) {
+		return "", fmt.Errorf("session: path %s escapes backend root", p)
+	}
+	return full, nil
 }
 
 func normalizePrefix(prefix string) string {

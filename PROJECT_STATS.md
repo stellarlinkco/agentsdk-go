@@ -140,12 +140,15 @@ agentsdk-go/
 
 ## 下一步计划
 
-### v0.2 增强 (4 周)
-- [ ] WAL + FileSession 实现
-- [ ] MCP 客户端集成
-- [ ] OpenAI 适配器
-- [ ] agentctl CLI 工具完善
-- [ ] 流式执行优化
+### v0.2 增强 (4 周) - ✅ 已完成
+- [x] EventBus 增强（Bookmark 完善 + 事件分发优化）- 覆盖率 85%
+- [x] WAL + FileSession 实现（持久化存储 + Checkpoint/Resume/Fork）- 覆盖率 73%
+- [x] MCP 客户端集成（stdio/SSE 传输 + 工具自动注册）- 覆盖率 76.9%
+- [x] SSE 流式优化（完善 RunStream + HTTP SSE 输出）- 覆盖率 65.1%
+- [x] agentctl CLI 工具（run/serve/config 子命令）- 覆盖率 58.6%
+- [x] OpenAI 适配器（多模型支持）- 覆盖率 48.5%
+
+**详细报告**: 见 [V02_COMPLETION_REPORT.md](V02_COMPLETION_REPORT.md)
 
 ### v0.3 企业级 (8 周)
 - [ ] OTEL Tracing
