@@ -10,7 +10,9 @@ import (
 
 	"github.com/cexll/agentsdk-go/pkg/agent"
 	"github.com/cexll/agentsdk-go/pkg/event"
+	"github.com/cexll/agentsdk-go/pkg/middleware"
 	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/cexll/agentsdk-go/pkg/workflow"
 )
 
 type fakeAgent struct {
@@ -35,6 +37,14 @@ func (f *fakeAgent) RunStream(ctx context.Context, input string) (<-chan event.E
 	return f.runStreamFunc(ctx, input)
 }
 
+func (f *fakeAgent) Resume(ctx context.Context, _ *event.Bookmark) (*agent.RunResult, error) {
+	return f.Run(ctx, "")
+}
+
+func (f *fakeAgent) RunWorkflow(context.Context, *workflow.Graph, ...workflow.ExecutorOption) error {
+	return nil
+}
+
 func (f *fakeAgent) AddTool(t tool.Tool) error {
 	if f.addToolFunc == nil {
 		return nil
@@ -42,12 +52,22 @@ func (f *fakeAgent) AddTool(t tool.Tool) error {
 	return f.addToolFunc(t)
 }
 
+func (f *fakeAgent) Approve(string, bool) error { return nil }
+
+func (f *fakeAgent) UseMiddleware(m middleware.Middleware) {}
+
+func (f *fakeAgent) RemoveMiddleware(string) bool { return false }
+
+func (f *fakeAgent) ListMiddlewares() []middleware.Middleware { return nil }
+
 func (f *fakeAgent) WithHook(agent.Hook) agent.Agent { return f }
+
+func (f *fakeAgent) Fork(...agent.ForkOption) (agent.Agent, error) { return f, nil }
 
 func useAgentFactory(t *testing.T, stub agent.Agent) {
 	t.Helper()
 	original := agentFactory
-	agentFactory = func(agent.Config) (agent.Agent, error) { return stub, nil }
+	agentFactory = func(agent.Config, ...agent.Option) (agent.Agent, error) { return stub, nil }
 	t.Cleanup(func() { agentFactory = original })
 }
 

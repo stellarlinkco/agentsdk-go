@@ -232,6 +232,8 @@ func expandToolNames(names []string) []string {
 var builtinToolConstructors = map[string]func() tool.Tool{
 	"bash": func() tool.Tool { return toolbuiltin.NewBashTool() },
 	"file": func() tool.Tool { return toolbuiltin.NewFileTool() },
+	"glob": func() tool.Tool { return toolbuiltin.NewGlobTool() },
+	"grep": func() tool.Tool { return toolbuiltin.NewGrepTool() },
 }
 
 func allBuiltinToolNames() []string {
