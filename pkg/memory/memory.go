@@ -27,11 +27,6 @@ type SemanticMemoryStore interface {
 	Delete(ctx context.Context, namespace string) error
 }
 
-// Embedder transforms raw text into dense vectors compatible with SemanticMemoryStore.
-type Embedder interface {
-	Embed(ctx context.Context, texts []string) ([][]float64, error)
-}
-
 // Scope identifies a working-memory partition.
 type Scope struct {
 	ThreadID   string
