@@ -10,6 +10,13 @@ type Model interface {
 	GenerateStream(ctx context.Context, messages []Message, cb StreamCallback) error
 }
 
+// ModelWithTools is an optional interface for models that support tool calling.
+// If implemented, Agent will pass tool schemas to enable LLM-driven tool selection.
+type ModelWithTools interface {
+	Model
+	GenerateWithTools(ctx context.Context, messages []Message, tools []map[string]any) (Message, error)
+}
+
 // StreamCallback consumes incremental output produced by GenerateStream.
 // Implementations should call the callback in order, using StreamResult.Final
 // to signal completion.
