@@ -26,10 +26,7 @@ func TestEventValidationAndChannel(t *testing.T) {
 }
 
 func TestNormalizeEventClonesBookmark(t *testing.T) {
-	bm, err := NewBookmark("bk", 10, map[string]string{"state": "x"})
-	if err != nil {
-		t.Fatalf("bookmark: %v", err)
-	}
+	bm := &Bookmark{Seq: 10, Timestamp: time.Now()}
 	evt := Event{Type: EventProgress, Bookmark: bm}
 	normalized := normalizeEvent(evt)
 	if normalized.ID == "" || normalized.Timestamp.IsZero() {
@@ -37,6 +34,9 @@ func TestNormalizeEventClonesBookmark(t *testing.T) {
 	}
 	if normalized.Bookmark == bm || normalized.Bookmark == nil {
 		t.Fatal("bookmark should be cloned")
+	}
+	if normalized.Bookmark.Seq != bm.Seq {
+		t.Fatalf("bookmark seq mismatch: %d", normalized.Bookmark.Seq)
 	}
 }
 

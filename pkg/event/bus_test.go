@@ -224,3 +224,141 @@ func TestEventBusNilGuards(t *testing.T) {
 		t.Fatal("nil bus should report sealed")
 	}
 }
+
+func TestEventBusWithStoreAssignsBookmarkAndPersists(t *testing.T) {
+	store := &stubEventStore{}
+	progress := make(chan Event, 1)
+	bus := NewEventBus(progress, make(chan Event, 1), make(chan Event, 1), WithEventStore(store))
+	t.Cleanup(func() { _ = bus.Seal() })
+
+	if err := bus.Emit(NewEvent(EventProgress, "sess", nil)); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	select {
+	case evt := <-progress:
+		if evt.Bookmark == nil || evt.Bookmark.Seq == 0 {
+			t.Fatalf("bookmark not assigned: %+v", evt.Bookmark)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no event flushed")
+	}
+	appended := store.snapshot()
+	if len(appended) != 1 || appended[0].Bookmark == nil {
+		t.Fatalf("store missing bookmark: %+v", appended)
+	}
+}
+
+func TestEventBusSubscribeSince(t *testing.T) {
+	store := &stubEventStore{}
+	store.prefill([]Event{
+		{Type: EventProgress, Bookmark: &Bookmark{Seq: 1}},
+		{Type: EventProgress, Bookmark: &Bookmark{Seq: 2}},
+		{Type: EventProgress, Bookmark: &Bookmark{Seq: 3}},
+	})
+	bus := NewEventBus(make(chan Event, 1), make(chan Event, 1), make(chan Event, 1), WithEventStore(store))
+	t.Cleanup(func() { _ = bus.Seal() })
+
+	ch, err := bus.SubscribeSince(&Bookmark{Seq: 1})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	var history []Event
+	for evt := range ch {
+		history = append(history, evt)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(history))
+	}
+	if history[0].Bookmark.Seq != 2 || history[1].Bookmark.Seq != 3 {
+		t.Fatalf("unexpected seqs: %+v", history)
+	}
+}
+
+func TestEventBusSubscribeWithoutStore(t *testing.T) {
+	bus := NewEventBus(make(chan Event, 1), make(chan Event, 1), make(chan Event, 1))
+	if _, err := bus.SubscribeSince(nil); !errors.Is(err, errStoreNotConfigured) {
+		t.Fatalf("expected errStoreNotConfigured, got %v", err)
+	}
+}
+
+type stubEventStore struct {
+	mu     sync.RWMutex
+	events []Event
+}
+
+func (s *stubEventStore) Append(evt Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, cloneEvent(evt))
+	return nil
+}
+
+func (s *stubEventStore) ReadSince(bookmark *Bookmark) ([]Event, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var history []Event
+	for _, evt := range s.events {
+		bm := evt.Bookmark
+		if bm == nil {
+			continue
+		}
+		if bookmark == nil || bm.Seq > bookmark.Seq {
+			history = append(history, cloneEvent(evt))
+		}
+	}
+	return history, nil
+}
+
+func (s *stubEventStore) ReadRange(start, end *Bookmark) ([]Event, error) {
+	events, _ := s.ReadSince(start)
+	if end == nil {
+		return events, nil
+	}
+	var filtered []Event
+	for _, evt := range events {
+		if evt.Bookmark != nil && evt.Bookmark.Seq <= end.Seq {
+			filtered = append(filtered, evt)
+		}
+	}
+	return filtered, nil
+}
+
+func (s *stubEventStore) LastBookmark() (*Bookmark, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.events) == 0 {
+		return nil, nil
+	}
+	last := s.events[len(s.events)-1]
+	if last.Bookmark == nil {
+		return nil, nil
+	}
+	return last.Bookmark.Clone(), nil
+}
+
+func (s *stubEventStore) snapshot() []Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	copyEvents := make([]Event, len(s.events))
+	for i, evt := range s.events {
+		copyEvents[i] = cloneEvent(evt)
+	}
+	return copyEvents
+}
+
+func (s *stubEventStore) prefill(events []Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = make([]Event, len(events))
+	for i, evt := range events {
+		s.events[i] = cloneEvent(evt)
+	}
+}
+
+func cloneEvent(evt Event) Event {
+	if evt.Bookmark != nil {
+		copy := *evt.Bookmark
+		evt.Bookmark = &copy
+	}
+	return evt
+}

@@ -20,10 +20,12 @@ const (
 	EventCompletion EventType = "completion"
 
 	// Control channel
-	EventApprovalReq  EventType = "approval_req"
-	EventApprovalResp EventType = "approval_resp"
-	EventInterrupt    EventType = "interrupt"
-	EventResume       EventType = "resume"
+	EventApprovalReq       EventType = "approval_req"
+	EventApprovalResp      EventType = "approval_resp"
+	EventApprovalRequested EventType = "approval_requested"
+	EventApprovalDecided   EventType = "approval_decided"
+	EventInterrupt         EventType = "interrupt"
+	EventResume            EventType = "resume"
 
 	// Monitor channel
 	EventMetrics EventType = "metrics"
@@ -41,18 +43,20 @@ const (
 )
 
 var typeToChannel = map[EventType]Channel{
-	EventProgress:     ChannelProgress,
-	EventThinking:     ChannelProgress,
-	EventToolCall:     ChannelProgress,
-	EventToolResult:   ChannelProgress,
-	EventCompletion:   ChannelProgress,
-	EventApprovalReq:  ChannelControl,
-	EventApprovalResp: ChannelControl,
-	EventInterrupt:    ChannelControl,
-	EventResume:       ChannelControl,
-	EventMetrics:      ChannelMonitor,
-	EventAudit:        ChannelMonitor,
-	EventError:        ChannelMonitor,
+	EventProgress:          ChannelProgress,
+	EventThinking:          ChannelProgress,
+	EventToolCall:          ChannelProgress,
+	EventToolResult:        ChannelProgress,
+	EventCompletion:        ChannelProgress,
+	EventApprovalReq:       ChannelControl,
+	EventApprovalResp:      ChannelControl,
+	EventApprovalRequested: ChannelControl,
+	EventApprovalDecided:   ChannelControl,
+	EventInterrupt:         ChannelControl,
+	EventResume:            ChannelControl,
+	EventMetrics:           ChannelMonitor,
+	EventAudit:             ChannelMonitor,
+	EventError:             ChannelMonitor,
 }
 
 // Event 描述一次事件推送。
