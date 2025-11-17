@@ -1,0 +1,194 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/cexll/agentsdk-go/pkg/agent"
+	"github.com/cexll/agentsdk-go/pkg/approval"
+	"github.com/cexll/agentsdk-go/pkg/workflow"
+)
+
+func main() {
+	ctx := context.Background()
+
+	fmt.Println("=== agentsdk-go v0.3.1 功能验证 ===\n")
+
+	// 验证 1: 审批系统
+	validateApprovalSystem()
+
+	// 验证 2: StateGraph 工作流
+	validateWorkflowGraph(ctx)
+
+	// 验证 3: Agent Fork
+	validateAgentFork(ctx)
+
+	// 验证 4: 审批记录 GC
+	validateApprovalGC()
+
+	fmt.Println("\n=== 所有功能验证完成 ✅ ===")
+}
+
+// 验证 1: 审批系统
+func validateApprovalSystem() {
+	fmt.Println("--- 验证 1: 审批系统 ---")
+
+	// 创建审批记录日志
+	store, err := approval.NewRecordLog("/tmp/approval-validation")
+	if err != nil {
+		log.Fatalf("create record log: %v", err)
+	}
+	defer store.Close()
+
+	// 创建白名单
+	wl := approval.NewWhitelist()
+
+	// 创建审批队列
+	queue := approval.NewQueue(store, wl)
+	fmt.Println("✅ 审批队列已创建")
+
+	// 提交审批请求 (模拟)
+	req := approval.Record{
+		SessionID: "test-session",
+		ToolName:  "bash_execute",
+		Params:    map[string]interface{}{"command": "echo test"},
+		Decision:  approval.DecisionPending,
+		Timestamp: time.Now(),
+	}
+
+	if err := store.Append(req); err != nil {
+		log.Fatalf("append record: %v", err)
+	}
+	fmt.Println("✅ 审批请求已提交到日志")
+
+	// 查询审批记录
+	records, err := store.Query(approval.QueryFilter{SessionID: "test-session"})
+	if err != nil {
+		log.Fatalf("query records: %v", err)
+	}
+	fmt.Printf("✅ 查询到 %d 条审批记录\n\n", len(records))
+}
+
+// 验证 2: StateGraph 工作流
+func validateWorkflowGraph(ctx context.Context) {
+	fmt.Println("--- 验证 2: StateGraph 工作流 ---")
+
+	// 创建工作流图
+	g := workflow.NewGraph()
+
+	// 添加节点
+	startAction := workflow.NewAction("start", func(execCtx *workflow.ExecutionContext) error {
+		fmt.Println("  -> 执行: start 节点")
+		execCtx.Set("step", "started")
+		return nil
+	})
+
+	processAction := workflow.NewAction("process", func(execCtx *workflow.ExecutionContext) error {
+		fmt.Println("  -> 执行: process 节点")
+		execCtx.Set("step", "processed")
+		return nil
+	})
+
+	if err := g.AddNode(startAction); err != nil {
+		log.Fatalf("add start node: %v", err)
+	}
+
+	if err := g.AddNode(processAction); err != nil {
+		log.Fatalf("add process node: %v", err)
+	}
+	fmt.Println("✅ 已添加 2 个节点")
+
+	// 添加转换
+	if err := g.AddTransition("start", "process", workflow.Always()); err != nil {
+		log.Fatalf("add transition: %v", err)
+	}
+	fmt.Println("✅ 已添加转换: start -> process")
+
+	// 执行工作流
+	executor := workflow.NewExecutor(g, workflow.WithInitialData(map[string]any{"count": 0}))
+	if err := executor.Run(ctx); err != nil {
+		log.Fatalf("execute workflow: %v", err)
+	}
+	fmt.Println("✅ 工作流执行完成\n")
+}
+
+// 验证 3: Agent Fork
+func validateAgentFork(ctx context.Context) {
+	fmt.Println("--- 验证 3: Agent Fork (子代理) ---")
+
+	// 创建主 Agent
+	mainAgent, err := agent.New(agent.Config{
+		Name:        "main-agent",
+		Description: "Main agent",
+		DefaultContext: agent.RunContext{
+			SessionID: "main-session",
+		},
+	})
+	if err != nil {
+		log.Fatalf("create main agent: %v", err)
+	}
+	fmt.Println("✅ 主 Agent 已创建")
+
+	// Fork 子 Agent
+	subAgent, err := mainAgent.Fork()
+	if err != nil {
+		log.Fatalf("fork agent: %v", err)
+	}
+	fmt.Printf("✅ 子 Agent 已 Fork: %s\n", subAgent.Config().Name)
+
+	// Fork 带工具白名单
+	subAgentWithTools, err := mainAgent.Fork(agent.WithToolWhitelist([]string{"bash_execute"}))
+	if err != nil {
+		log.Fatalf("fork with whitelist: %v", err)
+	}
+	fmt.Printf("✅ 子 Agent (带工具白名单) 已 Fork: %s\n\n", subAgentWithTools.Config().Name)
+}
+
+// 验证 4: 审批记录 GC
+func validateApprovalGC() {
+	fmt.Println("--- 验证 4: 审批记录 GC ---")
+
+	// 创建审批记录日志
+	log, err := approval.NewRecordLog("/tmp/approval-gc-validation")
+	if err != nil {
+		log.Fatalf("create record log: %v", err)
+	}
+	defer log.Close()
+
+	// 配置 GC
+	log.ConfigureGC(approval.GCConfig{
+		RetentionDays:  7,
+		RetentionCount: 100,
+		Callback: func(deleted int) {
+			fmt.Printf("  -> GC 回调: 删除了 %d 条记录\n", deleted)
+		},
+	})
+	fmt.Println("✅ GC 已配置 (保留 7 天, 100 条)")
+
+	// 添加测试记录
+	for i := 0; i < 5; i++ {
+		record := approval.Record{
+			SessionID: "gc-session",
+			ToolName:  "test_tool",
+			Decision:  approval.DecisionApproved,
+			Timestamp: time.Now().Add(-time.Duration(i) * 24 * time.Hour),
+		}
+		if err := log.Append(record); err != nil {
+			log.Fatalf("append record: %v", err)
+		}
+	}
+	fmt.Println("✅ 已添加 5 条测试记录")
+
+	// 手动触发 GC
+	deleted, err := log.GC()
+	if err != nil {
+		log.Fatalf("gc: %v", err)
+	}
+	fmt.Printf("✅ 手动 GC 完成: 删除了 %d 条记录\n", deleted)
+
+	// 获取 GC 状态
+	status := log.GCStatus()
+	fmt.Printf("✅ GC 状态: 总记录=%d, 总大小=%d bytes\n", status.TotalRecords, status.TotalBytes)
+}

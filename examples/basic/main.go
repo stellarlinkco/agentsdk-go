@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	defaultModel        = "claude-3-5-sonnet-20241022"
-	defaultAnthropicURL = "https://api.anthropic.com"
-	basicCommandPrompt  = "请执行命令 'echo Hello from agentsdk-go' 并返回结果"
+	defaultModel       = "claude-3-5-sonnet-20241022"
+	basicCommandPrompt = "请执行命令 'echo Hello from agentsdk-go' 并返回结果"
 )
 
 func main() {
@@ -26,7 +25,7 @@ func main() {
 		log.Fatal("ANTHROPIC_API_KEY is not set")
 	}
 
-	// 1) Materialise an Anthropic-backed model to verify credentials.
+	// 1) Materialise an Anthropic-backed model using the official Anthropic Go SDK wrapper.
 	claudeModel, err := newAnthropicModel(ctx, apiKey)
 	if err != nil {
 		log.Fatalf("create anthropic model: %v", err)
@@ -73,34 +72,8 @@ func main() {
 	)
 }
 
-// newAnthropicModel wires the factory + provider stack required for Anthropic.
-func newAnthropicModel(ctx context.Context, apiKey string) (modelpkg.Model, error) {
-	// Support overriding the Anthropic API endpoint so users can point to proxies.
-	baseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
-	if baseURL == "" {
-		baseURL = defaultAnthropicURL
-	}
-	log.Printf("Anthropic base URL: %s", baseURL)
-	log.Printf("Anthropic model: %s", defaultModel)
-
-	factory := modelpkg.NewFactory(anthropic.NewProvider(nil))
-	cfg := modelpkg.ModelConfig{
-		Name:     "default",
-		Provider: "anthropic",
-		Model:    defaultModel,
-		APIKey:   apiKey,
-	}
-
-	if opt := WithBaseURL(baseURL); opt != nil {
-		opt(&cfg)
-	}
-
-	return factory.NewModel(ctx, cfg)
-}
-
-// WithBaseURL propagates a custom endpoint down to the provider.
-func WithBaseURL(baseURL string) func(*modelpkg.ModelConfig) {
-	return func(cfg *modelpkg.ModelConfig) {
-		cfg.BaseURL = baseURL
-	}
+// newAnthropicModel instantiates a Model backed by the official Anthropic Go SDK wrapper (anthropic.NewSDKModel).
+func newAnthropicModel(_ context.Context, apiKey string) (modelpkg.Model, error) {
+	log.Printf("Anthropic model (SDK): %s", defaultModel)
+	return anthropic.NewSDKModel(apiKey, defaultModel, 1024), nil
 }

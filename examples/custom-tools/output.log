@@ -1,0 +1,12 @@
+===================================
+  自定义工具示例
+===================================
+API Key: sk-kimi-YMaf5ozXXeHh...
+Base URL: https://api.kimi.com/coding
+
+注册工具: calculator, get_current_time
+
+# command-line-arguments
+./main.go:225:21: too many arguments in call to agent.WithSession
+	have (*session.MemorySession, error)
+	want (session.Session)
