@@ -287,7 +287,7 @@ func TestHelperBranches(t *testing.T) {
 	if got := mapModelName(string(anthropicsdk.ModelClaude3_5HaikuLatest)); got != anthropicsdk.ModelClaude3_5HaikuLatest {
 		t.Fatalf("mapModelName expected haiku got %s", got)
 	}
-	if got := mapModelName("unknown"); got != anthropicsdk.ModelClaude3_7SonnetLatest {
+	if got := mapModelName("unknown"); got != anthropicsdk.ModelClaudeSonnet4_5_20250929 {
 		t.Fatalf("mapModelName default mismatch: %s", got)
 	}
 

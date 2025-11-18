@@ -537,18 +537,44 @@ func usageFromFallback(final anthropicsdk.Usage, tracked Usage) Usage {
 	return tracked
 }
 
-var modelLookup = map[string]anthropicsdk.Model{
-	string(anthropicsdk.ModelClaudeHaiku4_5):           anthropicsdk.ModelClaudeHaiku4_5,
-	string(anthropicsdk.ModelClaudeHaiku4_5_20251001):  anthropicsdk.ModelClaudeHaiku4_5_20251001,
-	string(anthropicsdk.ModelClaudeSonnet4_5):          anthropicsdk.ModelClaudeSonnet4_5,
-	string(anthropicsdk.ModelClaudeSonnet4_5_20250929): anthropicsdk.ModelClaudeSonnet4_5_20250929,
-	string(anthropicsdk.ModelClaudeOpus4_1_20250805):   anthropicsdk.ModelClaudeOpus4_1_20250805,
+const defaultAnthropicModel = anthropicsdk.ModelClaudeSonnet4_5_20250929
+
+var supportedAnthropicModels = []anthropicsdk.Model{
+	anthropicsdk.ModelClaude3_7SonnetLatest,
+	anthropicsdk.ModelClaude3_7Sonnet20250219,
+	anthropicsdk.ModelClaude3_5HaikuLatest,
+	anthropicsdk.ModelClaude3_5Haiku20241022,
+	anthropicsdk.ModelClaudeHaiku4_5,
+	anthropicsdk.ModelClaudeHaiku4_5_20251001,
+	anthropicsdk.ModelClaudeSonnet4_20250514,
+	anthropicsdk.ModelClaudeSonnet4_0,
+	anthropicsdk.ModelClaude4Sonnet20250514,
+	anthropicsdk.ModelClaudeSonnet4_5,
+	anthropicsdk.ModelClaudeSonnet4_5_20250929,
+	anthropicsdk.ModelClaudeOpus4_0,
+	anthropicsdk.ModelClaudeOpus4_20250514,
+	anthropicsdk.ModelClaude4Opus20250514,
+	anthropicsdk.ModelClaudeOpus4_1_20250805,
+	anthropicsdk.ModelClaude3OpusLatest,
+	anthropicsdk.ModelClaude_3_Opus_20240229,
+	anthropicsdk.ModelClaude_3_Haiku_20240307,
 }
+
+var modelLookup = func() map[string]anthropicsdk.Model {
+	lookup := make(map[string]anthropicsdk.Model, len(supportedAnthropicModels))
+	for _, model := range supportedAnthropicModels {
+		lookup[string(model)] = model
+	}
+	return lookup
+}()
 
 func mapModelName(name string) anthropicsdk.Model {
 	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return defaultAnthropicModel
+	}
 	if model, ok := modelLookup[trimmed]; ok {
 		return model
 	}
-	return anthropicsdk.ModelClaudeSonnet4_5_20250929
+	return defaultAnthropicModel
 }

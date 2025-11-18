@@ -50,9 +50,107 @@ func TestTrimmerUsesNaiveCounterWhenNil(t *testing.T) {
 	}
 }
 
-func TestNaiveCounterCountsNonZero(t *testing.T) {
-	if (NaiveCounter{}).Count(Message{}) == 0 {
-		t.Fatalf("naive counter should return at least 1")
+func TestNaiveCounterEdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  Message
+		want int
+	}{
+		{
+			name: "role and content contribute",
+			msg:  Message{Role: "0123456789", Content: "abcdefgh"},
+			want: 3, // 8/4 + 10/10
+		},
+		{
+			name: "string tool call arguments",
+			msg: Message{
+				Role:    "r",
+				Content: "abcd",
+				ToolCalls: []ToolCall{{
+					Name:      "calc",
+					Arguments: map[string]any{"payload": "12345678"},
+				}},
+			},
+			want: 14, // 4/4 + len("calc") + len("payload") + 8/4
+		},
+		{
+			name: "non string argument fallback",
+			msg: Message{
+				ToolCalls: []ToolCall{{
+					Name:      "x",
+					Arguments: map[string]any{"n": 123},
+				}},
+			},
+			want: 3, // len("x") + len("n") + default branch
+		},
+		{
+			name: "enforces minimum token",
+			msg:  Message{},
+			want: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := (NaiveCounter{}).Count(tt.msg)
+			if got != tt.want {
+				t.Fatalf("expected %d tokens, got %d", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestTrimmerTableScenarios(t *testing.T) {
+	tests := []struct {
+		name    string
+		limit   int
+		history []Message
+		counter TokenCounter
+		want    []string
+	}{
+		{
+			name:    "empty history",
+			limit:   5,
+			history: nil,
+			counter: nil,
+			want:    []string{},
+		},
+		{
+			name:    "single message",
+			limit:   5,
+			history: []Message{{Content: "solo"}},
+			counter: tokenCounterFunc(func(Message) int { return 1 }),
+			want:    []string{"solo"},
+		},
+		{
+			name:    "all messages exceed limit",
+			limit:   2,
+			history: []Message{{Content: "old"}, {Content: "new"}},
+			counter: tokenCounterFunc(func(Message) int { return 3 }),
+			want:    []string{},
+		},
+		{
+			name:    "zero token counter keeps all",
+			limit:   1,
+			history: []Message{{Content: "first"}, {Content: "second"}},
+			counter: tokenCounterFunc(func(Message) int { return 0 }),
+			want:    []string{"first", "second"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			trimmer := Trimmer{MaxTokens: tt.limit, Counter: tt.counter}
+			got := trimmer.Trim(tt.history)
+			if len(got) != len(tt.want) {
+				t.Fatalf("expected %d messages, got %d", len(tt.want), len(got))
+			}
+			for i, content := range tt.want {
+				if got[i].Content != content {
+					t.Fatalf("message %d content mismatch, want %q got %q", i, content, got[i].Content)
+				}
+			}
+		})
 	}
 }
 
