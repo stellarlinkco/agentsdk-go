@@ -33,6 +33,7 @@ type SSETransport struct {
 	events  string
 	rpc     string
 	pending *pendingTracker
+	consume func() (bool, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -172,8 +173,12 @@ func (t *SSETransport) dispatch(ctx context.Context, req *Request) error {
 func (t *SSETransport) runStream() {
 	defer t.wg.Done()
 	backoff := t.reconInitial
+	consume := t.consumeOnce
+	if t.consume != nil {
+		consume = t.consume
+	}
 	for {
-		connected, err := t.consumeOnce()
+		connected, err := consume()
 		if t.ctx.Err() != nil {
 			return
 		}

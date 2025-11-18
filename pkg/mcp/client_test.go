@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/cexll/agentsdk-go/pkg/sandbox"
 )
 
 func TestClientCallDecodesResult(t *testing.T) {
@@ -64,6 +68,154 @@ func TestClientClose(t *testing.T) {
 	}
 	if !st.closed {
 		t.Fatal("transport not closed")
+	}
+}
+
+func TestClientListToolsCache(t *testing.T) {
+	raw, _ := json.Marshal(ToolListResult{Tools: []ToolDescriptor{{Name: "cache"}}})
+	st := &stubTransport{responses: []*Response{{ID: "1", Result: raw}, {ID: "2", Result: raw}}}
+	now := time.Now()
+	client := NewClient(st, WithToolCacheTTL(time.Minute), withClientClock(func() time.Time { return now }))
+
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	if len(st.calls) != 1 {
+		t.Fatalf("expected single transport call, got %d", len(st.calls))
+	}
+
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("cached list: %v", err)
+	}
+	if len(st.calls) != 1 {
+		t.Fatalf("cache miss triggered transport")
+	}
+
+	now = now.Add(2 * time.Minute)
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("post-expiry list: %v", err)
+	}
+	if len(st.calls) != 2 {
+		t.Fatalf("expected cache refresh, calls=%d", len(st.calls))
+	}
+}
+
+func TestClientSandboxGuard(t *testing.T) {
+	raw, _ := json.Marshal(ToolListResult{Tools: []ToolDescriptor{{Name: "safe"}}})
+	st := &stubTransport{responses: []*Response{{ID: "1", Result: raw}}}
+	manager := sandbox.NewManager(nil, sandbox.NewDomainAllowList("allowed.dev"), nil)
+	client := NewClient(st, WithSandboxHostGuard(manager, "allowed.dev"))
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("guard allowed host: %v", err)
+	}
+
+	denyClient := NewClient(st, WithSandboxHostGuard(manager, "blocked.dev"))
+	if err := denyClient.Call(context.Background(), "tools/list", nil, nil); err == nil {
+		t.Fatal("expected guard failure")
+	}
+}
+
+func TestClientCloseNil(t *testing.T) {
+	var client *Client
+	if err := client.Close(); err != nil {
+		t.Fatalf("nil close failed: %v", err)
+	}
+}
+
+func TestClientWithRetryPolicyOption(t *testing.T) {
+	stub := &retryStubTransport{
+		errs:      []error{context.DeadlineExceeded},
+		responses: []*Response{{ID: "1"}},
+	}
+	client := NewClient(stub, WithRetryPolicy(RetryPolicy{MaxAttempts: 2, Sleep: func(time.Duration) {}}))
+	if err := client.Call(context.Background(), "ping", nil, nil); err != nil {
+		t.Fatalf("call should retry: %v", err)
+	}
+}
+
+func TestClientPreflightChain(t *testing.T) {
+	raw, _ := json.Marshal(ToolListResult{Tools: []ToolDescriptor{{Name: "chain"}}})
+	st := &stubTransport{responses: []*Response{{ID: "1", Result: raw}}}
+
+	var order []string
+	client := NewClient(st,
+		WithPreflight(func(ctx context.Context, req *Request) error {
+			order = append(order, "one")
+			return nil
+		}),
+		WithPreflight(func(ctx context.Context, req *Request) error {
+			order = append(order, "two")
+			return nil
+		}))
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	if strings.Join(order, ",") != "one,two" {
+		t.Fatalf("preflight order unexpected: %v", order)
+	}
+
+	failClient := NewClient(st, WithPreflight(func(ctx context.Context, req *Request) error {
+		return errors.New("block")
+	}))
+	if err := failClient.Call(context.Background(), "ping", nil, nil); err == nil || err.Error() != "block" {
+		t.Fatalf("expected preflight error, got %v", err)
+	}
+}
+
+func TestWithRetryPolicyNilTransport(t *testing.T) {
+	client := NewClient(nil, WithRetryPolicy(RetryPolicy{MaxAttempts: 1}))
+	if client.transport != nil {
+		t.Fatal("nil transport should remain nil")
+	}
+}
+
+func TestWithSandboxHostGuardNoHost(t *testing.T) {
+	client := NewClient(&stubTransport{}, WithSandboxHostGuard(sandbox.NewManager(nil, nil, nil), ""))
+	if err := client.Call(context.Background(), "ping", nil, nil); err == nil {
+		t.Fatalf("expected error due to missing response")
+	}
+}
+
+func TestClientNextIDWrap(t *testing.T) {
+	client := NewClient(&stubTransport{})
+	client.seq.Store(^uint64(0))
+	if got := client.nextID(); got != "1" {
+		t.Fatalf("expected id wrap to 1, got %s", got)
+	}
+}
+
+func TestCopyToolDescriptors(t *testing.T) {
+	if out := copyToolDescriptors(nil); out != nil {
+		t.Fatalf("expected nil copy, got %v", out)
+	}
+	source := []ToolDescriptor{{Name: "a"}}
+	out := copyToolDescriptors(source)
+	out[0].Name = "b"
+	if source[0].Name != "a" {
+		t.Fatal("copy should not mutate source")
+	}
+}
+
+func TestClientInvokeToolError(t *testing.T) {
+	st := &stubTransport{err: errors.New("rpc down")}
+	client := NewClient(st)
+	if _, err := client.InvokeTool(context.Background(), "echo", nil); err == nil || !strings.Contains(err.Error(), "rpc down") {
+		t.Fatalf("expected error, got %v", err)
+	}
+}
+
+func TestClientListToolsNoCache(t *testing.T) {
+	payload, _ := json.Marshal(ToolListResult{Tools: []ToolDescriptor{{Name: "fresh"}}})
+	st := &stubTransport{responses: []*Response{{ID: "1", Result: payload}, {ID: "2", Result: payload}}}
+	client := NewClient(st, WithToolCacheTTL(0))
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("list tools second: %v", err)
+	}
+	if len(st.calls) != 2 {
+		t.Fatalf("expected no caching when ttl=0, calls=%d", len(st.calls))
 	}
 }
 

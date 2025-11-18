@@ -1,0 +1,382 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"maps"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/cexll/agentsdk-go/pkg/config"
+	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
+	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
+	coremw "github.com/cexll/agentsdk-go/pkg/core/middleware"
+	"github.com/cexll/agentsdk-go/pkg/middleware"
+	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
+	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
+	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
+	"github.com/cexll/agentsdk-go/pkg/sandbox"
+	"github.com/cexll/agentsdk-go/pkg/tool"
+)
+
+var (
+	ErrMissingModel = errors.New("api: model factory is required")
+)
+
+type EntryPoint string
+
+const (
+	EntryPointCLI      EntryPoint = "cli"
+	EntryPointCI       EntryPoint = "ci"
+	EntryPointPlatform EntryPoint = "platform"
+	defaultEntrypoint             = EntryPointCLI
+)
+
+// CLIContext captures optional metadata supplied by the CLI surface.
+type CLIContext struct {
+	User      string
+	Workspace string
+	Args      []string
+	Flags     map[string]string
+}
+
+// CIContext captures CI/CD metadata for parameter matrix validation.
+type CIContext struct {
+	Provider string
+	Pipeline string
+	RunID    string
+	SHA      string
+	Ref      string
+	Matrix   map[string]string
+	Metadata map[string]string
+}
+
+// PlatformContext captures enterprise platform metadata such as org/project.
+type PlatformContext struct {
+	Organization string
+	Project      string
+	Environment  string
+	Labels       map[string]string
+}
+
+// ModeContext binds an entrypoint to optional contextual metadata blocks.
+type ModeContext struct {
+	EntryPoint EntryPoint
+	CLI        *CLIContext
+	CI         *CIContext
+	Platform   *PlatformContext
+}
+
+// SandboxOptions mirrors sandbox.Manager construction knobs exposed at the API
+// layer so callers can customise filesystem/network/resource guards without
+// touching lower-level packages.
+type SandboxOptions struct {
+	Root          string
+	AllowedPaths  []string
+	NetworkAllow  []string
+	ResourceLimit sandbox.ResourceLimits
+}
+
+// SkillRegistration wires runtime skill definitions + handlers.
+type SkillRegistration struct {
+	Definition skills.Definition
+	Handler    skills.Handler
+}
+
+// CommandRegistration wires slash command definitions + handlers.
+type CommandRegistration struct {
+	Definition commands.Definition
+	Handler    commands.Handler
+}
+
+// SubagentRegistration wires runtime subagents into the dispatcher.
+type SubagentRegistration struct {
+	Definition subagents.Definition
+	Handler    subagents.Handler
+}
+
+// ModelFactory allows callers to supply arbitrary model implementations.
+type ModelFactory interface {
+	Model(ctx context.Context) (model.Model, error)
+}
+
+// ModelFactoryFunc turns a function into a ModelFactory.
+type ModelFactoryFunc func(context.Context) (model.Model, error)
+
+// Model implements ModelFactory.
+func (fn ModelFactoryFunc) Model(ctx context.Context) (model.Model, error) {
+	if fn == nil {
+		return nil, ErrMissingModel
+	}
+	return fn(ctx)
+}
+
+// Options configures the unified SDK runtime.
+type Options struct {
+	EntryPoint    EntryPoint
+	Mode          ModeContext
+	ProjectRoot   string
+	ClaudeDir     string
+	Loader        *config.Loader
+	LoaderOptions []config.LoaderOption
+
+	Model        model.Model
+	ModelFactory ModelFactory
+	SystemPrompt string
+
+	Middleware        []middleware.Middleware
+	MiddlewareTimeout time.Duration
+	MaxIterations     int
+	Timeout           time.Duration
+	TokenLimit        int
+
+	Tools      []tool.Tool
+	MCPServers []string
+
+	TypedHooks     []any
+	HookMiddleware []coremw.Middleware
+	HookTimeout    time.Duration
+
+	Skills    []SkillRegistration
+	Commands  []CommandRegistration
+	Subagents []SubagentRegistration
+
+	Sandbox SandboxOptions
+}
+
+// Request captures a single logical run invocation. Tags/T traits/Channels are
+// forwarded to the declarative runtime layers (skills/subagents) while
+// RunContext overrides the agent-level execution knobs.
+type Request struct {
+	Prompt         string
+	Mode           ModeContext
+	SessionID      string
+	Traits         []string
+	Tags           map[string]string
+	Channels       []string
+	Metadata       map[string]any
+	TargetSubagent string
+	ToolWhitelist  []string
+	ForceSkills    []string
+}
+
+// Response aggregates the final agent result together with metadata emitted
+// by the unified runtime pipeline (skills/commands/hooks/etc.).
+type Response struct {
+	Mode            ModeContext
+	Result          *Result
+	SkillResults    []SkillExecution
+	CommandResults  []CommandExecution
+	Subagent        *subagents.Result
+	HookEvents      []coreevents.Event
+	ProjectConfig   *config.ProjectConfig
+	SandboxSnapshot SandboxReport
+	Tags            map[string]string
+}
+
+// Result mirrors the legacy agent.RunResult struct so downstream callers stay
+// compatible without pulling in deprecated dependencies.
+type Result struct {
+	Output     string
+	StopReason string
+	Usage      model.Usage
+	ToolCalls  []model.ToolCall
+}
+
+// SkillExecution records individual skill invocations.
+type SkillExecution struct {
+	Definition skills.Definition
+	Result     skills.Result
+	Err        error
+}
+
+// CommandExecution records slash command invocations.
+type CommandExecution struct {
+	Definition commands.Definition
+	Result     commands.Result
+	Err        error
+}
+
+// SandboxReport documents the sandbox configuration attached to the runtime.
+type SandboxReport struct {
+	Roots          []string
+	AllowedDomains []string
+	ResourceLimits sandbox.ResourceLimits
+}
+
+func (o Options) withDefaults() Options {
+	if o.EntryPoint == "" {
+		o.EntryPoint = defaultEntrypoint
+	}
+	if o.Mode.EntryPoint == "" {
+		o.Mode.EntryPoint = o.EntryPoint
+	}
+	if o.ProjectRoot == "" {
+		o.ProjectRoot = "."
+	}
+	o.ProjectRoot = filepath.Clean(o.ProjectRoot)
+	if o.Sandbox.Root == "" {
+		o.Sandbox.Root = o.ProjectRoot
+	}
+	return o
+}
+
+func (o Options) modeContext() ModeContext {
+	mode := o.Mode
+	if mode.EntryPoint == "" {
+		mode.EntryPoint = o.EntryPoint
+	}
+	if mode.EntryPoint == "" {
+		mode.EntryPoint = defaultEntrypoint
+	}
+	return mode
+}
+
+func (r Request) normalized(defaultMode ModeContext, fallbackSession string) Request {
+	req := r
+	if req.Mode.EntryPoint == "" {
+		req.Mode.EntryPoint = defaultMode.EntryPoint
+		req.Mode.CLI = defaultMode.CLI
+		req.Mode.CI = defaultMode.CI
+		req.Mode.Platform = defaultMode.Platform
+	}
+	if req.SessionID == "" {
+		req.SessionID = strings.TrimSpace(fallbackSession)
+	}
+	if req.Tags == nil {
+		req.Tags = map[string]string{}
+	}
+	if req.Metadata == nil {
+		req.Metadata = map[string]any{}
+	}
+	if len(req.ToolWhitelist) > 0 {
+		req.ToolWhitelist = cloneStrings(req.ToolWhitelist)
+	}
+	if len(req.Channels) > 0 {
+		req.Channels = cloneStrings(req.Channels)
+	}
+	if len(req.Traits) > 0 {
+		req.Traits = cloneStrings(req.Traits)
+	}
+	return req
+}
+
+func (r Request) activationContext(prompt string) skills.ActivationContext {
+	ctx := skills.ActivationContext{Prompt: prompt}
+	if len(r.Channels) > 0 {
+		ctx.Channels = append([]string(nil), r.Channels...)
+	}
+	if len(r.Traits) > 0 {
+		ctx.Traits = append([]string(nil), r.Traits...)
+	}
+	if len(r.Tags) > 0 {
+		ctx.Tags = maps.Clone(r.Tags)
+	}
+	if len(r.Metadata) > 0 {
+		ctx.Metadata = maps.Clone(r.Metadata)
+	}
+	return ctx
+}
+
+func cloneStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := append([]string(nil), in...)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// HookRecorder mirrors the historical api hook recorder contract.
+type HookRecorder interface {
+	Record(coreevents.Event)
+	Drain() []coreevents.Event
+}
+
+// hookRecorder stores hook events for the response payload.
+type hookRecorder struct {
+	events []coreevents.Event
+}
+
+func (r *hookRecorder) Record(evt coreevents.Event) {
+	if evt.Timestamp.IsZero() {
+		evt.Timestamp = time.Now().UTC()
+	}
+	r.events = append(r.events, evt)
+}
+
+func (r *hookRecorder) Drain() []coreevents.Event {
+	defer func() { r.events = nil }()
+	if len(r.events) == 0 {
+		return nil
+	}
+	return append([]coreevents.Event(nil), r.events...)
+}
+
+// defaultHookRecorder implements HookRecorder when callers do not provide one.
+func defaultHookRecorder() *hookRecorder {
+	return &hookRecorder{}
+}
+
+// runtimeHookAdapter keeps compatibility with the legacy agent hook contract
+// without importing the removed pkg/agent v1 package.
+type runtimeHookAdapter struct {
+	executor *corehooks.Executor
+	recorder HookRecorder
+}
+
+func (h *runtimeHookAdapter) PreToolUse(ctx context.Context, evt coreevents.ToolUsePayload) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.PreToolUse, Payload: evt}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.PreToolUse, Payload: evt})
+	return nil
+}
+
+func (h *runtimeHookAdapter) PostToolUse(ctx context.Context, evt coreevents.ToolResultPayload) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.PostToolUse, Payload: evt}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.PostToolUse, Payload: evt})
+	return nil
+}
+
+func (h *runtimeHookAdapter) UserPrompt(ctx context.Context, prompt string) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	payload := coreevents.UserPromptPayload{Prompt: prompt}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.UserPromptSubmit, Payload: payload}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.UserPromptSubmit, Payload: payload})
+	return nil
+}
+
+func (h *runtimeHookAdapter) Stop(ctx context.Context, reason string) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	payload := coreevents.StopPayload{Reason: reason}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.Stop, Payload: payload}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.Stop, Payload: payload})
+	return nil
+}
+
+func (h *runtimeHookAdapter) record(evt coreevents.Event) {
+	if h == nil || h.recorder == nil {
+		return
+	}
+	h.recorder.Record(evt)
+}
