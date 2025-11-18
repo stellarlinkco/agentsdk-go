@@ -2,61 +2,162 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
-	"github.com/cexll/agentsdk-go/pkg/event"
 	"github.com/cexll/agentsdk-go/pkg/middleware"
-	"github.com/cexll/agentsdk-go/pkg/tool"
-	"github.com/cexll/agentsdk-go/pkg/workflow"
 )
 
-// Agent exposes the minimal runtime surface required by callers.
-type Agent interface {
-	// Run executes a single turn interaction until completion.
-	Run(ctx context.Context, input string) (*RunResult, error)
+var (
+	ErrMaxIterations = errors.New("max iterations reached")
+	ErrNilModel      = errors.New("agent: model is nil")
+)
 
-	// RunStream executes a turn and streams progress events.
-	RunStream(ctx context.Context, input string) (<-chan event.Event, error)
-
-	// Resume replays events from the configured store starting at bookmark.
-	Resume(ctx context.Context, bookmark *event.Bookmark) (*RunResult, error)
-
-	// RunWorkflow executes a StateGraph workflow with the agent's tool context.
-	RunWorkflow(ctx context.Context, graph *workflow.Graph, opts ...workflow.ExecutorOption) error
-
-	// AddTool registers a tool that can be invoked during execution.
-	AddTool(tool tool.Tool) error
-
-	// WithHook returns a shallow copy of the agent with an extra hook.
-	WithHook(hook Hook) Agent
-
-	// Fork clones the agent with shared configuration and optional constraints.
-	Fork(opts ...ForkOption) (Agent, error)
-
-	// Approve records a decision for a pending approval request.
-	Approve(id string, approved bool) error
-
-	// UseMiddleware registers a middleware onto the execution stack.
-	UseMiddleware(mw middleware.Middleware)
-
-	// RemoveMiddleware removes a middleware by name; returns true if found.
-	RemoveMiddleware(name string) bool
-
-	// ListMiddlewares lists middlewares in outer-to-inner execution order.
-	ListMiddlewares() []middleware.Middleware
+// Model produces the next output for the agent given the current context.
+type Model interface {
+	Generate(ctx context.Context, c *Context) (*ModelOutput, error)
 }
 
-// Hook allows callers to intercept important lifecycle moments.
-type Hook interface {
-	PreRun(ctx context.Context, input string) error
-	PostRun(ctx context.Context, result *RunResult) error
-	PreToolCall(ctx context.Context, toolName string, params map[string]any) error
-	PostToolCall(ctx context.Context, toolName string, call ToolCall) error
+// ToolExecutor performs a tool call emitted by the model.
+type ToolExecutor interface {
+	Execute(ctx context.Context, call ToolCall, c *Context) (ToolResult, error)
 }
 
-// NopHook offers a convenient zero-cost implementation for optional methods.
-type NopHook struct{}
+// ToolCall describes a discrete tool invocation request.
+type ToolCall struct {
+	ID    string
+	Name  string
+	Input map[string]any
+}
 
-func (NopHook) PreRun(context.Context, string) error                      { return nil }
-func (NopHook) PostRun(context.Context, *RunResult) error                 { return nil }
-func (NopHook) PreToolCall(context.Context, string, map[string]any) error { return nil }
-func (NopHook) PostToolCall(context.Context, string, ToolCall) error      { return nil }
+// ToolResult holds the outcome of a tool invocation.
+type ToolResult struct {
+	Name     string
+	Output   string
+	Metadata map[string]any
+}
+
+// ModelOutput is the result returned by a Model.Generate call.
+type ModelOutput struct {
+	Content   string
+	ToolCalls []ToolCall
+	Done      bool
+}
+
+// Agent drives the core loop, invoking middleware, model, and tools.
+type Agent struct {
+	model Model
+	tools ToolExecutor
+	opts  Options
+	mw    *middleware.Chain
+}
+
+// New constructs an Agent with the provided collaborators.
+func New(model Model, tools ToolExecutor, opts Options) (*Agent, error) {
+	if model == nil {
+		return nil, ErrNilModel
+	}
+	applied := opts.withDefaults()
+	return &Agent{
+		model: model,
+		tools: tools,
+		opts:  applied,
+		mw:    applied.Middleware,
+	}, nil
+}
+
+// Run executes the agent loop. It terminates when the model returns a final
+// output (Done or no tool calls), the context is canceled, or an error occurs.
+func (a *Agent) Run(ctx context.Context, c *Context) (*ModelOutput, error) {
+	if a == nil {
+		return nil, errors.New("agent is nil")
+	}
+	if c == nil {
+		c = NewContext()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if a.opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.opts.Timeout)
+		defer cancel()
+	}
+
+	state := &middleware.State{
+		Agent:  c,
+		Values: map[string]any{},
+	}
+
+	if err := a.mw.Execute(ctx, middleware.StageBeforeAgent, state); err != nil {
+		return nil, err
+	}
+
+	var last *ModelOutput
+	iteration := 0
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return last, err
+		}
+		if a.opts.MaxIterations > 0 && iteration >= a.opts.MaxIterations {
+			return last, ErrMaxIterations
+		}
+
+		c.Iteration = iteration
+		state.Iteration = iteration
+
+		if err := a.mw.Execute(ctx, middleware.StageBeforeModel, state); err != nil {
+			return last, err
+		}
+
+		out, err := a.model.Generate(ctx, c)
+		if err != nil {
+			return last, err
+		}
+		if out == nil {
+			return last, errors.New("model returned nil output")
+		}
+
+		last = out
+		c.LastModelOutput = out
+		state.ModelOutput = out
+
+		if err := a.mw.Execute(ctx, middleware.StageAfterModel, state); err != nil {
+			return last, err
+		}
+
+		if out.Done || len(out.ToolCalls) == 0 {
+			if err := a.mw.Execute(ctx, middleware.StageAfterAgent, state); err != nil {
+				return last, err
+			}
+			return out, nil
+		}
+
+		for _, call := range out.ToolCalls {
+			state.ToolCall = call
+			if err := a.mw.Execute(ctx, middleware.StageBeforeTool, state); err != nil {
+				return last, err
+			}
+
+			if a.tools == nil {
+				return last, fmt.Errorf("tool executor is nil for call %s", call.Name)
+			}
+
+			res, err := a.tools.Execute(ctx, call, c)
+			if err != nil {
+				return last, err
+			}
+
+			c.ToolResults = append(c.ToolResults, res)
+			state.ToolResult = res
+
+			if err := a.mw.Execute(ctx, middleware.StageAfterTool, state); err != nil {
+				return last, err
+			}
+		}
+
+		iteration++
+	}
+}
