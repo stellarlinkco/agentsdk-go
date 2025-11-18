@@ -33,6 +33,7 @@ const (
 	EntryPointCI       EntryPoint = "ci"
 	EntryPointPlatform EntryPoint = "platform"
 	defaultEntrypoint             = EntryPointCLI
+	defaultMaxSessions            = 1000
 )
 
 // CLIContext captures optional metadata supplied by the CLI surface.
@@ -132,6 +133,7 @@ type Options struct {
 	MaxIterations     int
 	Timeout           time.Duration
 	TokenLimit        int
+	MaxSessions       int
 
 	Tools      []tool.Tool
 	MCPServers []string
@@ -207,6 +209,16 @@ type SandboxReport struct {
 	ResourceLimits sandbox.ResourceLimits
 }
 
+// WithMaxSessions caps how many parallel session histories are retained.
+// Values <= 0 fall back to the default.
+func WithMaxSessions(n int) func(*Options) {
+	return func(o *Options) {
+		if n > 0 {
+			o.MaxSessions = n
+		}
+	}
+}
+
 func (o Options) withDefaults() Options {
 	if o.EntryPoint == "" {
 		o.EntryPoint = defaultEntrypoint
@@ -220,6 +232,9 @@ func (o Options) withDefaults() Options {
 	o.ProjectRoot = filepath.Clean(o.ProjectRoot)
 	if o.Sandbox.Root == "" {
 		o.Sandbox.Root = o.ProjectRoot
+	}
+	if o.MaxSessions <= 0 {
+		o.MaxSessions = defaultMaxSessions
 	}
 	return o
 }

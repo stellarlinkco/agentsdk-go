@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -113,7 +114,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		executor:  executor,
 		recorder:  recorder,
 		hooks:     hooks,
-		histories: newHistoryStore(),
+		histories: newHistoryStore(opts.MaxSessions),
 		cmdExec:   cmdExec,
 		skReg:     skReg,
 		subMgr:    subMgr,
@@ -133,31 +134,47 @@ func (rt *Runtime) Run(ctx context.Context, req Request) (*Response, error) {
 	return rt.buildResponse(prep, result), nil
 }
 
-// StreamEvent represents a coarse-grained streaming update for callers that
-// prefer not to block on a full Run completion.
-type StreamEvent struct {
-	Type     string      `json:"type"`
-	Response *Response   `json:"response,omitempty"`
-	Error    string      `json:"error,omitempty"`
-	Meta     interface{} `json:"meta,omitempty"`
-}
-
 // RunStream executes the pipeline asynchronously and returns events over a channel.
 func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEvent, error) {
 	prep, err := rt.prepare(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	out := make(chan StreamEvent, 4)
+	out := make(chan StreamEvent, 16)
+	progressChan := make(chan StreamEvent, 8)
+	baseCtx := prep.ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	progressMW := newProgressMiddleware(progressChan)
 	go func() {
 		defer close(out)
-		out <- StreamEvent{Type: "start"}
-		result, runErr := rt.runAgent(prep)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			dropping := false
+			for event := range progressChan {
+				if dropping {
+					continue
+				}
+				select {
+				case out <- event:
+				case <-baseCtx.Done():
+					dropping = true
+				}
+			}
+		}()
+
+		result, runErr := rt.runAgentWithMiddleware(prep, progressMW)
+		close(progressChan)
+		<-done
+
 		if runErr != nil {
-			out <- StreamEvent{Type: "error", Error: runErr.Error()}
+			isErr := true
+			out <- StreamEvent{Type: EventError, Output: runErr.Error(), IsError: &isErr}
 			return
 		}
-		out <- StreamEvent{Type: "done", Response: rt.buildResponse(prep, result)}
+		rt.buildResponse(prep, result)
 	}()
 	return out, nil
 }
@@ -253,6 +270,10 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 }
 
 func (rt *Runtime) runAgent(prep preparedRun) (runResult, error) {
+	return rt.runAgentWithMiddleware(prep)
+}
+
+func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware.Middleware) (runResult, error) {
 	modelAdapter := &conversationModel{
 		base:         rt.mustModel(),
 		history:      prep.history,
@@ -272,7 +293,14 @@ func (rt *Runtime) runAgent(prep preparedRun) (runResult, error) {
 		host:     "localhost",
 	}
 
-	chain := middleware.NewChain(rt.opts.Middleware, middleware.WithTimeout(rt.opts.MiddlewareTimeout))
+	chainItems := make([]middleware.Middleware, 0, len(rt.opts.Middleware)+len(extras))
+	if len(rt.opts.Middleware) > 0 {
+		chainItems = append(chainItems, rt.opts.Middleware...)
+	}
+	if len(extras) > 0 {
+		chainItems = append(chainItems, extras...)
+	}
+	chain := middleware.NewChain(chainItems, middleware.WithTimeout(rt.opts.MiddlewareTimeout))
 	ag, err := agent.New(modelAdapter, toolExec, agent.Options{
 		MaxIterations: rt.opts.MaxIterations,
 		Timeout:       rt.opts.Timeout,
@@ -501,6 +529,12 @@ type runtimeToolExecutor struct {
 	host     string
 }
 
+func (t *runtimeToolExecutor) measureUsage() sandbox.ResourceUsage {
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	return sandbox.ResourceUsage{MemoryBytes: stats.Alloc}
+}
+
 func (t *runtimeToolExecutor) Execute(ctx context.Context, call agent.ToolCall, _ *agent.Context) (agent.ToolResult, error) {
 	if t.executor == nil {
 		return agent.ToolResult{}, errors.New("tool executor not initialised")
@@ -512,7 +546,13 @@ func (t *runtimeToolExecutor) Execute(ctx context.Context, call agent.ToolCall, 
 	}
 	_ = t.hooks.PreToolUse(ctx, coreToolUsePayload(call))
 
-	callSpec := tool.Call{Name: call.Name, Params: call.Input, Path: t.root, Host: t.host}
+	callSpec := tool.Call{
+		Name:   call.Name,
+		Params: call.Input,
+		Path:   t.root,
+		Host:   t.host,
+		Usage:  t.measureUsage(),
+	}
 	if t.host != "" {
 		callSpec.Host = t.host
 	}
@@ -807,12 +847,21 @@ func registerSubagents(registrations []SubagentRegistration) (*subagents.Manager
 }
 
 type historyStore struct {
-	mu   sync.Mutex
-	data map[string]*message.History
+	mu       sync.Mutex
+	data     map[string]*message.History
+	lastUsed map[string]time.Time
+	maxSize  int
 }
 
-func newHistoryStore() *historyStore {
-	return &historyStore{data: map[string]*message.History{}}
+func newHistoryStore(maxSize int) *historyStore {
+	if maxSize <= 0 {
+		maxSize = defaultMaxSessions
+	}
+	return &historyStore{
+		data:     map[string]*message.History{},
+		lastUsed: map[string]time.Time{},
+		maxSize:  maxSize,
+	}
 }
 
 func (s *historyStore) Get(id string) *message.History {
@@ -821,12 +870,39 @@ func (s *historyStore) Get(id string) *message.History {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now()
 	if hist, ok := s.data[id]; ok {
+		s.lastUsed[id] = now
 		return hist
 	}
 	hist := message.NewHistory()
 	s.data[id] = hist
+	s.lastUsed[id] = now
+	if len(s.data) > s.maxSize {
+		s.evictOldest()
+	}
 	return hist
+}
+
+func (s *historyStore) evictOldest() {
+	if len(s.data) <= s.maxSize {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for id, ts := range s.lastUsed {
+		if first || ts.Before(oldestTime) {
+			oldestKey = id
+			oldestTime = ts
+			first = false
+		}
+	}
+	if oldestKey == "" {
+		return
+	}
+	delete(s.data, oldestKey)
+	delete(s.lastUsed, oldestKey)
 }
 
 func newHookExecutor(opts Options, recorder HookRecorder) *corehooks.Executor {
