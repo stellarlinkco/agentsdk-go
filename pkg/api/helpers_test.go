@@ -3,7 +3,11 @@ package api
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cexll/agentsdk-go/pkg/config"
 	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
@@ -11,6 +15,7 @@ import (
 	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
 	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
 	"github.com/cexll/agentsdk-go/pkg/sandbox"
+	"github.com/cexll/agentsdk-go/pkg/tool"
 )
 
 func TestRemoveCommandLines(t *testing.T) {
@@ -30,6 +35,14 @@ func TestApplyPromptMetadata(t *testing.T) {
 	result := applyPromptMetadata("body", meta)
 	if result != "intro\nbody\noutro" {
 		t.Fatalf("metadata merge failed: %s", result)
+	}
+}
+
+func TestApplyPromptMetadataOverride(t *testing.T) {
+	meta := map[string]any{"api.prompt_override": " replacement ", "api.append_prompt": "tail"}
+	result := applyPromptMetadata("body", meta)
+	if result != "replacement\ntail" {
+		t.Fatalf("expected override applied, got %q", result)
 	}
 }
 
@@ -57,6 +70,37 @@ func TestEnforceSandboxHostDenied(t *testing.T) {
 	}
 }
 
+func TestEnforceSandboxHostIgnoresSTDIO(t *testing.T) {
+	mgr := sandbox.NewManager(nil, sandbox.NewDomainAllowList("deny"), nil)
+	if err := enforceSandboxHost(mgr, "stdio://cmd arg"); err != nil {
+		t.Fatalf("expected stdio server to bypass network checks: %v", err)
+	}
+}
+
+func TestRegisterMCPServersDeniesUnauthorizedHost(t *testing.T) {
+	registry := tool.NewRegistry()
+	mgr := sandbox.NewManager(nil, sandbox.NewDomainAllowList("allowed.example"), nil)
+	err := registerMCPServers(registry, mgr, []string{"http://denied.example"})
+	if err == nil {
+		t.Fatal("expected host denial error")
+	}
+	if !errors.Is(err, sandbox.ErrDomainDenied) {
+		t.Fatalf("expected domain denied error, got %v", err)
+	}
+}
+
+func TestRegisterMCPServersPropagatesRegistryErrors(t *testing.T) {
+	registry := tool.NewRegistry()
+	mgr := sandbox.NewManager(nil, sandbox.NewDomainAllowList(), nil)
+	err := registerMCPServers(registry, mgr, []string{""})
+	if err == nil {
+		t.Fatal("expected registry error")
+	}
+	if !strings.Contains(err.Error(), "server path is empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestSnapshotSandboxEmpty(t *testing.T) {
 	report := snapshotSandbox(nil)
 	if report.ResourceLimits != (sandbox.ResourceLimits{}) {
@@ -77,6 +121,114 @@ func TestBuildSandboxManager(t *testing.T) {
 	limits := mgr.Limits()
 	if limits.MaxCPUPercent != 10 {
 		t.Fatalf("unexpected limits: %+v", limits)
+	}
+}
+
+func TestRegisterToolsUsesDefaultImplementations(t *testing.T) {
+	registry := tool.NewRegistry()
+	opts := Options{ProjectRoot: t.TempDir()}
+	if err := registerTools(registry, opts, &config.ProjectConfig{}); err != nil {
+		t.Fatalf("register tools: %v", err)
+	}
+	tools := registry.List()
+	if len(tools) != 2 {
+		t.Fatalf("expected two default tools, got %d", len(tools))
+	}
+	for _, impl := range tools {
+		if strings.TrimSpace(impl.Name()) == "" {
+			t.Fatalf("tool missing name: %+v", impl)
+		}
+	}
+}
+
+func TestRegisterToolsSkipsNilEntries(t *testing.T) {
+	registry := tool.NewRegistry()
+	opts := Options{ProjectRoot: t.TempDir(), Tools: []tool.Tool{nil, &echoTool{}}}
+	if err := registerTools(registry, opts, &config.ProjectConfig{}); err != nil {
+		t.Fatalf("register tools: %v", err)
+	}
+	tools := registry.List()
+	if len(tools) != 1 || tools[0].Name() != "echo" {
+		t.Fatalf("expected only echo tool, got %+v", tools)
+	}
+}
+
+func TestCfgSandboxPathsNormalizes(t *testing.T) {
+	cfg := &config.ProjectConfig{Sandbox: config.SandboxBlock{AllowedPaths: []string{" ", "foo", " foo ", "bar"}}}
+	paths := cfgSandboxPaths(cfg)
+	if len(paths) != 2 || paths[0] != "bar" || paths[1] != "foo" {
+		t.Fatalf("unexpected normalized paths: %+v", paths)
+	}
+	if cfgSandboxPaths(nil) != nil {
+		t.Fatal("expected nil config to return nil slice")
+	}
+}
+
+func TestLoadProjectConfigHandlesMissingClaudeDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	loader, err := config.NewLoader(root)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	cfg, err := loadProjectConfig(loader)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected fallback config")
+	}
+	if cfg.ClaudeDir != "" {
+		t.Fatalf("expected empty claude dir, got %q", cfg.ClaudeDir)
+	}
+	if cfg.Environment == nil || len(cfg.Environment) != 0 {
+		t.Fatalf("expected empty environment map, got %+v", cfg.Environment)
+	}
+}
+
+func TestLoadProjectConfigHandlesPluginManifestError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	claude := writeClaudeConfig(t, root, "version: '1.0'\nplugins:\n  - name: broken\n")
+	brokenDir := filepath.Join(claude, "plugins", "broken")
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatalf("broken dir: %v", err)
+	}
+	loader, err := config.NewLoader(root)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	cfg, err := loadProjectConfig(loader)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg == nil || cfg.ClaudeDir != "" {
+		t.Fatalf("expected fallback state, got %+v", cfg)
+	}
+}
+
+func TestLoadProjectConfigHandlesInvalidPluginName(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	claude := writeClaudeConfig(t, root, "version: '1.0'\nplugins:\n  - name: bad\n")
+	pluginDir := filepath.Join(claude, "plugins", "bad")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatalf("plugin dir: %v", err)
+	}
+	manifest := "name: BADNAME\n"
+	if err := os.WriteFile(filepath.Join(pluginDir, "manifest.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	loader, err := config.NewLoader(root)
+	if err != nil {
+		t.Fatalf("new loader: %v", err)
+	}
+	cfg, err := loadProjectConfig(loader)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg == nil || cfg.ClaudeDir != "" {
+		t.Fatalf("expected fallback config, got %+v", cfg)
 	}
 }
 
@@ -104,10 +256,22 @@ func TestApplyCommandMetadata(t *testing.T) {
 	}
 }
 
+func TestApplyCommandMetadataIgnoresNil(t *testing.T) {
+	applyCommandMetadata(nil, map[string]any{"api.target_subagent": "ops"})
+	req := &Request{}
+	applyCommandMetadata(req, map[string]any{})
+	if req.TargetSubagent != "" || len(req.ToolWhitelist) != 0 {
+		t.Fatalf("expected no changes for empty metadata, got %+v", req)
+	}
+}
+
 func TestCombineAndPrependPrompt(t *testing.T) {
 	combined := combinePrompt("existing", "extra")
 	if combined == "existing" {
 		t.Fatal("combine prompt failed")
+	}
+	if empty := combinePrompt("", "solo"); empty != "solo" {
+		t.Fatalf("expected solo prompt, got %q", empty)
 	}
 	prepended := prependPrompt("body", "intro")
 	if prepended[:5] != "intro" {
@@ -115,6 +279,9 @@ func TestCombineAndPrependPrompt(t *testing.T) {
 	}
 	if kept := prependPrompt("body", "   "); kept != "body" {
 		t.Fatalf("expected body unchanged, got %q", kept)
+	}
+	if onlyPrefix := prependPrompt("   ", "intro"); onlyPrefix != "intro" {
+		t.Fatalf("expected intro only, got %q", onlyPrefix)
 	}
 }
 
@@ -125,6 +292,17 @@ func TestAnyToString(t *testing.T) {
 	val, ok := anyToString(123)
 	if !ok || val == "" {
 		t.Fatal("conversion failed")
+	}
+}
+
+func TestAnyToStringCoversStringer(t *testing.T) {
+	val, ok := anyToString("  spaced  ")
+	if !ok || val != "spaced" {
+		t.Fatalf("expected trimmed string, got %q", val)
+	}
+	val, ok = anyToString(fakeStringer{text: "  custom  "})
+	if !ok || val != "custom" {
+		t.Fatalf("expected stringer conversion, got %q", val)
 	}
 }
 
@@ -156,6 +334,20 @@ func TestMergeTagsUtility(t *testing.T) {
 	mergeTags(req, meta)
 	if req.Tags["new"] != "y" {
 		t.Fatalf("tags not merged: %+v", req.Tags)
+	}
+}
+
+func TestMergeMetadataInitializesDestination(t *testing.T) {
+	dst := mergeMetadata(nil, map[string]any{"k": "v"})
+	if dst["k"].(string) != "v" {
+		t.Fatalf("expected metadata to be initialised, got %+v", dst)
+	}
+	dst = mergeMetadata(dst, map[string]any{"k": "override"})
+	if dst["k"].(string) != "override" {
+		t.Fatalf("expected override applied, got %+v", dst)
+	}
+	if same := mergeMetadata(dst, nil); same["k"].(string) != "override" {
+		t.Fatalf("expected nil source to be ignored, got %+v", same)
 	}
 }
 
@@ -212,5 +404,61 @@ func TestRuntimeHookAdapterRecordsEvents(t *testing.T) {
 	}
 	if len(rec.Drain()) != 0 {
 		t.Fatal("expected drained recorder to be empty")
+	}
+}
+
+func TestNewHookExecutorRegistersTypedHooks(t *testing.T) {
+	hook := newRecordingTypedHook()
+	exec := newHookExecutor(Options{TypedHooks: []any{hook}}, defaultHookRecorder())
+	evt := coreevents.Event{Type: coreevents.PreToolUse, Payload: coreevents.ToolUsePayload{Name: "echo"}}
+	if err := exec.Publish(evt); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	hook.WaitForCall(t)
+}
+
+func writeClaudeConfig(t *testing.T, projectRoot, payload string) string {
+	t.Helper()
+	claudeDir := filepath.Join(projectRoot, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatalf("claude dir: %v", err)
+	}
+	configPath := filepath.Join(claudeDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(payload), 0o644); err != nil {
+		t.Fatalf("config file: %v", err)
+	}
+	return claudeDir
+}
+
+type fakeStringer struct {
+	text string
+}
+
+func (f fakeStringer) String() string {
+	return f.text
+}
+
+type recordingTypedHook struct {
+	signals chan struct{}
+}
+
+func newRecordingTypedHook() *recordingTypedHook {
+	return &recordingTypedHook{signals: make(chan struct{}, 1)}
+}
+
+func (h *recordingTypedHook) PreToolUse(context.Context, coreevents.ToolUsePayload) error {
+	select {
+	case h.signals <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (h *recordingTypedHook) WaitForCall(t *testing.T) {
+	t.Helper()
+	select {
+	case <-h.signals:
+	case <-time.After(time.Second):
+		t.Fatal("typed hook was not invoked")
 	}
 }

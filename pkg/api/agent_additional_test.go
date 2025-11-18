@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/cexll/agentsdk-go/pkg/agent"
+	"github.com/cexll/agentsdk-go/pkg/message"
 	"github.com/cexll/agentsdk-go/pkg/model"
 	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
 	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
@@ -27,21 +29,120 @@ func TestRunStreamProducesEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run stream: %v", err)
 	}
-	seenDone := false
+	var types []string
 	for evt := range ch {
-		if evt.Type == "done" {
-			seenDone = true
-		}
+		types = append(types, evt.Type)
 	}
-	if !seenDone {
-		t.Fatal("expected done event")
+	if len(types) == 0 {
+		t.Fatal("expected at least one event")
+	}
+
+	find := func(name string) int {
+		t.Helper()
+		for i, typ := range types {
+			if typ == name {
+				return i
+			}
+		}
+		t.Fatalf("expected %s event in sequence: %v", name, types)
+		return -1
+	}
+
+	agentStartIdx := find(EventAgentStart)
+	agentStopIdx := find(EventAgentStop)
+	if agentStartIdx >= agentStopIdx {
+		t.Fatalf("expected %s before %s: %v", EventAgentStart, EventAgentStop, types)
+	}
+
+	iterStartIdx := find(EventIterationStart)
+	iterStopIdx := find(EventIterationStop)
+	if !(agentStartIdx < iterStartIdx && iterStartIdx < agentStopIdx) {
+		t.Fatalf("expected iteration to run within agent lifecycle: %v", types)
+	}
+	if !(iterStartIdx < iterStopIdx && iterStopIdx < agentStopIdx) {
+		t.Fatalf("expected iteration_stop before agent_stop: %v", types)
+	}
+
+	messageStartIdx := find(EventMessageStart)
+	messageStopIdx := find(EventMessageStop)
+	if !(iterStartIdx < messageStartIdx && messageStartIdx < messageStopIdx && messageStopIdx < iterStopIdx) {
+		t.Fatalf("expected message lifecycle nested within iteration: %v", types)
+	}
+
+	contentStartIdx := find(EventContentBlockStart)
+	contentDeltaIdx := find(EventContentBlockDelta)
+	contentStopIdx := find(EventContentBlockStop)
+	if !(messageStartIdx < contentStartIdx && contentStartIdx < contentDeltaIdx && contentDeltaIdx < contentStopIdx && contentStopIdx < messageStopIdx) {
+		t.Fatalf("expected content block to stream between message start/stop: %v", types)
+	}
+
+	messageDeltaIdx := find(EventMessageDelta)
+	if !(contentStopIdx < messageDeltaIdx && messageDeltaIdx < messageStopIdx) {
+		t.Fatalf("expected message_delta between content_block_stop and message_stop: %v", types)
 	}
 }
 
 func TestRunStreamRejectsEmptyPrompt(t *testing.T) {
-	rt := &Runtime{opts: Options{ProjectRoot: t.TempDir()}, mode: ModeContext{EntryPoint: EntryPointCLI}, histories: newHistoryStore()}
+	rt := &Runtime{opts: Options{ProjectRoot: t.TempDir()}, mode: ModeContext{EntryPoint: EntryPointCLI}, histories: newHistoryStore(0)}
 	if _, err := rt.RunStream(context.Background(), Request{Prompt: "   "}); err == nil {
 		t.Fatal("expected empty prompt error")
+	}
+}
+
+func TestHistoryStoreEvictsOldestSession(t *testing.T) {
+	store := newHistoryStore(2)
+	store.Get("first")
+	time.Sleep(100 * time.Microsecond)
+	store.Get("second")
+	time.Sleep(100 * time.Microsecond)
+	store.Get("third") // triggers eviction of "first"
+
+	store.mu.Lock()
+	_, hasFirst := store.data["first"]
+	_, hasSecond := store.data["second"]
+	_, hasThird := store.data["third"]
+	store.mu.Unlock()
+
+	if hasFirst {
+		t.Fatal("expected oldest session to be evicted")
+	}
+	if !hasSecond || !hasThird {
+		t.Fatalf("expected newer sessions to remain, got second=%t third=%t", hasSecond, hasThird)
+	}
+}
+
+func TestHistoryStoreUpdatesLRUOnAccess(t *testing.T) {
+	store := newHistoryStore(2)
+	store.Get("alpha")
+	time.Sleep(100 * time.Microsecond)
+	store.Get("beta")
+	time.Sleep(100 * time.Microsecond)
+	store.Get("alpha") // refresh alpha as most recently used
+	time.Sleep(100 * time.Microsecond)
+	store.Get("gamma") // should evict beta
+
+	store.mu.Lock()
+	_, hasAlpha := store.data["alpha"]
+	_, hasBeta := store.data["beta"]
+	_, hasGamma := store.data["gamma"]
+	store.mu.Unlock()
+
+	if hasBeta {
+		t.Fatal("expected beta to be evicted after alpha refresh")
+	}
+	if !hasAlpha || !hasGamma {
+		t.Fatalf("expected alpha and gamma to remain, got alpha=%t gamma=%t", hasAlpha, hasGamma)
+	}
+}
+
+func TestHistoryStoreCreatesNewSession(t *testing.T) {
+	store := newHistoryStore(1)
+	hist := store.Get("new")
+	if hist == nil {
+		t.Fatal("expected history to be created")
+	}
+	if got := store.Get("new"); got != hist {
+		t.Fatal("expected retrieving existing session to return same history")
 	}
 }
 
@@ -87,6 +188,104 @@ func TestRegisterSubagentsEmpty(t *testing.T) {
 	}
 }
 
+func TestRegisterSubagentsRegistersHandlers(t *testing.T) {
+	registrations := []SubagentRegistration{
+		{Definition: subagents.Definition{Name: "ops"}, Handler: subagents.HandlerFunc(func(context.Context, subagents.Context, subagents.Request) (subagents.Result, error) {
+			return subagents.Result{Output: "ok"}, nil
+		})},
+		{Definition: subagents.Definition{Name: "triage"}, Handler: subagents.HandlerFunc(func(context.Context, subagents.Context, subagents.Request) (subagents.Result, error) {
+			return subagents.Result{Output: "ok"}, nil
+		})},
+	}
+	mgr, err := registerSubagents(registrations)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mgr == nil {
+		t.Fatal("expected non-nil manager")
+	}
+	defs := mgr.List()
+	if len(defs) != 2 {
+		t.Fatalf("expected two subagents, got %+v", defs)
+	}
+	seen := map[string]struct{}{}
+	for _, def := range defs {
+		seen[def.Name] = struct{}{}
+	}
+	for _, expected := range []string{"ops", "triage"} {
+		if _, ok := seen[expected]; !ok {
+			t.Fatalf("missing subagent %s in %+v", expected, defs)
+		}
+	}
+}
+
+func TestRegisterSubagentsDuplicateDefinition(t *testing.T) {
+	handler := subagents.HandlerFunc(func(context.Context, subagents.Context, subagents.Request) (subagents.Result, error) {
+		return subagents.Result{}, nil
+	})
+	_, err := registerSubagents([]SubagentRegistration{
+		{Definition: subagents.Definition{Name: "dup"}, Handler: handler},
+		{Definition: subagents.Definition{Name: "dup"}, Handler: handler},
+	})
+	if !errors.Is(err, subagents.ErrDuplicateSubagent) {
+		t.Fatalf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestRegisterSkillsSuccess(t *testing.T) {
+	reg, err := registerSkills([]SkillRegistration{{Definition: skills.Definition{Name: "ops"}, Handler: skills.HandlerFunc(func(context.Context, skills.ActivationContext) (skills.Result, error) {
+		return skills.Result{Output: "ok"}, nil
+	})}})
+	if err != nil {
+		t.Fatalf("register skills: %v", err)
+	}
+	if reg == nil {
+		t.Fatal("expected registry")
+	}
+	if _, ok := reg.Get("ops"); !ok {
+		t.Fatalf("expected skill to be registered")
+	}
+}
+
+func TestRegisterSkillsEmpty(t *testing.T) {
+	reg, err := registerSkills(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reg != nil {
+		t.Fatalf("expected nil registry, got %#v", reg)
+	}
+}
+
+func TestRegisterCommandsSuccess(t *testing.T) {
+	exec, err := registerCommands([]CommandRegistration{{Definition: commands.Definition{Name: "ping"}, Handler: commands.HandlerFunc(func(context.Context, commands.Invocation) (commands.Result, error) {
+		return commands.Result{Output: "pong"}, nil
+	})}})
+	if err != nil {
+		t.Fatalf("register commands: %v", err)
+	}
+	if exec == nil {
+		t.Fatal("expected executor")
+	}
+	results, err := exec.Execute(context.Background(), []commands.Invocation{{Name: "ping"}})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if len(results) != 1 || results[0].Output != "pong" {
+		t.Fatalf("unexpected command result: %+v", results)
+	}
+}
+
+func TestRegisterCommandsEmpty(t *testing.T) {
+	exec, err := registerCommands(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exec != nil {
+		t.Fatalf("expected nil executor, got %#v", exec)
+	}
+}
+
 func TestRegisterMCPServersNoop(t *testing.T) {
 	registry := tool.NewRegistry()
 	mgr := sandbox.NewManager(nil, sandbox.NewDomainAllowList(), nil)
@@ -117,12 +316,77 @@ func TestToolWhitelistDeniesExecution(t *testing.T) {
 	}
 }
 
+func TestRuntimeToolExecutorPopulatesUsage(t *testing.T) {
+	rp := &recordingPolicy{}
+	sb := sandbox.NewManager(nil, nil, rp)
+	reg := tool.NewRegistry()
+	if err := reg.Register(&echoTool{}); err != nil {
+		t.Fatalf("register tool: %v", err)
+	}
+	exec := tool.NewExecutor(reg, sb)
+	rtExec := &runtimeToolExecutor{executor: exec, hooks: &runtimeHookAdapter{}, host: "localhost"}
+
+	_, err := rtExec.Execute(context.Background(), agent.ToolCall{Name: "echo", Input: map[string]any{"text": "hi"}}, agent.NewContext())
+	if err != nil {
+		t.Fatalf("execute tool: %v", err)
+	}
+	if rp.lastUse.MemoryBytes == 0 {
+		t.Fatal("expected memory usage to be recorded")
+	}
+}
+
+func TestRuntimeToolExecutorEnforcesResourceLimits(t *testing.T) {
+	limiter := sandbox.NewResourceLimiter(sandbox.ResourceLimits{MaxMemoryBytes: 1})
+	sb := sandbox.NewManager(nil, nil, limiter)
+	reg := tool.NewRegistry()
+	if err := reg.Register(&echoTool{}); err != nil {
+		t.Fatalf("register tool: %v", err)
+	}
+	exec := tool.NewExecutor(reg, sb)
+	rtExec := &runtimeToolExecutor{executor: exec, hooks: &runtimeHookAdapter{}, host: "localhost"}
+
+	_, err := rtExec.Execute(context.Background(), agent.ToolCall{Name: "echo", Input: map[string]any{"text": "hi"}}, agent.NewContext())
+	if err == nil {
+		t.Fatal("expected resource limit error")
+	}
+	if !errors.Is(err, sandbox.ErrResourceExceeded) {
+		t.Fatalf("expected ErrResourceExceeded, got %v", err)
+	}
+}
+
+func TestAvailableToolsNilRegistry(t *testing.T) {
+	if defs := availableTools(nil, nil); defs != nil {
+		t.Fatalf("expected nil definitions, got %+v", defs)
+	}
+}
+
 func TestAvailableToolsFiltersWhitelist(t *testing.T) {
 	reg := tool.NewRegistry()
 	_ = reg.Register(&echoTool{})
 	defs := availableTools(reg, map[string]struct{}{"missing": {}})
 	if len(defs) != 0 {
 		t.Fatalf("expected tools filtered out, got %v", defs)
+	}
+}
+
+func TestAvailableToolsReturnsDefinitions(t *testing.T) {
+	reg := tool.NewRegistry()
+	_ = reg.Register(&echoTool{})
+	defs := availableTools(reg, nil)
+	if len(defs) != 1 || defs[0].Name != "echo" {
+		t.Fatalf("unexpected tool defs: %+v", defs)
+	}
+	if defs[0].Description == "" {
+		t.Fatal("expected description to be populated")
+	}
+}
+
+func TestAvailableToolsWhitelistAllowsMatch(t *testing.T) {
+	reg := tool.NewRegistry()
+	_ = reg.Register(&echoTool{})
+	defs := availableTools(reg, map[string]struct{}{"echo": {}})
+	if len(defs) != 1 || defs[0].Name != "echo" {
+		t.Fatalf("expected whitelisted tool, got %+v", defs)
 	}
 }
 
@@ -135,7 +399,7 @@ func TestSchemaToMap(t *testing.T) {
 }
 
 func TestHistoryStoreCreatesOnce(t *testing.T) {
-	store := newHistoryStore()
+	store := newHistoryStore(0)
 	a := store.Get("s1")
 	b := store.Get("s1")
 	if a != b {
@@ -201,6 +465,43 @@ func TestConvertRunResultHelpers(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesClonesToolCalls(t *testing.T) {
+	msgs := []message.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []message.ToolCall{{ID: "c1", Name: "echo", Arguments: map[string]any{"count": 1}}}},
+	}
+	converted := convertMessages(msgs)
+	if len(converted) != 2 || len(converted[1].ToolCalls) != 1 {
+		t.Fatalf("unexpected conversion: %+v", converted)
+	}
+	msgs[1].ToolCalls[0].Arguments["count"] = 41
+	if converted[1].ToolCalls[0].Arguments["count"].(int) != 1 {
+		t.Fatal("expected arguments to be cloned")
+	}
+	converted[1].ToolCalls[0].Arguments["count"] = 7
+	if msgs[1].ToolCalls[0].Arguments["count"].(int) != 41 {
+		t.Fatal("expected clone not to mutate source")
+	}
+	if convertMessages(nil) != nil {
+		t.Fatal("expected nil input to return nil")
+	}
+}
+
+func TestCloneArgumentsCopiesMap(t *testing.T) {
+	args := map[string]any{"a": 1}
+	dup := cloneArguments(args)
+	if dup["a"].(int) != 1 {
+		t.Fatalf("unexpected clone: %+v", dup)
+	}
+	dup["a"] = 2
+	if args["a"].(int) != 1 {
+		t.Fatal("mutation leaked to original map")
+	}
+	if cloneArguments(nil) != nil {
+		t.Fatal("expected nil input to return nil")
+	}
+}
+
 func TestNewTrimmerHelper(t *testing.T) {
 	rt := &Runtime{opts: Options{TokenLimit: 0}}
 	if rt.newTrimmer() != nil {
@@ -222,7 +523,25 @@ func TestResolveModelPrefersFactory(t *testing.T) {
 	if err != nil || resolved != mdl || !called {
 		t.Fatalf("resolveModel factory branch failed: m=%v err=%v called=%v", resolved, err, called)
 	}
+	explicit := &stubModel{}
+	resolved, err = resolveModel(context.Background(), Options{Model: explicit})
+	if err != nil || resolved != explicit {
+		t.Fatalf("expected explicit model to be returned, got m=%v err=%v", resolved, err)
+	}
 	if _, err := resolveModel(context.Background(), Options{}); !errors.Is(err, ErrMissingModel) {
 		t.Fatalf("expected ErrMissingModel, got %v", err)
 	}
+}
+
+type recordingPolicy struct {
+	lastUse sandbox.ResourceUsage
+}
+
+func (r *recordingPolicy) Limits() sandbox.ResourceLimits {
+	return sandbox.ResourceLimits{}
+}
+
+func (r *recordingPolicy) Validate(usage sandbox.ResourceUsage) error {
+	r.lastUse = usage
+	return nil
 }
