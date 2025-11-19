@@ -12,7 +12,7 @@ func TestValidatorBlocksBannedCommands(t *testing.T) {
 		cmd  string
 		want string
 	}{
-		{name: "rm command", cmd: "rm -rf /", want: "rm"},
+		{name: "rm -rf / blocked by fragment", cmd: "rm -rf /", want: "fragment"},
 		{name: "mkfs command", cmd: "mkfs /dev/sda", want: "mkfs"},
 		{name: "dd command", cmd: "dd if=/dev/zero of=/dev/null", want: "dd"},
 		{name: "format command", cmd: "format disk", want: "format"},

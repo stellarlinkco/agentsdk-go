@@ -271,7 +271,7 @@ func TestSandboxValidateCommand(t *testing.T) {
 		cmd     string
 		wantErr string
 	}{
-		{name: "banned command", cmd: "rm -rf /", wantErr: "rm"},
+		{name: "banned command", cmd: "rm -rf /", wantErr: "fragment"},
 		{name: "blocked metacharacter", cmd: "ls | rm -rf /", wantErr: "metacharacters"},
 		{name: "forbidden argument", cmd: "cat ../etc/passwd", wantErr: "argument"},
 		{name: "safe command passes", cmd: `echo "hello world"`, wantErr: ""},

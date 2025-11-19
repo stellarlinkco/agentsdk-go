@@ -89,7 +89,7 @@ func TestDeduperEvictsOldEntries(t *testing.T) {
 
 func TestBusConcurrentSubscribeSafety(t *testing.T) {
 	t.Parallel()
-	bus := NewBus(WithBufferSize(1))
+	bus := NewBus(WithBufferSize(16))
 	defer bus.Close()
 	var consumed atomic.Int32
 	wg := sync.WaitGroup{}

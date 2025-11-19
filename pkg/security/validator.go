@@ -41,6 +41,7 @@ func NewValidator() *Validator {
 			"halt":      "system power management is forbidden",
 			"poweroff":  "system power management is forbidden",
 			"mount":     "mount can expose host filesystem",
+			"sudo":      "privilege escalation is forbidden",
 		},
 		bannedArguments: []string{
 			"--no-preserve-root",
