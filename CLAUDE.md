@@ -89,7 +89,7 @@ go test ./test/integration/...
 # Build CLI tool
 make agentctl
 # or
-go build -o bin/agentctl ./cmd/agentctl
+go build -o bin/agentctl ./cmd/cli
 
 # Lint
 make lint
@@ -99,19 +99,27 @@ golangci-lint run
 
 ### Running Examples
 
+**IMPORTANT**: All examples require `ANTHROPIC_API_KEY` environment variable to be set.
+
 ```bash
+# Set API key first (required for all examples)
+export ANTHROPIC_API_KEY=sk-ant-...
+
 # CLI example (auto-resolves project root)
 cd examples/cli
 go run .
 
 # HTTP server example
-export ANTHROPIC_API_KEY=sk-ant-...
 cd examples/http
 go run .
 # Server listens on :8080
 
 # MCP client example
 cd examples/mcp
+go run .
+
+# Middleware example (demonstrates all 6 interception points)
+cd examples/middleware
 go run .
 ```
 
@@ -173,10 +181,14 @@ Key components:
 - `Registry` - Thread-safe tool registration
 - `Tool` interface - Name, Description, Schema, Execute
 - `Validator` - JSON Schema validation before execution
-- Built-in tools: bash, file operations, grep, glob
+- Built-in tools (`pkg/tool/builtin/`):
+  - `bash` - Execute shell commands with security validation
+  - `file_read` / `file_write` - Sandboxed file operations
+  - `grep` - Content search with regex support
+  - `glob` - File pattern matching
 - MCP client support for external tools
 
-**Important**: Tool execution validates parameters against JSON Schema before invocation to catch errors early.
+**Important**: Tool execution validates parameters against JSON Schema before invocation to catch errors early. All built-in tools respect sandbox policies configured in `.claude/config.yaml`.
 
 ### Middleware System
 
@@ -220,9 +232,16 @@ Hot-reload support via `fsnotify` for configuration changes.
 **Location**: `pkg/sandbox/`, `pkg/security/`
 
 Three-layer defense:
+
 1. **Path whitelist** - Restricts filesystem access
 2. **Symlink resolution** - Prevents path traversal via symbolic links
 3. **Command validation** - Blocks dangerous commands (rm -rf, etc.)
+
+**Command Validator** (`pkg/security/validator.go`):
+- Blocks destructive commands: `dd`, `mkfs`, `fdisk`, `shutdown`, `reboot`
+- Pattern-based detection for dangerous rm/rmdir operations
+- Configurable for CLI scenarios (can allow shell metacharacters)
+- Default: blocks shell metacharacters `|;&><` and backticks in platform mode
 
 Network isolation via allow-list for outbound connections.
 
@@ -339,17 +358,29 @@ Set via `api.Options.EntryPoint`.
 ### Basic Usage
 
 ```go
-provider := &model.AnthropicProvider{ModelName: "claude-sonnet-4-5"}
+// Create Anthropic provider (reads ANTHROPIC_API_KEY from environment)
+provider := model.NewAnthropicProvider(
+    model.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
+    model.WithModel("claude-sonnet-4-5"),
+)
+
 runtime, err := api.New(ctx, api.Options{
     ProjectRoot:   ".",
     ModelFactory:  provider,
 })
+if err != nil {
+    log.Fatal(err)
+}
 defer runtime.Close()
 
 result, err := runtime.Run(ctx, api.Request{
     Prompt:    "Your task here",
     SessionID: "session-123",
 })
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(result.Output)
 ```
 
 ### Streaming Usage
@@ -395,6 +426,8 @@ Register before runtime creation via config or programmatically.
 3. **Sandbox Path Resolution**: Always use absolute paths; symlinks are resolved before validation
 4. **Tool Parameter Validation**: Schema validation happens before execution—define schemas accurately
 5. **Context Cancellation**: Respect context cancellation in custom tools and middleware
+6. **API Key Management**: Never hardcode API keys; use environment variables or secure config management
+7. **Command Security**: Built-in bash tool validates commands using `pkg/security/validator.go`; dangerous patterns are rejected by default
 
 ## Documentation
 
@@ -417,12 +450,29 @@ This codebase follows Linus Torvalds' philosophy:
 
 ## Important File Locations
 
-- Agent core: `pkg/agent/agent.go`
+- Agent core: `pkg/agent/agent.go` (~163 lines)
 - Tool registry: `pkg/tool/registry.go`
-- Model providers: `pkg/model/anthropic.go`, `pkg/model/openai.go`
+- Tool executor: `pkg/tool/executor.go`
+- Built-in tools: `pkg/tool/builtin/bash.go`, `pkg/tool/builtin/file.go`, `pkg/tool/builtin/grep.go`, `pkg/tool/builtin/glob.go`
+- Model providers: `pkg/model/anthropic.go`, `pkg/model/provider.go`
 - Middleware chain: `pkg/middleware/chain.go`
 - API entry point: `pkg/api/agent.go`
+- Security validator: `pkg/security/validator.go`
+- Sandbox manager: `pkg/sandbox/`
 - CLI tool: `cmd/cli/main.go`
 - HTTP server example: `examples/http/main.go`
 
 When adding new features, maintain the modular structure and keep test coverage ≥90%.
+
+## Environment Variables
+
+### Required
+
+- `ANTHROPIC_API_KEY` - Anthropic API key for Claude models (required for all examples)
+
+### Optional (HTTP example)
+
+- `AGENTSDK_HTTP_ADDR` - Server address (default: `:8080`)
+- `AGENTSDK_MODEL` - Model name (default: `claude-3-5-sonnet-20241022`)
+- `AGENTSDK_DEFAULT_TIMEOUT` - Request timeout (default: `45s`)
+- `AGENTSDK_MAX_SESSIONS` - Max concurrent sessions (default: `500`)

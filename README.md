@@ -1,92 +1,198 @@
 # agentsdk-go
 
-**全新设计的纯 Claude Code 架构 Go Agent SDK**
+基于 Go 语言实现的 Agent SDK，提供完整的 Claude Code 核心功能和 Middleware 拦截机制。
 
-这是一个从零打造、生产就绪的 Go Agent SDK，完整实现了 Claude Code 的 7 大核心功能，并新增 **6 个 middleware 拦截点**。架构对标 Claude Code，但以 Go 实现，并把 middleware 系统作为 Claude Code 原版所没有的核心创新。采用配置驱动架构，支持 CLI、CI/CD 和企业平台等多种使用场景。
+## 概述
 
-## 核心特性
+agentsdk-go 是一个模块化的 Agent 开发框架，实现了 Claude Code 的 7 项核心功能（Hooks、MCP、Sandbox、Skills、Subagents、Commands、Plugins），并在此基础上扩展了 6 点 Middleware 拦截机制。该 SDK 支持 CLI、CI/CD 和企业平台等多种部署场景。
 
-### ✨ 新增：6 个 Middleware 拦截点
+### 技术指标
 
-完整的请求/响应拦截链，支持在每个关键节点注入自定义逻辑：
+- 核心代码：约 6,000 行
+- Agent 核心循环：163 行
+- 测试覆盖率：核心模块平均 91.1%
+- 模块数量：13 个独立包
+- 外部依赖：anthropic-sdk-go、fsnotify、gopkg.in/yaml.v3
 
-```
-User Request
-     ↓
-[before_agent]  ← 请求验证、限流、审计日志
-     ↓
-Agent Loop
-     ↓
-[before_model]  ← Prompt 增强、上下文裁剪
-     ↓
-Model.Generate
-     ↓
-[after_model]   ← 结果过滤、安全检查
-     ↓
-[before_tool]   ← 工具调用前验证、参数检查
-     ↓
-Tool.Execute
-     ↓
-[after_tool]    ← 结果后处理、错误处理
-     ↓
-[after_agent]   ← 响应格式化、度量上报
-     ↓
-User Response
-```
+## 系统架构
 
-### ✅ 完整功能覆盖（7/7 Claude Code 核心功能）
+### 核心层（6 个模块）
 
-- **Hooks**：7 类生命周期事件（PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, Stop, SubagentStop, Notification）
-- **MCP（Model Context Protocol）**：客户端支持，会话缓存，重试机制
-- **Sandbox**：文件系统和网络隔离，路径白名单，资源限额
-- **Skills**：声明式注册，自动激活匹配
-- **Subagents**：独立上下文，工具白名单
-- **Commands**：斜杠命令解析与执行
-- **Plugins**：打包分发，签名验证
+- `pkg/agent` - Agent 执行循环，负责模型调用和工具执行的协调
+- `pkg/middleware` - 6 点拦截机制，支持请求/响应生命周期的扩展
+- `pkg/model` - 模型适配器，当前支持 Anthropic Claude
+- `pkg/tool` - 工具注册与执行，包含内置工具和 MCP 工具支持
+- `pkg/message` - 消息历史管理，基于 LRU 的会话缓存
+- `pkg/api` - 统一 API 接口，对外暴露 SDK 功能
 
-### ✅ 高质量实现
+### 功能层（7 个模块）
 
-- **极简核心**：Agent 核心循环 <300 行，KISS 原则
-- **纯架构**：全新设计，采用纯 Claude Code 架构设计
-- **测试覆盖率**：新模块平均 **91.1%**，核心模块 ≥95%
-- **配置驱动**：完全兼容 `.claude/` 目录结构
-- **模块化设计**：13 个独立包，职责清晰
-- **无迭代限制**：Agent 循环次数可配置，支持超时保护
+- `pkg/config` - 配置加载，支持 `.claude/` 目录结构和热更新
+- `pkg/plugins` - 插件系统，支持签名验证
+- `pkg/core/events` - 事件总线
+- `pkg/core/hooks` - Hooks 执行器，支持 7 类生命周期事件
+- `pkg/sandbox` - 沙箱隔离，提供文件系统和网络访问控制
+- `pkg/mcp` - MCP（Model Context Protocol）客户端
+- `pkg/runtime` - 运行时组件（skills、subagents、commands）
+- `pkg/security` - 安全工具，包含命令验证和路径解析
 
-## 架构亮点
+### Middleware 拦截点
 
-### 纯 Claude Code 架构
+SDK 在请求处理的关键节点提供拦截能力：
 
 ```
-┌──────────────────────────────────┐
-│   新核心层（6 个模块）           │
-│   agent, model, tool, message    │
-│   middleware, api                │
-└──────────┬───────────────────────┘
-           │
-┌──────────▼───────────────────────┐
-│   Claude Code 7 大核心功能       │
-│   config, plugins, core, sandbox │
-│   mcp, runtime, security         │
-└──────────────────────────────────┘
+用户请求
+  ↓
+before_agent  ← 请求验证、审计日志
+  ↓
+Agent 循环
+  ↓
+before_model  ← Prompt 处理、上下文优化
+  ↓
+模型调用
+  ↓
+after_model   ← 结果过滤、内容检查
+  ↓
+before_tool   ← 工具参数验证
+  ↓
+工具执行
+  ↓
+after_tool    ← 结果后处理
+  ↓
+after_agent   ← 响应格式化、指标采集
+  ↓
+用户响应
 ```
 
-**无任何旧模块依赖**，核心代码仅 ~6k 行，保持易读可维护。
+## 安装
+
+### 环境要求
+
+- Go 1.23 或更高版本
+- Anthropic API Key（运行示例需要）
+
+### 获取 SDK
+
+```bash
+go get github.com/cexll/agentsdk-go
+```
+
+## 快速开始
+
+### 基础示例
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/cexll/agentsdk-go/pkg/api"
+    "github.com/cexll/agentsdk-go/pkg/model"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // 创建模型提供者
+    provider := model.NewAnthropicProvider(
+        model.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
+        model.WithModel("claude-sonnet-4-5"),
+    )
+
+    // 初始化运行时
+    runtime, err := api.New(ctx, api.Options{
+        ProjectRoot:   ".",
+        ModelFactory:  provider,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer runtime.Close()
+
+    // 执行任务
+    result, err := runtime.Run(ctx, api.Request{
+        Prompt:    "列出当前目录下的文件",
+        SessionID: "demo",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("输出: %s", result.Output)
+}
+```
+
+### 使用 Middleware
+
+```go
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/cexll/agentsdk-go/pkg/middleware"
+)
+
+// 日志中间件
+loggingMiddleware := middleware.Middleware{
+    BeforeAgent: func(ctx context.Context, req *middleware.AgentRequest) (*middleware.AgentRequest, error) {
+        log.Printf("[REQUEST] %s", req.Input)
+        req.Meta["start_time"] = time.Now()
+        return req, nil
+    },
+    AfterAgent: func(ctx context.Context, resp *middleware.AgentResponse) (*middleware.AgentResponse, error) {
+        duration := time.Since(resp.Meta["start_time"].(time.Time))
+        log.Printf("[RESPONSE] %s (耗时: %v)", resp.Output, duration)
+        return resp, nil
+    },
+}
+
+// 注入 Middleware
+runtime, err := api.New(ctx, api.Options{
+    ProjectRoot:   ".",
+    ModelFactory:  provider,
+    Middleware:    []middleware.Middleware{loggingMiddleware},
+})
+```
+
+### 流式输出
+
+```go
+// 使用流式 API 获取实时进度
+events := runtime.RunStream(ctx, api.Request{
+    Prompt:    "分析代码库结构",
+    SessionID: "analysis",
+})
+
+for event := range events {
+    switch event.Type {
+    case "content_block_delta":
+        fmt.Print(event.Delta.Text)
+    case "tool_execution_start":
+        fmt.Printf("\n[工具执行] %s\n", event.ToolName)
+    case "tool_execution_stop":
+        fmt.Printf("[工具结果] %s\n", event.Output)
+    }
+}
+```
 
 ## 项目结构
 
 ```
 agentsdk-go/
 ├── pkg/                        # 核心包
-│   ├── agent/                  # Agent 核心循环（<300 行）⭐ 新实现
-│   ├── middleware/             # 6 个拦截点系统 ⭐ 新增
-│   ├── model/                  # Anthropic 模型适配器 ⭐ 新实现
-│   ├── tool/                   # 工具注册与执行 ⭐ 新实现
-│   ├── message/                # 消息历史管理（内存）⭐ 新增
-│   ├── api/                    # 统一 SDK 接口 ⭐ 新实现
-│   │
-│   ├── config/                 # 配置加载与热更新
-│   ├── plugins/                # 插件系统（签名验证）
+│   ├── agent/                  # Agent 核心循环
+│   ├── middleware/             # Middleware 系统
+│   ├── model/                  # 模型适配器
+│   ├── tool/                   # 工具系统
+│   │   └── builtin/            # 内置工具（bash、file、grep、glob）
+│   ├── message/                # 消息历史管理
+│   ├── api/                    # SDK 统一接口
+│   ├── config/                 # 配置加载
+│   ├── plugins/                # 插件系统
 │   ├── core/
 │   │   ├── events/             # 事件总线
 │   │   └── hooks/              # Hooks 执行器
@@ -97,137 +203,52 @@ agentsdk-go/
 │   │   ├── subagents/          # Subagents 管理
 │   │   └── commands/           # Commands 解析
 │   └── security/               # 安全工具
-│
 ├── cmd/cli/                    # CLI 入口
-├── examples/                   # 核心示例
+├── examples/                   # 示例代码
 │   ├── cli/                    # CLI 示例
 │   ├── http/                   # HTTP 服务器示例
 │   ├── mcp/                    # MCP 客户端示例
-│   └── middleware/             # Middleware 完整示例 ⭐ 新增
+│   └── middleware/             # Middleware 示例
 ├── test/integration/           # 集成测试
-├── tests/                      # 单元测试、基准测试
-└── .claude/specs/              # 开发文档
-    └── claude-code-rewrite/
-        ├── dev-plan.md         # 开发计划
-        └── COMPLETION_REPORT.md # 完成报告
+└── docs/                       # 文档
 ```
 
-## 快速开始
+## 配置
 
-### 安装
+SDK 使用 `.claude/` 目录进行配置，与 Claude Code 兼容：
 
-```bash
-go get github.com/cexll/agentsdk-go
+```
+.claude/
+├── config.yaml       # 项目配置
+├── skills/           # Skills 定义
+├── commands/         # 斜杠命令定义
+├── agents/           # Subagents 定义
+└── plugins/          # 插件目录
 ```
 
-### 基础使用
+### 配置示例
 
-```go
-package main
+```yaml
+version: "1.0"
+model: "claude-sonnet-4-5"
 
-import (
-    "context"
-    "log"
+sandbox:
+  enabled: true
+  allowed_paths: ["/tmp", "./workspace"]
+  network_allow: ["*.example.com"]
 
-    "github.com/cexll/agentsdk-go/pkg/api"
-    "github.com/cexll/agentsdk-go/pkg/model"
-)
-
-func main() {
-    // 创建 Anthropic 模型提供者
-    provider := model.NewAnthropicProvider(
-        model.WithAPIKey("your-api-key"),
-        model.WithModel("claude-sonnet-4-5"),
-    )
-
-    // 创建 Agent
-    runtime, err := api.New(
-        context.Background(),
-        api.Options{
-            ProjectRoot:   ".",
-            ModelProvider: provider,
-        },
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer runtime.Close()
-
-    // 运行对话
-    result, err := runtime.Run(context.Background(), "Hello, Claude!")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Response: %s", result.Output)
-}
+mcp:
+  servers:
+    - name: "filesystem"
+      command: "node"
+      args: ["mcp-server-filesystem.js"]
 ```
 
-### 使用 Middleware
+## HTTP API
 
-```go
-import (
-    "github.com/cexll/agentsdk-go/pkg/middleware"
-)
+SDK 提供 HTTP 服务器实现，支持 SSE 流式推送。
 
-// 自定义 middleware
-loggingMiddleware := middleware.Middleware{
-    BeforeAgent: func(ctx context.Context, req *middleware.AgentRequest) (*middleware.AgentRequest, error) {
-        log.Printf("收到请求: %s", req.Input)
-        return req, nil
-    },
-    AfterAgent: func(ctx context.Context, resp *middleware.AgentResponse) (*middleware.AgentResponse, error) {
-        log.Printf("返回响应: %s", resp.Output)
-        return resp, nil
-    },
-}
-
-// 创建 Agent 时注入 middleware
-runtime, err := api.New(
-    context.Background(),
-    api.Options{
-        ProjectRoot:   ".",
-        ModelProvider: provider,
-        Middleware:    []middleware.Middleware{loggingMiddleware},
-    },
-)
-```
-
-**💡 查看完整示例**：[examples/middleware](examples/middleware/) 提供了日志、限流、安全检查、监控等完整的 middleware 实现，展示所有 6 个拦截点的实际应用。
-
-### 体验 Middleware 示例
-
-运行完整的 middleware 示例，体验日志记录、限流、安全检查、监控指标等功能：
-
-```bash
-cd examples/middleware
-export ANTHROPIC_API_KEY=your-api-key
-go run .
-```
-
-该示例展示了：
-- ✅ 6 个拦截点的完整集成
-- ✅ 日志记录与请求追踪
-- ✅ Token bucket 限流
-- ✅ 敏感词过滤与安全检查
-- ✅ 延迟监控与错误统计
-
-详见 [examples/middleware/README.md](examples/middleware/README.md) 获取完整说明。
-
-### CLI 使用
-
-```bash
-cd cmd/cli
-go run main.go --api-key=your-key --model=claude-sonnet-4-5
-```
-
-## HTTP API 使用
-
-agentsdk-go 提供了开箱即用的 HTTP API，支持 Anthropic 兼容的 SSE（Server-Sent Events）流式进度推送。
-
-### HTTP 服务器示例
-
-参见 `examples/http` 目录，启动方法：
+### 启动服务器
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -237,109 +258,41 @@ go run .
 
 服务器默认监听 `:8080`，提供以下端点：
 
-- `POST /v1/run` - 阻塞式请求，等待完整响应
-- `POST /v1/run/stream` - SSE 流式推送，实时进度反馈
+- `POST /v1/run` - 同步执行，返回完整结果
+- `POST /v1/run/stream` - SSE 流式输出，实时返回进度
 - `POST /v1/tools/execute` - 直接执行工具调用
 
-### SSE 流式进度推送
-
-`/v1/run/stream` 端点实现了完整的 Anthropic 兼容 SSE 事件流，提供实时进度反馈：
+### 流式 API 示例
 
 ```bash
 curl -N -X POST http://localhost:8080/v1/run/stream \
   -H 'Content-Type: application/json' \
-  -d '{"prompt": "列出当前目录", "session_id": "demo"}'
+  -d '{
+    "prompt": "列出当前目录",
+    "session_id": "demo"
+  }'
 ```
 
-**事件流序列**（Anthropic 兼容）：
+响应格式遵循 Anthropic Messages API 规范，包含以下事件类型：
 
-```
-event: agent_start
-data: {"type":"agent_start","session_id":"demo"}
-
-event: iteration_start
-data: {"type":"iteration_start","iteration":0}
-
-event: message_start
-data: {"type":"message_start","message":{...}}
-
-event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"type":"text"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"我"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"来"}}
-
-event: content_block_stop
-data: {"type":"content_block_stop","index":0}
-
-event: tool_execution_start
-data: {"type":"tool_execution_start","tool_use_id":"toolu_123","name":"bash_execute"}
-
-event: tool_execution_stop
-data: {"type":"tool_execution_stop","tool_use_id":"toolu_123","output":"file1.txt\nfile2.txt"}
-
-event: iteration_stop
-data: {"type":"iteration_stop","iteration":0}
-
-event: agent_stop
-data: {"type":"agent_stop","total_iterations":1}
-
-event: message_stop
-data: {"type":"message_stop","message":{...}}
-```
-
-**核心特性**：
-
-1. **Anthropic 完全兼容**：事件结构 100% 兼容 Anthropic Messages API
-2. **逐字符流式输出**：`content_block_delta` 事件逐字符推送 LLM 生成的文本
-3. **工具执行进度**：`tool_execution_start/stop` 事件实时反馈工具调用
-4. **6 个拦截点**：基于 Progress Middleware 实现，可扩展自定义事件
-5. **心跳保活**：每 15 秒发送 `ping` 事件防止连接断开
-
-详见 [examples/http/README.md](examples/http/README.md) 获取完整文档。
-
-## 配置
-
-项目使用 `.claude/` 目录结构进行配置（兼容 Claude Code）：
-
-```
-.claude/
-├── config.yaml       # 项目配置
-├── skills/           # Skills 定义
-├── commands/         # Commands 定义
-├── agents/           # Subagents 定义
-└── plugins/          # Plugins 目录
-```
-
-配置示例（`config.yaml`）：
-
-```yaml
-version: "1.0"
-model: "claude-sonnet-4-5"
-sandbox:
-  enabled: true
-  allowed_paths: ["/tmp", "./workspace"]
-  network_allow: ["*.example.com"]
-mcp:
-  servers:
-    - name: "my-mcp-server"
-      command: "node"
-      args: ["server.js"]
-```
+- `agent_start` / `agent_stop` - Agent 执行边界
+- `iteration_start` / `iteration_stop` - 迭代边界
+- `message_start` / `message_stop` - 消息边界
+- `content_block_delta` - 文本增量输出
+- `tool_execution_start` / `tool_execution_stop` - 工具执行进度
 
 ## 测试
 
+### 运行测试
+
 ```bash
-# 运行所有测试
+# 所有测试
 go test ./...
 
-# 运行核心模块测试
+# 核心模块测试
 go test ./pkg/agent/... ./pkg/middleware/... ./pkg/model/...
 
-# 运行集成测试
+# 集成测试
 go test ./test/integration/...
 
 # 生成覆盖率报告
@@ -347,146 +300,199 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
-## 测试覆盖率
+### 测试覆盖率
 
-### 新核心模块（全新设计）
+#### 核心模块
 
-| 模块 | 覆盖率 | 状态 |
-|------|--------|------|
-| **pkg/agent** | **98.3%** | ✅ 超标 |
-| **pkg/middleware** | **95.9%** | ✅ 超标 |
-| **pkg/model** | **91.4%** | ✅ 达标 |
-| **pkg/message** | **87.8%** | ⚠️ 接近 |
-| **pkg/api** | **87.2%** | ⚠️ 接近 |
-| **pkg/tool** | **85.9%** | ⚠️ 接近 |
-| **平均覆盖率** | **91.1%** | ✅ **达标** |
+| 模块 | 覆盖率 |
+|------|--------|
+| pkg/agent | 98.3% |
+| pkg/middleware | 95.9% |
+| pkg/model | 91.4% |
+| pkg/message | 87.8% |
+| pkg/api | 87.2% |
+| pkg/tool | 85.9% |
+| 平均 | 91.1% |
 
-### Claude Code 7 大功能（已实现）
+#### 功能模块
 
-| 模块 | 覆盖率 | 状态 |
-|------|--------|------|
-| pkg/config | 83.7% | ✅ 功能完备 |
-| pkg/plugins | 91.0% | ✅ 达标 |
-| pkg/core/events | 92.5% | ✅ 达标 |
-| pkg/core/hooks | 91.8% | ✅ 达标 |
-| pkg/sandbox | 90.5% | ✅ 达标 |
-| pkg/mcp | 90.6% | ✅ 达标 |
-| pkg/runtime/skills | 91.5% | ✅ 达标 |
-| pkg/runtime/subagents | 91.7% | ✅ 达标 |
-| pkg/runtime/commands | 91.4% | ✅ 达标 |
-| pkg/security | 保留 | ✅ 使用中 |
+| 模块 | 覆盖率 |
+|------|--------|
+| pkg/config | 83.7% |
+| pkg/plugins | 91.0% |
+| pkg/core/events | 92.5% |
+| pkg/core/hooks | 91.8% |
+| pkg/sandbox | 90.5% |
+| pkg/mcp | 90.6% |
+| pkg/runtime/skills | 91.5% |
+| pkg/runtime/subagents | 91.7% |
+| pkg/runtime/commands | 91.4% |
 
-## 文档
+## 构建
 
-- [开发计划](.claude/specs/claude-code-rewrite/dev-plan.md) - 全新架构设计计划
-- [完成报告](.claude/specs/claude-code-rewrite/COMPLETION_REPORT.md) - 首版发布报告
-- [原完成报告](.claude/specs/agentsdk-go-rewrite/COMPLETION_REPORT.md) - 历史版本
+### Makefile 命令
 
-## 架构设计原则
+```bash
+# 运行测试
+make test
 
-### 1. KISS 原则
+# 生成覆盖率报告
+make coverage
 
-- Agent 核心循环 <300 行
-- 功能通过 middleware 扩展
-- 配置优于代码
+# 代码检查
+make lint
 
-### 2. 配置驱动
+# 构建 CLI 工具
+make agentctl
 
-所有功能通过 `.claude/` 配置目录控制，无需修改代码即可扩展功能。
+# 安装到 GOPATH
+make install
 
-### 3. 事件驱动
+# 清理构建产物
+make clean
+```
 
-使用事件总线处理所有异步操作，支持 7 类 Hook 事件。
+## 内置工具
 
-### 4. 模块化
+SDK 包含以下内置工具（位于 `pkg/tool/builtin/`）：
 
-13 个独立包，每个包职责单一，接口清晰，易于测试和维护。
+- `bash` - 执行 shell 命令，支持工作目录和超时配置
+- `file_read` - 读取文件内容
+- `file_write` - 写入文件内容
+- `grep` - 正则搜索，支持递归和文件过滤
+- `glob` - 文件模式匹配
 
-### 5. 可插拔 Middleware
+所有内置工具遵循沙箱策略，受路径白名单和命令验证器约束。
 
-6 个拦截点覆盖完整请求/响应生命周期，支持日志、监控、限流、安全检查等场景。
+## 安全机制
 
-## Middleware 使用场景
+### 三层防御
 
-### 1. 日志记录
+1. **路径白名单**：限制文件系统访问范围
+2. **符号链接解析**：防止路径遍历攻击
+3. **命令验证**：阻止危险命令执行
+
+### 命令验证器
+
+位于 `pkg/security/validator.go`，默认阻止以下操作：
+
+- 破坏性命令：`dd`、`mkfs`、`fdisk`、`shutdown`、`reboot`
+- 危险删除模式：`rm -rf`、`rm -r`、`rmdir -p`
+- Shell 元字符：`|`、`;`、`&`、`>`、`<`、`` ` ``（在 Platform 模式下）
+
+## 开发指南
+
+### 添加自定义工具
+
+实现 `tool.Tool` 接口：
 
 ```go
-LoggingMiddleware := middleware.Middleware{
+type CustomTool struct{}
+
+func (t *CustomTool) Name() string {
+    return "custom_tool"
+}
+
+func (t *CustomTool) Description() string {
+    return "工具描述"
+}
+
+func (t *CustomTool) Schema() *tool.JSONSchema {
+    return &tool.JSONSchema{
+        Type: "object",
+        Properties: map[string]interface{}{
+            "param": map[string]interface{}{
+                "type": "string",
+                "description": "参数说明",
+            },
+        },
+        Required: []string{"param"},
+    }
+}
+
+func (t *CustomTool) Execute(ctx context.Context, params map[string]any) (*tool.ToolResult, error) {
+    // 工具实现
+    return &tool.ToolResult{
+        Name:   t.Name(),
+        Output: "执行结果",
+    }, nil
+}
+```
+
+### 添加 Middleware
+
+```go
+customMiddleware := middleware.Middleware{
     BeforeAgent: func(ctx context.Context, req *middleware.AgentRequest) (*middleware.AgentRequest, error) {
-        log.Printf("[REQUEST] %s", req.Input)
-        req.Meta["start_time"] = time.Now()
+        // 请求前处理
         return req, nil
     },
     AfterAgent: func(ctx context.Context, resp *middleware.AgentResponse) (*middleware.AgentResponse, error) {
-        duration := time.Since(resp.Meta["start_time"].(time.Time))
-        log.Printf("[RESPONSE] %s (took %v)", resp.Output, duration)
+        // 响应后处理
         return resp, nil
     },
-}
-```
-
-### 2. 限流
-
-```go
-RateLimitMiddleware := middleware.Middleware{
-    BeforeAgent: func(ctx context.Context, req *middleware.AgentRequest) (*middleware.AgentRequest, error) {
-        if !rateLimiter.Allow() {
-            return nil, errors.New("rate limit exceeded")
-        }
-        return req, nil
+    BeforeModel: func(ctx context.Context, msgs []message.Message) ([]message.Message, error) {
+        // 模型调用前处理
+        return msgs, nil
     },
-}
-```
-
-### 3. 工具调用监控
-
-```go
-ToolMonitorMiddleware := middleware.Middleware{
+    AfterModel: func(ctx context.Context, output *agent.ModelOutput) (*agent.ModelOutput, error) {
+        // 模型调用后处理
+        return output, nil
+    },
     BeforeTool: func(ctx context.Context, call *middleware.ToolCall) (*middleware.ToolCall, error) {
-        metrics.RecordToolCall(call.Name)
+        // 工具执行前处理
         return call, nil
     },
     AfterTool: func(ctx context.Context, result *middleware.ToolResult) (*middleware.ToolResult, error) {
-        if result.Error != nil {
-            metrics.RecordToolError(result.ID)
-        }
+        // 工具执行后处理
         return result, nil
     },
 }
 ```
 
-## 与 Claude Code 的对比
+## 设计原则
 
-| 维度 | agentsdk-go | Claude Code |
-|------|-------------|-------------|
-| **核心功能** | 7/7（100%）| 7/7（100%）|
-| **Middleware** | 6 个拦截点 | 无 |
-| **配置结构** | .claude/ | .claude/ |
-| **Hooks** | 7 类事件 | 7 类事件 |
-| **测试覆盖** | 91.1% | 未知 |
-| **语言** | Go | TypeScript |
-| **代码量** | ~6k LOC | 未知 |
-| **架构** | 对标 Claude Code + middleware 增强 | 原生 |
+### KISS（Keep It Simple, Stupid）
+
+- Agent 核心循环保持在 163 行
+- 单一职责，每个模块功能明确
+- 避免过度设计和不必要的抽象
+
+### 配置驱动
+
+- 通过 `.claude/` 目录管理所有配置
+- 支持热更新，无需重启服务
+- 声明式配置优于命令式代码
+
+### 模块化
+
+- 13 个独立包，松耦合设计
+- 清晰的接口边界
+- 易于测试和维护
+
+### 可扩展性
+
+- Middleware 机制支持灵活扩展
+- 工具系统支持自定义工具注册
+- MCP 协议支持外部工具集成
+
+## 文档
+
+- [架构文档](docs/architecture.md) - 详细架构分析
+- [入门指南](docs/getting-started.md) - 分步教程
+- [API 参考](docs/api-reference.md) - API 文档
+- [安全实践](docs/security.md) - 安全配置指南
+- [HTTP API 指南](examples/http/README.md) - HTTP 服务器使用说明
+- [开发计划](.claude/specs/claude-code-rewrite/dev-plan.md) - 架构设计计划
+- [完成报告](.claude/specs/claude-code-rewrite/COMPLETION_REPORT.md) - 实现报告
 
 ## 技术栈
 
-- **Go 1.24**
-- **anthropic-sdk-go** - 官方 Anthropic SDK
-- **fsnotify** - 配置热加载
-- **测试框架** - 标准 testing 包
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request。
+- Go 1.23+
+- [anthropic-sdk-go](https://github.com/anthropics/anthropic-sdk-go) - Anthropic 官方 SDK
+- [fsnotify](https://github.com/fsnotify/fsnotify) - 文件系统监控
+- [yaml.v3](https://gopkg.in/yaml.v3) - YAML 解析
 
 ## 许可证
 
 详见 [LICENSE](LICENSE) 文件。
-
-## 致谢
-
-本项目参考了 Claude Code 的设计理念，使用 Go 语言重新实现了完整的功能集，并新增了 6 个 middleware 拦截点以增强可扩展性。
-
----
-
-**首版发布于 2025-11-18** | [查看发布报告](.claude/specs/claude-code-rewrite/COMPLETION_REPORT.md)
