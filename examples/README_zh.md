@@ -8,8 +8,28 @@
 - Sandbox 资源限制（CPU/内存/磁盘）默认生效，避免工具过度消耗。
 - historyStore 使用 LRU，`MaxSessions` 默认 500，防止长时间运行造成内存泄漏。
 
+## settings.json
+所有示例改用官方 `.claude/settings.json`。最小示例如下（仓库已放置副本于 `examples/middleware/.claude/settings.json`）：
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(pwd:*)",
+      "Read(**/*.go)"
+    ]
+  },
+  "env": {
+    "EXAMPLE_VAR": "value"
+  },
+  "sandbox": {
+    "enabled": false
+  }
+}
+```
+
 ## cli
-最小化 CLI 运行流程，直接调用 Anthropic Provider；如果当前目录或仓库缺少 `.claude/config.yaml`，示例会自动生成一个临时配置并清理，避免 `config version is required` 错误。
+最小化 CLI 运行流程，直接调用 Anthropic Provider。SDK 现改用 `.claude/settings.json`（官方格式）；请将 `AGENTSDK_PROJECT_ROOT` 指向已包含该文件的目录，或按 `examples/middleware/.claude/settings.json` 的示例创建一个最小配置。
 
 ```bash
 export ANTHROPIC_API_KEY=sk-...
@@ -32,7 +52,7 @@ curl -s http://localhost:8080/health || true
 
 核心环境变量：
 - 模型：`ANTHROPIC_API_KEY`（必需），`ANTHROPIC_BASE_URL`（代理/镜像可选）
-- 基础：`AGENTSDK_HTTP_ADDR`，`AGENTSDK_PROJECT_ROOT`，`AGENTSDK_SANDBOX_ROOT`，`AGENTSDK_MODEL`
+- 基础：`AGENTSDK_HTTP_ADDR`，`AGENTSDK_PROJECT_ROOT`，`AGENTSDK_SANDBOX_ROOT`，`AGENTSDK_MODEL`（目标目录需已有 `.claude/settings.json`）
 - 网络：`AGENTSDK_NETWORK_ALLOW`（逗号分隔白名单，默认 `api.anthropic.com`）
 - 超时：`AGENTSDK_DEFAULT_TIMEOUT`，`AGENTSDK_MAX_TIMEOUT`
 - 资源：`AGENTSDK_RESOURCE_CPU_PERCENT`，`AGENTSDK_RESOURCE_MEMORY_MB`，`AGENTSDK_RESOURCE_DISK_MB`，`AGENTSDK_MAX_BODY_BYTES`，`AGENTSDK_MAX_SESSIONS`

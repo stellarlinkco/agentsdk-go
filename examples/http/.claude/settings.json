@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)"
+    ],
+    "ask": [],
+    "deny": []
+  },
+  "env": {
+    "HTTP_EXAMPLE_NAME": "agentsdk-http",
+    "HTTP_EXAMPLE_GREETING": "Welcome to the agentsdk-go HTTP example"
+  },
+  "sandbox": {
+    "enabled": false,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "network": {
+      "allowLocalBinding": true
+    }
+  }
+}

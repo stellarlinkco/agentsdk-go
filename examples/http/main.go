@@ -34,6 +34,7 @@ func main() {
 	modelName := getEnv("AGENTSDK_MODEL", defaultModel)
 	defaultTimeout := getDuration("AGENTSDK_DEFAULT_TIMEOUT", defaultRunTimeout)
 	maxSessions := getInt("AGENTSDK_MAX_SESSIONS", defaultMaxSessions)
+	settingsPath := resolveSettingsPath(projectRoot)
 
 	mode := api.ModeContext{
 		EntryPoint: api.EntryPointPlatform,
@@ -58,6 +59,10 @@ func main() {
 			sessionMW,
 			traceMW,
 		},
+	}
+
+	if settingsPath != "" {
+		opts.SettingsPath = settingsPath
 	}
 
 	rt, err := api.New(context.Background(), opts)
@@ -190,6 +195,38 @@ func resolveProjectRoot() (string, error) {
 
 	// 回退到 SDK 自带的智能解析逻辑，确保返回真实项目目录
 	return api.ResolveProjectRoot()
+}
+
+// resolveSettingsPath ensures the example keeps running even when the
+// repository lacks a tracked .claude/settings.json. It falls back to the
+// bundled example config if neither project nor local settings are present.
+func resolveSettingsPath(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	projectSettings := filepath.Join(projectRoot, ".claude", "settings.json")
+	localSettings := filepath.Join(projectRoot, ".claude", "settings.local.json")
+	if fileExists(projectSettings) || fileExists(localSettings) {
+		return ""
+	}
+
+	fallback := filepath.Join(projectRoot, "examples", "http", ".claude", "settings.json")
+	if fileExists(fallback) {
+		log.Printf(".claude/settings.json not found in project root, using bundled example: %s", fallback)
+		return fallback
+	}
+
+	log.Printf("WARNING: no .claude settings found; continuing with built-in defaults")
+	return ""
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }
 
 func newSessionStateMiddleware() middleware.Middleware {

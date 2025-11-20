@@ -17,14 +17,14 @@ This tutorial shows how to wrap a single shared `api.Runtime` behind three HTTP 
    ```
 3. The server listens on `:8080` by default. Stop it with `CTRL+C`.
 
-Just like the CLI example, the HTTP server auto-creates a throwaway `.claude/config.yaml` if `AGENTSDK_PROJECT_ROOT` is unset, so you can experiment without preparing project files.
+If the repo lacks `.claude/settings.json`, the server auto-loads the bundled `examples/http/.claude/settings.json` (bash/read allowed, sandbox off). Drop your own `.claude/settings.json` or `.claude/settings.local.json` in the project root to override it. When `AGENTSDK_PROJECT_ROOT` is unset, the helper resolves to the repo root.
 
 ## Configuration
 
 | Env var | Purpose | Default |
 | --- | --- | --- |
 | `AGENTSDK_HTTP_ADDR` | Listen address | `:8080` |
-| `AGENTSDK_PROJECT_ROOT` | Workspace root exposed to the agent/tools | auto-generated temp dir with minimal config |
+| `AGENTSDK_PROJECT_ROOT` | Workspace root exposed to the agent/tools | resolved repo root (auto-falls back to bundled settings when missing) |
 | `AGENTSDK_MODEL` | Anthropic model name for the shared runtime | `claude-3-5-sonnet-20241022` |
 | `AGENTSDK_DEFAULT_TIMEOUT` | Default per-request timeout (Go duration or ms) | `45s` |
 | `AGENTSDK_MAX_SESSIONS` | In-memory session cap for the runtime LRU | `500` |

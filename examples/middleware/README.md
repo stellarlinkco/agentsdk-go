@@ -1,6 +1,6 @@
 # Middleware Chain Example
 
-This example builds a standalone agent with four production-style middleware components. Each middleware uses the six interception points defined in `pkg/middleware/types.go`, demonstrates `middleware.State` handoffs, and mirrors the project bootstrap pattern from `examples/http` so you can run it without additional scaffolding.
+This example builds a runtime with `api.New`, wires four production-style middleware components, and includes a small settings middleware that seeds the request context with values from `.claude/settings.json`. Each middleware uses the six interception points defined in `pkg/middleware/types.go`, demonstrates `middleware.State` handoffs, and mirrors the project bootstrap pattern from `examples/http` so you can run it without additional scaffolding.
 
 ## Quick Start
 
@@ -9,7 +9,7 @@ This example builds a standalone agent with four production-style middleware com
    ```bash
    go run ./examples/middleware --prompt "扫描 access.log 并生成摘要"
    ```
-3. The program generates a temporary `.claude/config.yaml`, instantiates the demo agent, and prints the final response plus tool outputs and metrics.
+3. The program generates a temporary `.claude/settings.json` (official format), passes it into `api.New` via `ProjectRoot`/`SettingsOverrides`, and then prints the final response plus middleware/tool metrics.
 
 `flag -h` lists knobs for the token bucket, concurrency limit, middleware timeout, and simulated tool latency.
 

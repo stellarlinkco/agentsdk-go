@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/cexll/agentsdk-go/pkg/plugins"
@@ -85,14 +84,14 @@ func printManifest(title string, mf *plugins.Manifest) {
 	fmt.Printf("\n%s\n%s\n", title, strings.Repeat("-", len(title)))
 	fmt.Printf("Name:        %s\n", mf.Name)
 	fmt.Printf("Version:     %s\n", mf.Version)
-	fmt.Printf("Entrypoint:  %s\n", mf.EntrypointAbs)
 	fmt.Printf("Plugin Dir:  %s\n", mf.PluginDir)
 	fmt.Printf("Manifest:    %s\n", mf.ManifestPath)
 	fmt.Printf("Digest:      %s\n", mf.Digest)
 	fmt.Printf("Signer:      %s\n", mf.Signer)
 	fmt.Printf("Trusted:     %t\n", mf.Trusted)
-	fmt.Printf("Capabilities:%s\n", formatList(mf.Capabilities))
-	fmt.Printf("Metadata:    %s\n", formatMetadata(mf.Metadata))
+	fmt.Printf("Commands:    %s\n", formatList(mf.Commands))
+	fmt.Printf("Agents:      %s\n", formatList(mf.Agents))
+	fmt.Printf("Skills:      %s\n", formatList(mf.Skills))
 }
 
 func formatList(values []string) string {
@@ -100,25 +99,4 @@ func formatList(values []string) string {
 		return " <none>"
 	}
 	return " " + strings.Join(values, ", ")
-}
-
-func formatMetadata(meta map[string]string) string {
-	if len(meta) == 0 {
-		return " <none>"
-	}
-	keys := make([]string, 0, len(meta))
-	for k := range meta {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteString(k)
-		b.WriteString("=")
-		b.WriteString(meta[k])
-	}
-	return " " + b.String()
 }

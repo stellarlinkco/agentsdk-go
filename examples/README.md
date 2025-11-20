@@ -8,8 +8,28 @@ All examples can be run from the repository root.
 - Sandbox resource limits (CPU/memory/disk) are enabled by default to keep tools from over-consuming.
 - historyStore uses LRU; `MaxSessions` defaults to 500 to prevent memory leaks during long runs.
 
+## settings.json
+All examples read the official `.claude/settings.json`. A minimal starter (also stored at `examples/middleware/.claude/settings.json`):
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(pwd:*)",
+      "Read(**/*.go)"
+    ]
+  },
+  "env": {
+    "EXAMPLE_VAR": "value"
+  },
+  "sandbox": {
+    "enabled": false
+  }
+}
+```
+
 ## cli
-Minimal CLI flow that calls the Anthropic provider directly; if the current directory or repo lacks `.claude/config.yaml`, the example auto-creates a temporary config and cleans it up to avoid the `config version is required` error.
+Minimal CLI flow that calls the Anthropic provider directly. The SDK now reads `.claude/settings.json` (official Claude format); point `AGENTSDK_PROJECT_ROOT` to a directory that already has one or create a minimal file using the snippet in `examples/middleware/.claude/settings.json`.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-...
@@ -32,7 +52,7 @@ curl -s http://localhost:8080/health || true
 
 Key environment variables:
 - Model: `ANTHROPIC_API_KEY` (required), `ANTHROPIC_BASE_URL` (proxy/mirror optional)
-- Base: `AGENTSDK_HTTP_ADDR`, `AGENTSDK_PROJECT_ROOT`, `AGENTSDK_SANDBOX_ROOT`, `AGENTSDK_MODEL`
+- Base: `AGENTSDK_HTTP_ADDR`, `AGENTSDK_PROJECT_ROOT`, `AGENTSDK_SANDBOX_ROOT`, `AGENTSDK_MODEL` (ensure the target root contains `.claude/settings.json`)
 - Network: `AGENTSDK_NETWORK_ALLOW` (comma-separated allowlist, default `api.anthropic.com`)
 - Timeout: `AGENTSDK_DEFAULT_TIMEOUT`, `AGENTSDK_MAX_TIMEOUT`
 - Resources: `AGENTSDK_RESOURCE_CPU_PERCENT`, `AGENTSDK_RESOURCE_MEMORY_MB`, `AGENTSDK_RESOURCE_DISK_MB`, `AGENTSDK_MAX_BODY_BYTES`, `AGENTSDK_MAX_SESSIONS`

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -12,11 +13,14 @@ import (
 	"github.com/cexll/agentsdk-go/pkg/api"
 	"github.com/cexll/agentsdk-go/pkg/middleware"
 	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/google/uuid"
 )
 
-// 交互式 REPL 示例，复用固定会话 ID 保持历史。
+// 交互式 REPL 示例：使用固定会话 ID 保持历史，可通过 --settings-path 读取 .claude/settings.json。
 func main() {
+	sessionID := flag.String("session-id", defaultSessionID(), "session identifier to keep chat history")
+	settingsPath := flag.String("settings-path", "", "path to .claude/settings.json for sandbox/tools config")
+	flag.Parse()
+
 	provider := &modelpkg.AnthropicProvider{ModelName: "claude-sonnet-4-5-20250929"}
 
 	// 创建 debug middleware
@@ -26,6 +30,7 @@ func main() {
 		EntryPoint:   api.EntryPointCLI,
 		ModelFactory: provider,
 		Middleware:   []middleware.Middleware{traceMW},
+		SettingsPath: *settingsPath,
 	})
 	if err != nil {
 		log.Fatalf("build runtime: %v", err)
@@ -48,7 +53,7 @@ func main() {
 
 		req := api.Request{
 			Prompt:    line,
-			SessionID: uuid.NewString(),
+			SessionID: *sessionID,
 			Mode: api.ModeContext{
 				EntryPoint: api.EntryPointCLI,
 				CLI:        &api.CLIContext{User: os.Getenv("USER")},
@@ -72,4 +77,11 @@ func main() {
 			fmt.Printf("Tool %s params: %s\n", call.Name, string(params))
 		}
 	}
+}
+
+func defaultSessionID() string {
+	if env := strings.TrimSpace(os.Getenv("SESSION_ID")); env != "" {
+		return env
+	}
+	return "demo-session"
 }

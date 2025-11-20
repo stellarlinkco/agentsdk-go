@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cexll/agentsdk-go/pkg/api"
-	"github.com/cexll/agentsdk-go/pkg/config"
 	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
 )
 
@@ -58,15 +58,16 @@ func run(argv []string, stdout, stderr io.Writer) error {
 		ModelName: *modelName,
 		System:    *systemPrompt,
 	}
+	settingsPath := ""
+	if strings.TrimSpace(*claudeDir) != "" {
+		settingsPath = filepath.Join(*claudeDir, "settings.json")
+	}
 	options := api.Options{
 		EntryPoint:   api.EntryPoint(strings.ToLower(strings.TrimSpace(*entry))),
 		ProjectRoot:  *project,
-		ClaudeDir:    *claudeDir,
+		SettingsPath: settingsPath,
 		ModelFactory: provider,
 		MCPServers:   mcpServers,
-	}
-	if *claudeDir != "" {
-		options.LoaderOptions = append(options.LoaderOptions, configWithClaudeDir(*claudeDir))
 	}
 	runtime, err := api.New(context.Background(), options)
 	if err != nil {
@@ -167,7 +168,7 @@ func (m *multiValue) Set(value string) error {
 	return nil
 }
 
-func parseTags(values []string) map[string]string {
+func parseTags(values multiValue) map[string]string {
 	if len(values) == 0 {
 		return nil
 	}
@@ -185,8 +186,4 @@ func parseTags(values []string) map[string]string {
 		tags[key] = val
 	}
 	return tags
-}
-
-func configWithClaudeDir(dir string) config.LoaderOption {
-	return config.WithClaudeDir(dir)
 }
