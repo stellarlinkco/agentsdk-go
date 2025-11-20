@@ -117,12 +117,12 @@ func (fn ModelFactoryFunc) Model(ctx context.Context) (model.Model, error) {
 
 // Options configures the unified SDK runtime.
 type Options struct {
-	EntryPoint    EntryPoint
-	Mode          ModeContext
-	ProjectRoot   string
-	ClaudeDir     string
-	Loader        *config.Loader
-	LoaderOptions []config.LoaderOption
+	EntryPoint        EntryPoint
+	Mode              ModeContext
+	ProjectRoot       string
+	SettingsPath      string
+	SettingsOverrides *config.Settings
+	SettingsLoader    *config.SettingsLoader
 
 	Model        model.Model
 	ModelFactory ModelFactory
@@ -181,7 +181,9 @@ type Response struct {
 	CommandResults  []CommandExecution
 	Subagent        *subagents.Result
 	HookEvents      []coreevents.Event
-	ProjectConfig   *config.ProjectConfig
+	ProjectConfig   *config.Settings // legacy alias for Config(); kept for compatibility
+	Settings        *config.Settings
+	Plugins         []PluginSnapshot
 	SandboxSnapshot SandboxReport
 	Tags            map[string]string
 }
@@ -212,8 +214,20 @@ type CommandExecution struct {
 // SandboxReport documents the sandbox configuration attached to the runtime.
 type SandboxReport struct {
 	Roots          []string
+	AllowedPaths   []string
 	AllowedDomains []string
 	ResourceLimits sandbox.ResourceLimits
+}
+
+// PluginSnapshot captures the plugin assets that were loaded for the runtime.
+type PluginSnapshot struct {
+	Name        string
+	Version     string
+	Description string
+	Commands    []string
+	Agents      []string
+	Skills      []string
+	Hooks       map[string][]string
 }
 
 // WithMaxSessions caps how many parallel session histories are retained.
@@ -243,6 +257,13 @@ func (o Options) withDefaults() Options {
 		}
 	}
 	o.ProjectRoot = filepath.Clean(o.ProjectRoot)
+	if trimmed := strings.TrimSpace(o.SettingsPath); trimmed != "" {
+		if abs, err := filepath.Abs(trimmed); err == nil {
+			o.SettingsPath = abs
+		} else {
+			o.SettingsPath = trimmed
+		}
+	}
 
 	if o.Sandbox.Root == "" {
 		o.Sandbox.Root = o.ProjectRoot

@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
-	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +18,7 @@ import (
 	"github.com/cexll/agentsdk-go/pkg/message"
 	"github.com/cexll/agentsdk-go/pkg/middleware"
 	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/cexll/agentsdk-go/pkg/plugins"
 	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
 	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
 	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
@@ -36,8 +35,8 @@ const middlewareStateKey contextKey = "agentsdk.middleware.state"
 type Runtime struct {
 	opts      Options
 	mode      ModeContext
-	loader    *config.Loader
-	cfg       *config.ProjectConfig
+	settings  *config.Settings
+	cfg       *config.Settings
 	sandbox   *sandbox.Manager
 	sbRoot    string
 	registry  *tool.Registry
@@ -49,6 +48,7 @@ type Runtime struct {
 	cmdExec *commands.Executor
 	skReg   *skills.Registry
 	subMgr  *subagents.Manager
+	plugins []*plugins.ClaudePlugin
 
 	mu sync.RWMutex
 }
@@ -58,19 +58,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	opts = opts.withDefaults()
 	mode := opts.modeContext()
 
-	loader := opts.Loader
-	if loader == nil {
-		loaderOpts := append([]config.LoaderOption(nil), opts.LoaderOptions...)
-		if strings.TrimSpace(opts.ClaudeDir) != "" {
-			loaderOpts = append(loaderOpts, config.WithClaudeDir(opts.ClaudeDir))
-		}
-		var err error
-		loader, err = config.NewLoader(opts.ProjectRoot, loaderOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("api: config loader: %w", err)
-		}
-	}
-	cfg, err := loadProjectConfig(loader)
+	settings, err := loadSettings(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +69,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 	opts.Model = mdl
 
-	sbox, sbRoot := buildSandboxManager(opts, cfg)
+	sbox, sbRoot := buildSandboxManager(opts, settings)
 	skReg, err := registerSkills(opts.Skills)
 	if err != nil {
 		return nil, err
@@ -95,23 +83,28 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		return nil, err
 	}
 	registry := tool.NewRegistry()
-	taskTool, err := registerTools(registry, opts, cfg, skReg, cmdExec)
+	plugins, err := discoverPlugins(opts.ProjectRoot, settings)
 	if err != nil {
 		return nil, err
 	}
-	if err := registerMCPServers(registry, sbox, opts.MCPServers); err != nil {
+	taskTool, err := registerTools(registry, opts, skReg, cmdExec)
+	if err != nil {
+		return nil, err
+	}
+	mcpServers := collectMCPServers(settings, plugins, opts.MCPServers)
+	if err := registerMCPServers(registry, sbox, mcpServers); err != nil {
 		return nil, err
 	}
 	executor := tool.NewExecutor(registry, sbox)
 
 	recorder := defaultHookRecorder()
-	hooks := newHookExecutor(opts, recorder)
+	hooks := newHookExecutor(opts, recorder, settings)
 
 	rt := &Runtime{
 		opts:      opts,
 		mode:      mode,
-		loader:    loader,
-		cfg:       cfg,
+		settings:  settings,
+		cfg:       projectConfigFromSettings(settings),
 		sandbox:   sbox,
 		sbRoot:    sbRoot,
 		registry:  registry,
@@ -122,6 +115,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		cmdExec:   cmdExec,
 		skReg:     skReg,
 		subMgr:    subMgr,
+		plugins:   plugins,
 	}
 
 	if taskTool != nil {
@@ -193,10 +187,17 @@ func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEve
 func (rt *Runtime) Close() error { return nil }
 
 // Config returns the last loaded project config.
-func (rt *Runtime) Config() *config.ProjectConfig {
+func (rt *Runtime) Config() *config.Settings {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
-	return rt.cfg
+	return config.MergeSettings(nil, rt.cfg)
+}
+
+// Settings exposes the merged settings.json snapshot for callers that need it.
+func (rt *Runtime) Settings() *config.Settings {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return config.MergeSettings(nil, rt.settings)
 }
 
 // Sandbox exposes the sandbox manager.
@@ -338,10 +339,48 @@ func (rt *Runtime) buildResponse(prep preparedRun, result runResult) *Response {
 		Subagent:        prep.subResult,
 		HookEvents:      rt.recorder.Drain(),
 		ProjectConfig:   rt.Config(),
-		SandboxSnapshot: snapshotSandbox(rt.sandbox),
+		Settings:        rt.Settings(),
+		Plugins:         snapshotPlugins(rt.plugins),
+		SandboxSnapshot: rt.sandboxReport(),
 		Tags:            maps.Clone(prep.normalized.Tags),
 	}
 	return resp
+}
+
+func (rt *Runtime) sandboxReport() SandboxReport {
+	report := snapshotSandbox(rt.sandbox)
+
+	var roots []string
+	if root := strings.TrimSpace(rt.sbRoot); root != "" {
+		roots = append(roots, root)
+	}
+	report.Roots = cloneStrings(roots)
+
+	allowed := make([]string, 0, len(rt.opts.Sandbox.AllowedPaths))
+	for _, path := range rt.opts.Sandbox.AllowedPaths {
+		if clean := strings.TrimSpace(path); clean != "" {
+			allowed = append(allowed, clean)
+		}
+	}
+	for _, path := range additionalSandboxPaths(rt.settings) {
+		if clean := strings.TrimSpace(path); clean != "" {
+			allowed = append(allowed, clean)
+		}
+	}
+	report.AllowedPaths = cloneStrings(allowed)
+
+	domains := rt.opts.Sandbox.NetworkAllow
+	if len(domains) == 0 {
+		domains = defaultNetworkAllowList(rt.opts.EntryPoint)
+	}
+	var cleanedDomains []string
+	for _, domain := range domains {
+		if host := strings.TrimSpace(domain); host != "" {
+			cleanedDomains = append(cleanedDomains, host)
+		}
+	}
+	report.AllowedDomains = cloneStrings(cleanedDomains)
+	return report
 }
 
 func convertRunResult(res runResult) *Result {
@@ -760,50 +799,7 @@ func coreToolResultPayload(call agent.ToolCall, res *tool.CallResult, err error)
 
 // ----------------- config + registries -----------------
 
-func loadProjectConfig(loader *config.Loader) (*config.ProjectConfig, error) {
-	cfg, err := loader.Load()
-	if err != nil {
-		empty := &config.ProjectConfig{Environment: map[string]string{}}
-		if strings.Contains(err.Error(), ".claude directory not found") {
-			return empty, nil
-		}
-		if strings.Contains(err.Error(), "plugin manifest not found") || strings.Contains(err.Error(), "invalid plugin name") {
-			return empty, nil
-		}
-		return nil, fmt.Errorf("api: load config: %w", err)
-	}
-	return cfg, nil
-}
-
-func buildSandboxManager(opts Options, cfg *config.ProjectConfig) (*sandbox.Manager, string) {
-	root := opts.Sandbox.Root
-	if root == "" {
-		root = opts.ProjectRoot
-	}
-	root = filepath.Clean(root)
-	resolvedRoot, err := filepath.EvalSymlinks(root)
-	fs := sandbox.NewFileSystemAllowList(root)
-	if err == nil && strings.TrimSpace(resolvedRoot) != "" {
-		fs.Allow(resolvedRoot)
-		root = resolvedRoot
-	}
-	for _, extra := range cfgSandboxPaths(cfg) {
-		fs.Allow(extra)
-		if r, err := filepath.EvalSymlinks(extra); err == nil && strings.TrimSpace(r) != "" {
-			fs.Allow(r)
-		}
-	}
-	for _, extra := range opts.Sandbox.AllowedPaths {
-		fs.Allow(extra)
-		if r, err := filepath.EvalSymlinks(extra); err == nil && strings.TrimSpace(r) != "" {
-			fs.Allow(r)
-		}
-	}
-	nw := sandbox.NewDomainAllowList(opts.Sandbox.NetworkAllow...)
-	return sandbox.NewManager(fs, nw, sandbox.NewResourceLimiter(opts.Sandbox.ResourceLimit)), root
-}
-
-func registerTools(registry *tool.Registry, opts Options, cfg *config.ProjectConfig, skReg *skills.Registry, cmdExec *commands.Executor) (*toolbuiltin.TaskTool, error) {
+func registerTools(registry *tool.Registry, opts Options, skReg *skills.Registry, cmdExec *commands.Executor) (*toolbuiltin.TaskTool, error) {
 	tools := opts.Tools
 	var taskTool *toolbuiltin.TaskTool
 	entry := effectiveEntryPoint(opts)
@@ -848,7 +844,6 @@ func registerTools(registry *tool.Registry, opts Options, cfg *config.ProjectCon
 			return nil, fmt.Errorf("api: register tool %s: %w", impl.Name(), err)
 		}
 	}
-	_ = cfg
 	return taskTool, nil
 }
 
@@ -912,225 +907,6 @@ func enforceSandboxHost(manager *sandbox.Manager, server string) error {
 	return nil
 }
 
-func cfgSandboxPaths(cfg *config.ProjectConfig) []string {
-	if cfg == nil {
-		return nil
-	}
-	paths := append([]string(nil), cfg.Sandbox.AllowedPaths...)
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(paths))
-	for _, path := range paths {
-		clean := strings.TrimSpace(path)
-		if clean == "" {
-			continue
-		}
-		if _, ok := seen[clean]; ok {
-			continue
-		}
-		seen[clean] = struct{}{}
-		out = append(out, clean)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func availableTools(registry *tool.Registry, whitelist map[string]struct{}) []model.ToolDefinition {
-	if registry == nil {
-		return nil
-	}
-	tools := registry.List()
-	defs := make([]model.ToolDefinition, 0, len(tools))
-	for _, impl := range tools {
-		if impl == nil {
-			continue
-		}
-		name := strings.TrimSpace(impl.Name())
-		if name == "" {
-			continue
-		}
-		canon := canonicalToolName(name)
-		if canon == "" {
-			continue
-		}
-		if len(whitelist) > 0 {
-			if _, ok := whitelist[canon]; !ok {
-				continue
-			}
-		}
-		defs = append(defs, model.ToolDefinition{
-			Name:        name,
-			Description: strings.TrimSpace(impl.Description()),
-			Parameters:  schemaToMap(impl.Schema()),
-		})
-	}
-	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
-	return defs
-}
-
-func schemaToMap(schema *tool.JSONSchema) map[string]any {
-	if schema == nil {
-		return nil
-	}
-	payload := map[string]any{}
-	if schema.Type != "" {
-		payload["type"] = schema.Type
-	}
-	if len(schema.Properties) > 0 {
-		payload["properties"] = schema.Properties
-	}
-	if len(schema.Required) > 0 {
-		payload["required"] = append([]string(nil), schema.Required...)
-	}
-	return payload
-}
-
-func convertMessages(msgs []message.Message) []model.Message {
-	if len(msgs) == 0 {
-		return nil
-	}
-	out := make([]model.Message, 0, len(msgs))
-	for _, msg := range msgs {
-		out = append(out, model.Message{
-			Role:      msg.Role,
-			Content:   msg.Content,
-			ToolCalls: convertToolCalls(msg.ToolCalls),
-		})
-	}
-	return out
-}
-
-func convertToolCalls(calls []message.ToolCall) []model.ToolCall {
-	if len(calls) == 0 {
-		return nil
-	}
-	out := make([]model.ToolCall, len(calls))
-	for i, call := range calls {
-		out[i] = model.ToolCall{ID: call.ID, Name: call.Name, Arguments: cloneArguments(call.Arguments)}
-	}
-	return out
-}
-
-func cloneArguments(args map[string]any) map[string]any {
-	if len(args) == 0 {
-		return nil
-	}
-	dup := make(map[string]any, len(args))
-	for k, v := range args {
-		dup[k] = v
-	}
-	return dup
-}
-
-func registerSkills(registrations []SkillRegistration) (*skills.Registry, error) {
-	reg := skills.NewRegistry()
-	for _, entry := range registrations {
-		if entry.Handler == nil {
-			return nil, errors.New("api: skill handler is nil")
-		}
-		if err := reg.Register(entry.Definition, entry.Handler); err != nil {
-			return nil, err
-		}
-	}
-	return reg, nil
-}
-
-func registerCommands(registrations []CommandRegistration) (*commands.Executor, error) {
-	exec := commands.NewExecutor()
-	for _, entry := range registrations {
-		if entry.Handler == nil {
-			return nil, errors.New("api: command handler is nil")
-		}
-		if err := exec.Register(entry.Definition, entry.Handler); err != nil {
-			return nil, err
-		}
-	}
-	return exec, nil
-}
-
-func registerSubagents(registrations []SubagentRegistration) (*subagents.Manager, error) {
-	if len(registrations) == 0 {
-		return nil, nil
-	}
-	mgr := subagents.NewManager()
-	for _, entry := range registrations {
-		if entry.Handler == nil {
-			return nil, errors.New("api: subagent handler is nil")
-		}
-		if err := mgr.Register(entry.Definition, entry.Handler); err != nil {
-			return nil, err
-		}
-	}
-	return mgr, nil
-}
-
-type historyStore struct {
-	mu       sync.Mutex
-	data     map[string]*message.History
-	lastUsed map[string]time.Time
-	maxSize  int
-}
-
-func newHistoryStore(maxSize int) *historyStore {
-	if maxSize <= 0 {
-		maxSize = defaultMaxSessions
-	}
-	return &historyStore{
-		data:     map[string]*message.History{},
-		lastUsed: map[string]time.Time{},
-		maxSize:  maxSize,
-	}
-}
-
-func (s *historyStore) Get(id string) *message.History {
-	if strings.TrimSpace(id) == "" {
-		id = defaultSessionID(defaultEntrypoint)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	if hist, ok := s.data[id]; ok {
-		s.lastUsed[id] = now
-		return hist
-	}
-	hist := message.NewHistory()
-	s.data[id] = hist
-	s.lastUsed[id] = now
-	if len(s.data) > s.maxSize {
-		s.evictOldest()
-	}
-	return hist
-}
-
-func (s *historyStore) evictOldest() {
-	if len(s.data) <= s.maxSize {
-		return
-	}
-	var oldestKey string
-	var oldestTime time.Time
-	first := true
-	for id, ts := range s.lastUsed {
-		if first || ts.Before(oldestTime) {
-			oldestKey = id
-			oldestTime = ts
-			first = false
-		}
-	}
-	if oldestKey == "" {
-		return
-	}
-	delete(s.data, oldestKey)
-	delete(s.lastUsed, oldestKey)
-}
-
-func newHookExecutor(opts Options, recorder HookRecorder) *corehooks.Executor {
-	exec := corehooks.NewExecutor(corehooks.WithMiddleware(opts.HookMiddleware...), corehooks.WithTimeout(opts.HookTimeout))
-	if len(opts.TypedHooks) > 0 {
-		exec.Register(opts.TypedHooks...)
-	}
-	_ = recorder
-	return exec
-}
-
 func resolveModel(ctx context.Context, opts Options) (model.Model, error) {
 	if opts.Model != nil {
 		return opts.Model, nil
@@ -1151,278 +927,4 @@ func defaultSessionID(entry EntryPoint) string {
 		prefix = string(defaultEntrypoint)
 	}
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
-}
-
-func removeCommandLines(prompt string, invs []commands.Invocation) string {
-	if len(invs) == 0 {
-		return prompt
-	}
-	mask := map[int]struct{}{}
-	for _, inv := range invs {
-		pos := inv.Position - 1
-		if pos >= 0 {
-			mask[pos] = struct{}{}
-		}
-	}
-	lines := strings.Split(prompt, "\n")
-	kept := make([]string, 0, len(lines))
-	for idx, line := range lines {
-		if _, drop := mask[idx]; drop {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.TrimSpace(strings.Join(kept, "\n"))
-}
-
-func applyPromptMetadata(prompt string, meta map[string]any) string {
-	if len(meta) == 0 {
-		return prompt
-	}
-	if text, ok := anyToString(meta["api.prompt_override"]); ok {
-		prompt = text
-	}
-	if text, ok := anyToString(meta["api.prepend_prompt"]); ok {
-		prompt = strings.TrimSpace(text) + "\n" + prompt
-	}
-	if text, ok := anyToString(meta["api.append_prompt"]); ok {
-		prompt = prompt + "\n" + strings.TrimSpace(text)
-	}
-	return strings.TrimSpace(prompt)
-}
-
-func mergeTags(req *Request, meta map[string]any) {
-	if req == nil || len(meta) == 0 {
-		return
-	}
-	if req.Tags == nil {
-		req.Tags = map[string]string{}
-	}
-	if tags, ok := meta["api.tags"].(map[string]string); ok {
-		for k, v := range tags {
-			req.Tags[k] = v
-		}
-		return
-	}
-	if raw, ok := meta["api.tags"].(map[string]any); ok {
-		for k, v := range raw {
-			req.Tags[k] = fmt.Sprint(v)
-		}
-	}
-}
-
-func applyCommandMetadata(req *Request, meta map[string]any) {
-	if req == nil || len(meta) == 0 {
-		return
-	}
-	if target, ok := anyToString(meta["api.target_subagent"]); ok {
-		req.TargetSubagent = target
-	}
-	if wl := stringSlice(meta["api.tool_whitelist"]); len(wl) > 0 {
-		req.ToolWhitelist = wl
-	}
-}
-
-func applySubagentTarget(req *Request) (subagents.Definition, bool) {
-	if req == nil {
-		return subagents.Definition{}, false
-	}
-	target := strings.TrimSpace(req.TargetSubagent)
-	if target == "" {
-		req.TargetSubagent = ""
-		return subagents.Definition{}, false
-	}
-	if def, ok := subagents.BuiltinDefinition(target); ok {
-		req.TargetSubagent = def.Name
-		return def, true
-	}
-	req.TargetSubagent = canonicalToolName(target)
-	return subagents.Definition{}, false
-}
-
-func buildSubagentContext(req Request, def subagents.Definition, matched bool) (subagents.Context, bool) {
-	var subCtx subagents.Context
-	if matched {
-		subCtx = def.BaseContext.Clone()
-	}
-	if session := strings.TrimSpace(req.SessionID); session != "" {
-		subCtx.SessionID = session
-	}
-	if desc := metadataString(req.Metadata, "task.description"); desc != "" {
-		if subCtx.Metadata == nil {
-			subCtx.Metadata = map[string]any{}
-		}
-		subCtx.Metadata["task.description"] = desc
-	}
-	if model := strings.ToLower(metadataString(req.Metadata, "task.model")); model != "" {
-		if subCtx.Metadata == nil {
-			subCtx.Metadata = map[string]any{}
-		}
-		subCtx.Metadata["task.model"] = model
-		if strings.TrimSpace(subCtx.Model) == "" {
-			subCtx.Model = model
-		}
-	}
-	if subCtx.SessionID == "" && len(subCtx.Metadata) == 0 && len(subCtx.ToolWhitelist) == 0 && strings.TrimSpace(subCtx.Model) == "" {
-		return subagents.Context{}, false
-	}
-	return subCtx, true
-}
-
-func metadataString(meta map[string]any, key string) string {
-	if len(meta) == 0 {
-		return ""
-	}
-	if val, ok := anyToString(meta[key]); ok {
-		return val
-	}
-	return ""
-}
-
-func canonicalToolName(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
-}
-
-func toLowerSet(values []string) map[string]struct{} {
-	if len(values) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if key := canonicalToolName(value); key != "" {
-			set[key] = struct{}{}
-		}
-	}
-	if len(set) == 0 {
-		return nil
-	}
-	return set
-}
-
-func combineToolWhitelists(requested []string, subagent []string) map[string]struct{} {
-	reqSet := toLowerSet(requested)
-	subSet := toLowerSet(subagent)
-	switch {
-	case len(reqSet) == 0 && len(subSet) == 0:
-		return nil
-	case len(reqSet) == 0:
-		return subSet
-	case len(subSet) == 0:
-		return reqSet
-	default:
-		intersection := make(map[string]struct{}, len(subSet))
-		for name := range subSet {
-			if _, ok := reqSet[name]; ok {
-				intersection[name] = struct{}{}
-			}
-		}
-		return intersection
-	}
-}
-
-func orderedForcedSkills(reg *skills.Registry, names []string) []skills.Activation {
-	if reg == nil || len(names) == 0 {
-		return nil
-	}
-	var activations []skills.Activation
-	for _, name := range names {
-		skill, ok := reg.Get(name)
-		if !ok {
-			continue
-		}
-		activations = append(activations, skills.Activation{Skill: skill})
-	}
-	return activations
-}
-
-func combinePrompt(current string, output any) string {
-	text, ok := anyToString(output)
-	if !ok || strings.TrimSpace(text) == "" {
-		return current
-	}
-	if current == "" {
-		return strings.TrimSpace(text)
-	}
-	return current + "\n" + strings.TrimSpace(text)
-}
-
-func prependPrompt(prompt, prefix string) string {
-	if strings.TrimSpace(prefix) == "" {
-		return prompt
-	}
-	if strings.TrimSpace(prompt) == "" {
-		return strings.TrimSpace(prefix)
-	}
-	return strings.TrimSpace(prefix) + "\n\n" + strings.TrimSpace(prompt)
-}
-
-func mergeMetadata(dst, src map[string]any) map[string]any {
-	if len(src) == 0 {
-		return dst
-	}
-	if dst == nil {
-		dst = map[string]any{}
-	}
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-func anyToString(value any) (string, bool) {
-	switch v := value.(type) {
-	case string:
-		return strings.TrimSpace(v), true
-	case fmt.Stringer:
-		return strings.TrimSpace(v.String()), true
-	}
-	if value == nil {
-		return "", false
-	}
-	return strings.TrimSpace(fmt.Sprint(value)), true
-}
-
-func stringSlice(value any) []string {
-	switch v := value.(type) {
-	case []string:
-		out := append([]string(nil), v...)
-		sort.Strings(out)
-		return out
-	case []any:
-		var out []string
-		for _, entry := range v {
-			if text, ok := anyToString(entry); ok && text != "" {
-				out = append(out, text)
-			}
-		}
-		sort.Strings(out)
-		return out
-	case string:
-		text := strings.TrimSpace(v)
-		if text == "" {
-			return nil
-		}
-		return []string{text}
-	default:
-		return nil
-	}
-}
-
-func definitionSnapshot(exec *commands.Executor, name string) commands.Definition {
-	if exec == nil {
-		return commands.Definition{Name: strings.ToLower(name)}
-	}
-	lower := strings.ToLower(strings.TrimSpace(name))
-	for _, def := range exec.List() {
-		if def.Name == lower {
-			return def
-		}
-	}
-	return commands.Definition{Name: lower}
-}
-func snapshotSandbox(mgr *sandbox.Manager) SandboxReport {
-	if mgr == nil {
-		return SandboxReport{}
-	}
-	return SandboxReport{ResourceLimits: mgr.Limits()}
 }
