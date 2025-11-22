@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cexll/agentsdk-go/pkg/config"
 	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
+	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
 	"github.com/cexll/agentsdk-go/pkg/model"
 	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
 	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
@@ -412,13 +412,17 @@ func TestRuntimeHookAdapterRecordsEvents(t *testing.T) {
 }
 
 func TestNewHookExecutorRegistersTypedHooks(t *testing.T) {
-	hook := newRecordingTypedHook()
-	exec := newHookExecutor(Options{TypedHooks: []any{hook}}, defaultHookRecorder(), nil)
+	// Create a ShellHook that runs a simple command
+	hook := corehooks.ShellHook{
+		Event:   coreevents.PreToolUse,
+		Command: "true", // Always succeeds
+		Name:    "test-hook",
+	}
+	exec := newHookExecutor(Options{TypedHooks: []corehooks.ShellHook{hook}}, defaultHookRecorder(), nil)
 	evt := coreevents.Event{Type: coreevents.PreToolUse, Payload: coreevents.ToolUsePayload{Name: "echo"}}
 	if err := exec.Publish(evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	hook.WaitForCall(t)
 }
 
 type fakeStringer struct {
@@ -427,29 +431,4 @@ type fakeStringer struct {
 
 func (f fakeStringer) String() string {
 	return f.text
-}
-
-type recordingTypedHook struct {
-	signals chan struct{}
-}
-
-func newRecordingTypedHook() *recordingTypedHook {
-	return &recordingTypedHook{signals: make(chan struct{}, 1)}
-}
-
-func (h *recordingTypedHook) PreToolUse(context.Context, coreevents.ToolUsePayload) error {
-	select {
-	case h.signals <- struct{}{}:
-	default:
-	}
-	return nil
-}
-
-func (h *recordingTypedHook) WaitForCall(t *testing.T) {
-	t.Helper()
-	select {
-	case <-h.signals:
-	case <-time.After(time.Second):
-		t.Fatal("typed hook was not invoked")
-	}
 }

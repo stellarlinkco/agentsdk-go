@@ -1,8 +1,12 @@
 package api
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
+
+	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
+	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
 )
 
 func TestWithMaxSessionsRespectsPositiveOnly(t *testing.T) {
@@ -47,5 +51,29 @@ func TestOptionsWithDefaultsPopulatesMissingFields(t *testing.T) {
 	}
 	if !filepath.IsAbs(applied.SettingsPath) {
 		t.Fatalf("settings path not absolutised: %s", applied.SettingsPath)
+	}
+}
+
+func TestRuntimeHookAdapterRecordsAndIgnoresNilRecorder(t *testing.T) {
+	adapter := &runtimeHookAdapter{executor: &corehooks.Executor{}}
+	if err := adapter.PreToolUse(context.Background(), coreevents.ToolUsePayload{Name: "ping"}); err != nil {
+		t.Fatalf("pre tool use: %v", err)
+	}
+
+	recorder := &hookRecorder{}
+	adapter.recorder = recorder
+	if err := adapter.Stop(context.Background(), "done"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	drained := recorder.Drain()
+	if len(drained) == 0 {
+		t.Fatal("expected recorded events when recorder is present")
+	}
+}
+
+func TestRuntimeHookAdapterStopNilExecutor(t *testing.T) {
+	var adapter *runtimeHookAdapter
+	if err := adapter.Stop(context.Background(), "any"); err != nil {
+		t.Fatalf("nil adapter should no-op, got %v", err)
 	}
 }

@@ -443,13 +443,17 @@ func TestExecuteSubagentBranches(t *testing.T) {
 
 	// no matching subagent with empty target suppresses error
 	rt.subMgr = subagents.NewManager()
-	res, out, err = rt.executeSubagent(context.Background(), "p", skills.ActivationContext{}, &Request{Prompt: "p"})
+	_, _, err = rt.executeSubagent(context.Background(), "p", skills.ActivationContext{}, &Request{Prompt: "p"})
+	if !errors.Is(err, subagents.ErrDispatchUnauthorized) {
+		t.Fatalf("expected dispatch authorization error, got %v", err)
+	}
+	res, out, err = rt.executeSubagent(subagents.WithTaskDispatch(context.Background()), "p", skills.ActivationContext{}, &Request{Prompt: "p"})
 	if err != nil || res != nil || out != "p" {
 		t.Fatalf("no-match branch failed: res=%v out=%q err=%v", res, out, err)
 	}
 
 	// unknown explicit target returns error
-	_, _, err = rt.executeSubagent(context.Background(), "p", skills.ActivationContext{}, &Request{Prompt: "p", TargetSubagent: "missing"})
+	_, _, err = rt.executeSubagent(subagents.WithTaskDispatch(context.Background()), "p", skills.ActivationContext{}, &Request{Prompt: "p", TargetSubagent: "missing"})
 	if err == nil {
 		t.Fatal("expected error for unknown subagent")
 	}
@@ -471,7 +475,7 @@ func TestExecuteSubagentSuccess(t *testing.T) {
 	}
 	rt := &Runtime{subMgr: mgr}
 	req := &Request{Prompt: "p"}
-	res, out, err := rt.executeSubagent(context.Background(), "p", skills.ActivationContext{}, req)
+	res, out, err := rt.executeSubagent(subagents.WithTaskDispatch(context.Background()), "p", skills.ActivationContext{}, req)
 	if err != nil || res == nil || out != "new-prompt" {
 		t.Fatalf("unexpected result: res=%v out=%q err=%v", res, out, err)
 	}
@@ -825,5 +829,34 @@ func TestRunStreamEmitsErrorEvent(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected error event")
+	}
+}
+
+func TestWithStreamEmitGuardsNilInputs(t *testing.T) {
+	// Nil context should be promoted to Background.
+	ctx := withStreamEmit(context.TODO(), nil)
+	if ctx == nil {
+		t.Fatal("expected non-nil context from withStreamEmit")
+	}
+	if streamEmitFromContext(ctx) != nil {
+		t.Fatal("nil emit function should not be stored")
+	}
+
+	// Stored emit should round-trip through context and be callable.
+	var called bool
+	emit := func(context.Context, StreamEvent) { called = true }
+	ctx = withStreamEmit(context.Background(), emit)
+	got := streamEmitFromContext(ctx)
+	if got == nil {
+		t.Fatal("expected emit function from context")
+	}
+	got(context.Background(), StreamEvent{Type: "ping"})
+	if !called {
+		t.Fatal("emit function was not invoked")
+	}
+
+	// Missing key should return nil safely.
+	if streamEmitFromContext(context.Background()) != nil {
+		t.Fatal("expected nil emit when not set")
 	}
 }

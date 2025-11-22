@@ -138,7 +138,7 @@ type Options struct {
 	Tools      []tool.Tool
 	MCPServers []string
 
-	TypedHooks     []any
+	TypedHooks     []corehooks.ShellHook
 	HookMiddleware []coremw.Middleware
 	HookTimeout    time.Duration
 

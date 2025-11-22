@@ -3,11 +3,13 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/cexll/agentsdk-go/pkg/sandbox"
+	"github.com/cexll/agentsdk-go/pkg/security"
 )
 
 // Executor wires tool registry lookup with sandbox enforcement.
@@ -41,6 +43,17 @@ func (e *Executor) Execute(ctx context.Context, call Call) (*CallResult, error) 
 	}
 
 	if e.sandbox != nil {
+		decision, err := e.sandbox.CheckToolPermission(call.Name, call.Params)
+		if err != nil {
+			return nil, err
+		}
+		switch decision.Action {
+		case security.PermissionDeny:
+			return nil, fmt.Errorf("tool %s denied by rule %q for %s", call.Name, decision.Rule, decision.Target)
+		case security.PermissionAsk:
+			return nil, fmt.Errorf("tool %s requires approval (rule %q for %s)", call.Name, decision.Rule, decision.Target)
+		}
+
 		if err := e.sandbox.Enforce(call.Path, call.Host, call.Usage); err != nil {
 			return nil, err
 		}

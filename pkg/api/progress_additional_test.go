@@ -21,6 +21,28 @@ func TestChunkString(t *testing.T) {
 	}
 }
 
+func TestProgressMiddlewareNameAndEmitterGuards(t *testing.T) {
+	// Name should be stable to align with middleware chain filtering.
+	mw := newProgressMiddleware(nil)
+	if mw.Name() != "progress" {
+		t.Fatalf("unexpected middleware name: %s", mw.Name())
+	}
+
+	// Nil channel should be a no-op.
+	(progressEmitter{}).emit(context.Background(), StreamEvent{Type: "noop"})
+
+	// Cancelled context should not block trying to write into the channel.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	events := make(chan StreamEvent)
+	progressEmitter{ch: events}.emit(ctx, StreamEvent{Type: "cancelled"})
+	select {
+	case evt := <-events:
+		t.Fatalf("expected no event due to cancellation, got %+v", evt)
+	default:
+	}
+}
+
 func TestProgressMiddlewareEmitsLifecycleEvents(t *testing.T) {
 	events := make(chan StreamEvent, 32)
 	mw := newProgressMiddleware(events)

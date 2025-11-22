@@ -243,7 +243,6 @@ type preparedRun struct {
 	normalized     Request
 	commandResults []CommandExecution
 	skillResults   []SkillExecution
-	subResult      *subagents.Result
 	mode           ModeContext
 	toolWhitelist  map[string]struct{}
 }
@@ -287,19 +286,7 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 	prompt = promptAfterSkills
 	activation.Prompt = prompt
 
-	subRes, promptAfterSub, err := rt.executeSubagent(ctx, prompt, activation, &normalized)
-	if err != nil {
-		return preparedRun{}, err
-	}
-	prompt = promptAfterSub
-
-	def, builtin := subagents.BuiltinDefinition(normalized.TargetSubagent)
-	subCtx, hasSubCtx := buildSubagentContext(normalized, def, builtin)
-	if hasSubCtx {
-		ctx = subagents.WithContext(ctx, subCtx)
-	}
-	whitelist := combineToolWhitelists(normalized.ToolWhitelist, subCtx.ToolWhitelist)
-
+	whitelist := combineToolWhitelists(normalized.ToolWhitelist, nil)
 	return preparedRun{
 		ctx:            ctx,
 		prompt:         prompt,
@@ -307,7 +294,6 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 		normalized:     normalized,
 		commandResults: cmdRes,
 		skillResults:   skillRes,
-		subResult:      subRes,
 		mode:           normalized.Mode,
 		toolWhitelist:  whitelist,
 	}, nil
@@ -358,6 +344,12 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 	if sessionID := strings.TrimSpace(prep.normalized.SessionID); sessionID != "" {
 		agentCtx.Values["session_id"] = sessionID
 	}
+	if len(prep.normalized.ForceSkills) > 0 {
+		agentCtx.Values["request.force_skills"] = append([]string(nil), prep.normalized.ForceSkills...)
+	}
+	if rt.skReg != nil {
+		agentCtx.Values["skills.registry"] = rt.skReg
+	}
 	out, err := ag.Run(prep.ctx, agentCtx)
 	if err != nil {
 		return runResult{}, err
@@ -371,7 +363,6 @@ func (rt *Runtime) buildResponse(prep preparedRun, result runResult) *Response {
 		Result:          convertRunResult(result),
 		CommandResults:  prep.commandResults,
 		SkillResults:    prep.skillResults,
-		Subagent:        prep.subResult,
 		HookEvents:      rt.recorder.Drain(),
 		ProjectConfig:   rt.Config(),
 		Settings:        rt.Settings(),
@@ -590,7 +581,8 @@ func (rt *Runtime) runTaskInvocation(ctx context.Context, req toolbuiltin.TaskRe
 	if len(reqPayload.Metadata) > 0 {
 		activation.Metadata = maps.Clone(reqPayload.Metadata)
 	}
-	res, _, err := rt.executeSubagent(ctx, prompt, activation, reqPayload)
+	dispatchCtx := subagents.WithTaskDispatch(ctx)
+	res, _, err := rt.executeSubagent(dispatchCtx, prompt, activation, reqPayload)
 	if err != nil {
 		return nil, err
 	}
