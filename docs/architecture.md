@@ -232,177 +232,188 @@ _ = a.mw.Execute(ctx, middleware.StageAfterModel, state)
 - channel 传递数据
 - context 控制生命周期
 
-### 3.2 整体架构
+### 3.2 整体架构 (v0.4.0 实现)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         agentsdk-go                              │
+│                         agentsdk-go v0.4.0                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  Agent (核心接口 - 4 个方法)                             │    │
-│  │  ├─ Run(ctx, input) -> Result                          │    │
-│  │  ├─ RunStream(ctx, input) -> <-chan Event              │    │
-│  │  ├─ AddTool(tool) -> error                             │    │
-│  │  └─ WithHook(hook) -> Agent                            │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  三通道事件系统 (from Kode-agent-sdk)                    │    │
-│  │  ├─ Progress Chan  → UI 渲染                           │    │
-│  │  ├─ Control Chan   → 审批/中断                          │    │
-│  │  └─ Monitor Chan   → 治理/审计                          │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  会话持久化 (WAL + Checkpoint)                           │    │
-│  │  ├─ WAL (Write-Ahead Log)                              │    │
-│  │  ├─ EventBuffer + auto-seal                            │    │
-│  │  ├─ Checkpoint/Resume/Fork                             │    │
-│  │  └─ 自动摘要压缩                                         │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  工具系统 (Type-safe + MCP)                             │    │
-│  │  ├─ Registry (工具注册表)                               │    │
-│  │  ├─ Builtin (bash/file/grep/edit + 沙箱)               │    │
-│  │  └─ MCP Client (stdio/SSE 双协议)                       │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  安全层 (三层防御)                                        │    │
-│  │  ├─ Sandbox (路径白名单 + 符号链接解析)                   │    │
-│  │  ├─ Validator (命令校验 + 注入防御)                      │    │
-│  │  └─ Approval Queue (持久化审批 + 会话级白名单)            │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  工作流引擎 (Middleware Pipeline)                        │    │
-│  │  ├─ StateGraph (状态图引擎)                             │    │
-│  │  ├─ Middleware (可插拔中间件)                           │    │
-│  │  │   ├─ TodoListMiddleware                             │    │
-│  │  │   ├─ SummarizationMiddleware                        │    │
-│  │  │   ├─ SubAgentMiddleware                             │    │
-│  │  │   └─ ApprovalMiddleware                             │    │
-│  │  └─ Control Flow (Loop/Parallel/Condition/Router)      │    │
-│  └────────────────────────────────────────────────────────┘    │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  pkg/api - 统一入口层                                        │ │
+│  │  ├─ Runtime.Run(ctx, Request) -> Response                  │ │
+│  │  ├─ Runtime.RunStream(ctx, Request) -> <-chan StreamEvent  │ │
+│  │  ├─ Token 统计 & 自动 Compact                               │ │
+│  │  └─ OpenTelemetry 追踪 & UUID 标识                          │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              ↓                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  pkg/agent - Agent 核心循环 (189 行)                         │ │
+│  │  ├─ Model.Generate() → Tool Calls → Execute → Loop         │ │
+│  │  ├─ MaxIterations 限制                                      │ │
+│  │  └─ Context 状态管理                                        │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              ↓                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  pkg/middleware - 6 点拦截链                                 │ │
+│  │  ├─ BeforeAgent  → 请求验证、审计                           │ │
+│  │  ├─ BeforeModel  → Prompt 处理、上下文优化                   │ │
+│  │  ├─ AfterModel   → 结果过滤、安全检查                        │ │
+│  │  ├─ BeforeTool   → 工具参数校验                             │ │
+│  │  ├─ AfterTool    → 结果后处理                               │ │
+│  │  └─ AfterAgent   → 响应格式化、指标采集                      │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              ↓                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  pkg/model - 模型适配层                                      │ │
+│  │  ├─ Model 接口 (Complete / CompleteStream)                 │ │
+│  │  ├─ AnthropicProvider (Claude 系列)                        │ │
+│  │  ├─ ModelFactory 多模型支持                                 │ │
+│  │  └─ Token Usage 追踪                                        │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              ↓                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  pkg/tool - 工具系统                                         │ │
+│  │  ├─ Registry (工具注册表)                                   │ │
+│  │  ├─ Executor (沙箱执行)                                     │ │
+│  │  ├─ builtin/ (20+ 内置工具)                                 │ │
+│  │  │   ├─ bash (异步支持)    ├─ grep/glob                    │ │
+│  │  │   ├─ read/write/edit   ├─ web_fetch/search              │ │
+│  │  │   ├─ task/skill        └─ todo_write                    │ │
+│  │  └─ MCP 集成 (stdio/SSE)                                    │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              ↓                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  支撑模块                                                    │ │
+│  │  ├─ pkg/config     - 配置加载 & Rules & 热重载              │ │
+│  │  ├─ pkg/message    - 消息历史 & LRU 会话缓存                 │ │
+│  │  ├─ pkg/core/hooks - Shell Hook 执行器                      │ │
+│  │  ├─ pkg/core/events - 事件总线                              │ │
+│  │  ├─ pkg/sandbox    - 文件系统隔离                           │ │
+│  │  ├─ pkg/security   - 命令校验 & 路径解析                     │ │
+│  │  ├─ pkg/mcp        - MCP 客户端                             │ │
+│  │  └─ pkg/plugins    - 插件系统 & 签名验证                     │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              ↓                                   │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  pkg/runtime - 运行时扩展                                    │ │
+│  │  ├─ skills/     - Skills 管理 (懒加载)                      │ │
+│  │  ├─ subagents/  - Subagent 编排                            │ │
+│  │  └─ commands/   - Slash Commands 解析                       │ │
+│  └────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 目录结构
+### 3.3 目录结构 (v0.4.0 实际)
 
 ```
 agentsdk-go/
-├── pkg/                      # 核心包
-│   ├── agent/                # Agent 核心
-│   │   ├── agent.go          # Agent 接口 + 基础实现 (<300行)
-│   │   ├── context.go        # RunContext + 上下文管理
-│   │   ├── config.go         # 配置加载与验证
-│   │   └── lifecycle.go      # Hook 生命周期
+├── pkg/                          # 核心包
+│   ├── api/                      # 统一 API 入口
+│   │   ├── agent.go              # Runtime 实现 (1284行)
+│   │   ├── options.go            # Options & Request & Response
+│   │   ├── stream.go             # StreamEvent 类型
+│   │   ├── compact.go            # 自动上下文压缩
+│   │   ├── stats.go              # Token 统计
+│   │   ├── otel.go               # OpenTelemetry 集成
+│   │   └── *_bridge.go           # 各模块桥接
 │   │
-│   ├── tool/                 # 工具系统
-│   │   ├── tool.go           # Tool 接口定义
-│   │   ├── registry.go       # 工具注册表
-│   │   ├── schema.go         # JSON Schema 生成
-│   │   ├── builtin/          # 内置工具
-│   │   │   ├── bash.go       # Bash 执行 (带沙箱)
-│   │   │   ├── file.go       # 文件操作 (read/write/edit)
-│   │   │   ├── grep.go       # 代码搜索
-│   │   │   └── glob.go       # 文件查找
-│   │   └── mcp/              # MCP 客户端
-│   │       ├── client.go     # MCP 客户端
-│   │       ├── stdio.go      # stdio 传输
-│   │       └── sse.go        # SSE 传输
+│   ├── agent/                    # Agent 核心循环
+│   │   ├── agent.go              # 核心循环 (189行)
+│   │   ├── context.go            # RunContext
+│   │   └── options.go            # Agent 配置
 │   │
-│   ├── model/                # 模型抽象
-│   │   ├── model.go          # Model 接口
-│   │   ├── message.go        # Message 类型定义
-│   │   ├── anthropic/        # Anthropic 适配器
-│   │   │   ├── client.go
-│   │   │   └── streaming.go
-│   │   ├── openai/           # OpenAI 适配器
-│   │   │   ├── client.go
-│   │   │   └── streaming.go
-│   │   └── factory.go        # 模型工厂
+│   ├── middleware/               # 6 点拦截中间件
+│   │   ├── chain.go              # 中间件链执行器
+│   │   └── types.go              # Stage & State & Middleware 接口
 │   │
-│   ├── session/              # 会话管理
-│   │   ├── session.go        # Session 接口
-│   │   ├── memory.go         # 内存存储
-│   │   ├── file.go           # 文件存储 (JSONL + WAL)
-│   │   ├── checkpoint.go     # Checkpoint/Resume/Fork
-│   │   ├── summarizer.go     # 自动摘要
-│   │   └── wal.go            # Write-Ahead Log 实现
+│   ├── model/                    # 模型抽象层
+│   │   ├── interface.go          # Model 接口定义
+│   │   ├── anthropic.go          # Anthropic 适配器
+│   │   ├── provider.go           # ModelFactory & Provider
+│   │   └── options.go            # 模型配置选项
 │   │
-│   ├── event/                # 事件系统
-│   │   ├── event.go          # Event 定义
-│   │   ├── bus.go            # EventBus (三通道)
-│   │   ├── bookmark.go       # 断点续播
-│   │   └── stream.go         # SSE 流式输出
+│   ├── tool/                     # 工具系统
+│   │   ├── tool.go               # Tool 接口
+│   │   ├── registry.go           # 工具注册表
+│   │   ├── executor.go           # 工具执行器
+│   │   ├── schema.go             # JSON Schema
+│   │   └── builtin/              # 内置工具 (20+)
+│   │       ├── bash.go           # Bash (支持异步)
+│   │       ├── async_manager.go  # 异步任务管理
+│   │       ├── read.go           # 文件读取
+│   │       ├── write.go          # 文件写入
+│   │       ├── edit.go           # 文件编辑
+│   │       ├── grep.go           # 内容搜索
+│   │       ├── glob.go           # 文件匹配
+│   │       ├── task.go           # Subagent 任务
+│   │       ├── skill.go          # Skills 执行
+│   │       ├── webfetch.go       # Web 内容获取
+│   │       └── ...
 │   │
-│   ├── workflow/             # 工作流引擎
-│   │   ├── workflow.go       # Workflow 接口
-│   │   ├── graph.go          # StateGraph 实现
-│   │   ├── middleware.go     # Middleware 接口
-│   │   ├── builtin/          # 内置中间件
-│   │   │   ├── todolist.go
-│   │   │   ├── summarization.go
-│   │   │   ├── subagent.go
-│   │   │   └── approval.go
-│   │   ├── step.go           # Step 抽象
-│   │   ├── loop.go           # 循环控制
-│   │   ├── parallel.go       # 并发执行
-│   │   ├── condition.go      # 条件分支
-│   │   └── router.go         # 路由选择
+│   ├── message/                  # 消息历史
+│   │   ├── history.go            # History 管理
+│   │   ├── converter.go          # Message 类型转换
+│   │   └── trimmer.go            # Token 裁剪
 │   │
-│   ├── evals/                # 评估系统
-│   │   └── evals.go          # 本地评估器实现
+│   ├── config/                   # 配置管理
+│   │   ├── settings_loader.go    # 配置加载
+│   │   ├── settings_types.go     # 配置类型定义
+│   │   ├── rules.go              # .claude/rules/ 加载
+│   │   └── validator.go          # 配置校验
 │   │
-│   └── security/             # 安全模块
-│       ├── sandbox.go        # 路径沙箱
-│       ├── validator.go      # 命令校验
-│       ├── approval.go       # 审批队列
-│       └── resolver.go       # 符号链接解析
+│   ├── core/                     # 核心扩展
+│   │   ├── events/               # 事件总线
+│   │   │   ├── bus.go            # EventBus
+│   │   │   └── types.go          # Event 类型
+│   │   ├── hooks/                # Hooks 系统
+│   │   │   ├── executor.go       # Shell Hook 执行
+│   │   │   └── types.go          # Hook 类型
+│   │   └── middleware/           # OpenTelemetry 中间件
+│   │
+│   ├── runtime/                  # 运行时扩展
+│   │   ├── skills/               # Skills 管理
+│   │   ├── subagents/            # Subagent 管理
+│   │   └── commands/             # Slash Commands
+│   │
+│   ├── mcp/                      # MCP 客户端
+│   │   └── mcp.go                # stdio/SSE 支持
+│   │
+│   ├── sandbox/                  # 沙箱隔离
+│   │   └── manager.go            # 文件系统限制
+│   │
+│   ├── security/                 # 安全模块
+│   │   ├── validator.go          # 命令校验
+│   │   └── resolver.go           # 路径解析
+│   │
+│   └── plugins/                  # 插件系统
+│       ├── manager.go            # 插件管理
+│       └── packager/             # 插件打包
 │
-├── cmd/                      # 命令行工具
-│   └── agentctl/
-│       ├── main.go
-│       ├── run.go            # run 命令
-│       ├── serve.go          # serve 命令 (API server)
-│       └── config.go         # config 命令
+├── cmd/cli/                      # CLI 入口
+│   └── main.go
 │
-├── examples/                 # 示例代码
-│   ├── basic/
-│   │   └── main.go           # 基础用法
-│   ├── streaming/
-│   │   └── main.go           # 流式输出
-│   ├── checkpoint/
-│   │   └── main.go           # Checkpoint/Resume
-│   ├── workflow/
-│   │   └── main.go           # 工作流示例
-│   └── mcp/
-│       └── main.go           # MCP 集成
+├── examples/                     # 示例代码
+│   ├── 01-basic/                 # 基础用法
+│   ├── 02-cli/                   # CLI REPL
+│   ├── 03-http/                  # HTTP 服务
+│   ├── 04-advanced/              # 完整功能
+│   ├── 05-custom-tools/          # 自定义工具
+│   └── 05-multimodel/            # 多模型
 │
-├── docs/                     # 文档
-│   ├── architecture.md       # 架构文档 (本文件)
-│   ├── getting-started.md    # 快速开始
-│   ├── api-reference.md      # API 参考
-│   ├── security.md           # 安全指南
-│   └── adr/                  # 架构决策记录
-│       ├── 001-event-channels.md
-│       ├── 002-wal-persistence.md
-│       └── 003-mcp-integration.md
+├── test/                         # 测试
+│   ├── integration/              # 集成测试
+│   ├── benchmarks/               # 性能测试
+│   └── runtime/                  # 运行时测试
 │
-├── tests/                    # 测试
-│   ├── unit/                 # 单元测试
-│   ├── integration/          # 集成测试
-│   └── e2e/                  # 端到端测试
-│
-├── go.mod
-├── go.sum
-├── Makefile
-├── README.md
-└── LICENSE
+└── docs/                         # 文档
+    ├── architecture.md           # 本文档
+    ├── api-reference.md          # API 参考
+    ├── getting-started.md        # 快速开始
+    ├── security.md               # 安全指南
+    ├── trace-system.md           # 追踪系统
+    └── adr/                      # 架构决策记录
 ```
 
 ### 3.4 核心接口设计
