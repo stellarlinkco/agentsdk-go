@@ -191,6 +191,10 @@ type Options struct {
 
 	// AutoCompact enables automatic context compaction for long sessions.
 	AutoCompact CompactConfig
+
+	// OTEL configures OpenTelemetry distributed tracing.
+	// Requires build tag 'otel' for actual instrumentation; otherwise no-op.
+	OTEL OTELConfig
 }
 
 // DefaultSubagentDefinitions exposes the built-in subagent type catalog so
@@ -207,6 +211,7 @@ type Request struct {
 	Prompt         string
 	Mode           ModeContext
 	SessionID      string
+	RequestID      string    `json:"request_id,omitempty"` // Auto-generated UUID or user-provided
 	Model          ModelTier // Optional: override model tier for this request
 	Traits         []string
 	Tags           map[string]string
@@ -221,6 +226,7 @@ type Request struct {
 // by the unified runtime pipeline (skills/commands/hooks/etc.).
 type Response struct {
 	Mode           ModeContext
+	RequestID      string `json:"request_id,omitempty"` // UUID for distributed tracing
 	Result         *Result
 	SkillResults   []SkillExecution
 	CommandResults []CommandExecution
@@ -307,6 +313,14 @@ func WithTokenCallback(fn TokenCallback) func(*Options) {
 func WithAutoCompact(config CompactConfig) func(*Options) {
 	return func(o *Options) {
 		o.AutoCompact = config
+	}
+}
+
+// WithOTEL configures OpenTelemetry distributed tracing.
+// Requires build tag 'otel' for actual instrumentation; otherwise no-op.
+func WithOTEL(config OTELConfig) func(*Options) {
+	return func(o *Options) {
+		o.OTEL = config
 	}
 }
 

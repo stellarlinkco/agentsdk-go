@@ -27,6 +27,7 @@ import (
 	"github.com/cexll/agentsdk-go/pkg/security"
 	"github.com/cexll/agentsdk-go/pkg/tool"
 	toolbuiltin "github.com/cexll/agentsdk-go/pkg/tool/builtin"
+	"github.com/google/uuid"
 )
 
 type contextKey string
@@ -75,6 +76,7 @@ type Runtime struct {
 	plugins   []*plugins.ClaudePlugin
 	tokens    *tokenTracker
 	compactor *compactor
+	tracer    Tracer
 
 	mu sync.RWMutex
 }
@@ -133,6 +135,12 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	hooks := newHookExecutor(opts, recorder, settings)
 	compactor := newCompactor(opts.AutoCompact, opts.Model, opts.TokenLimit, hooks, recorder)
 
+	// Initialize tracer (noop without 'otel' build tag)
+	tracer, err := NewTracer(opts.OTEL)
+	if err != nil {
+		return nil, fmt.Errorf("otel tracer init: %w", err)
+	}
+
 	var rulesLoader *config.RulesLoader
 	if opts.RulesEnabled == nil || (opts.RulesEnabled != nil && *opts.RulesEnabled) {
 		rulesLoader = config.NewRulesLoader(opts.ProjectRoot)
@@ -163,6 +171,7 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		plugins:     plugins,
 		tokens:      newTokenTracker(opts.TokenTracking, opts.TokenCallback),
 		compactor:   compactor,
+		tracer:      tracer,
 	}
 
 	if taskTool != nil {
@@ -243,6 +252,11 @@ func (rt *Runtime) Close() error {
 	if rt.registry != nil {
 		rt.registry.Close()
 	}
+	if rt.tracer != nil {
+		if e := rt.tracer.Shutdown(); e != nil && err == nil {
+			err = e
+		}
+	}
 	return err
 }
 
@@ -311,6 +325,11 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 
 	if normalized.SessionID == "" {
 		normalized.SessionID = fallbackSession
+	}
+
+	// Auto-generate RequestID if not provided (UUID tracking)
+	if normalized.RequestID == "" {
+		normalized.RequestID = uuid.New().String()
 	}
 
 	history := rt.histories.Get(normalized.SessionID)
@@ -408,6 +427,10 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 	if sessionID := strings.TrimSpace(prep.normalized.SessionID); sessionID != "" {
 		agentCtx.Values["session_id"] = sessionID
 	}
+	// Propagate RequestID through agent context for distributed tracing
+	if requestID := strings.TrimSpace(prep.normalized.RequestID); requestID != "" {
+		agentCtx.Values["request_id"] = requestID
+	}
 	if len(prep.normalized.ForceSkills) > 0 {
 		agentCtx.Values["request.force_skills"] = append([]string(nil), prep.normalized.ForceSkills...)
 	}
@@ -419,7 +442,7 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 		return runResult{}, err
 	}
 	if rt.tokens != nil && rt.tokens.IsEnabled() {
-		stats := tokenStatsFromUsage(modelAdapter.usage, "", prep.normalized.SessionID, "")
+		stats := tokenStatsFromUsage(modelAdapter.usage, "", prep.normalized.SessionID, prep.normalized.RequestID)
 		rt.tokens.Record(stats)
 		payload := coreevents.TokenUsagePayload{
 			InputTokens:   stats.InputTokens,
@@ -436,6 +459,7 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 			rt.hooks.Publish(coreevents.Event{
 				Type:      coreevents.TokenUsage,
 				SessionID: stats.SessionID,
+				RequestID: stats.RequestID,
 				Payload:   payload,
 			})
 		}
@@ -443,6 +467,7 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 			rt.recorder.Record(coreevents.Event{
 				Type:      coreevents.TokenUsage,
 				SessionID: stats.SessionID,
+				RequestID: stats.RequestID,
 				Payload:   payload,
 			})
 		}
@@ -453,6 +478,7 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 func (rt *Runtime) buildResponse(prep preparedRun, result runResult) *Response {
 	resp := &Response{
 		Mode:            prep.mode,
+		RequestID:       prep.normalized.RequestID,
 		Result:          convertRunResult(result),
 		CommandResults:  prep.commandResults,
 		SkillResults:    prep.skillResults,

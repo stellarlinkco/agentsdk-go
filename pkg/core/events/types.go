@@ -34,6 +34,7 @@ type Event struct {
 	Type      EventType   // required
 	Timestamp time.Time   // auto-populated when zero
 	SessionID string      // optional session identifier for hook payloads
+	RequestID string      // optional request identifier for distributed tracing
 	Payload   interface{} // optional, type asserted by hook executors
 }
 
