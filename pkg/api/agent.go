@@ -56,17 +56,18 @@ func streamEmitFromContext(ctx context.Context) streamEmitFunc {
 
 // Runtime exposes the unified SDK surface that powers CLI/CI/enterprise entrypoints.
 type Runtime struct {
-	opts      Options
-	mode      ModeContext
-	settings  *config.Settings
-	cfg       *config.Settings
-	sandbox   *sandbox.Manager
-	sbRoot    string
-	registry  *tool.Registry
-	executor  *tool.Executor
-	recorder  HookRecorder
-	hooks     *corehooks.Executor
-	histories *historyStore
+	opts        Options
+	mode        ModeContext
+	settings    *config.Settings
+	cfg         *config.Settings
+	rulesLoader *config.RulesLoader
+	sandbox     *sandbox.Manager
+	sbRoot      string
+	registry    *tool.Registry
+	executor    *tool.Executor
+	recorder    HookRecorder
+	hooks       *corehooks.Executor
+	histories   *historyStore
 
 	cmdExec *commands.Executor
 	skReg   *skills.Registry
@@ -129,22 +130,34 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	recorder := defaultHookRecorder()
 	hooks := newHookExecutor(opts, recorder, settings)
 
+	var rulesLoader *config.RulesLoader
+	if opts.RulesEnabled == nil || (opts.RulesEnabled != nil && *opts.RulesEnabled) {
+		rulesLoader = config.NewRulesLoader(opts.ProjectRoot)
+		if _, err := rulesLoader.LoadRules(); err != nil {
+			log.Printf("rules loader warning: %v", err)
+		}
+		if err := rulesLoader.WatchChanges(nil); err != nil {
+			log.Printf("rules watcher warning: %v", err)
+		}
+	}
+
 	rt := &Runtime{
-		opts:      opts,
-		mode:      mode,
-		settings:  settings,
-		cfg:       projectConfigFromSettings(settings),
-		sandbox:   sbox,
-		sbRoot:    sbRoot,
-		registry:  registry,
-		executor:  executor,
-		recorder:  recorder,
-		hooks:     hooks,
-		histories: newHistoryStore(opts.MaxSessions),
-		cmdExec:   cmdExec,
-		skReg:     skReg,
-		subMgr:    subMgr,
-		plugins:   plugins,
+		opts:        opts,
+		mode:        mode,
+		settings:    settings,
+		cfg:         projectConfigFromSettings(settings),
+		rulesLoader: rulesLoader,
+		sandbox:     sbox,
+		sbRoot:      sbRoot,
+		registry:    registry,
+		executor:    executor,
+		recorder:    recorder,
+		hooks:       hooks,
+		histories:   newHistoryStore(opts.MaxSessions),
+		cmdExec:     cmdExec,
+		skReg:       skReg,
+		subMgr:      subMgr,
+		plugins:     plugins,
 	}
 
 	if taskTool != nil {
@@ -216,10 +229,16 @@ func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEve
 
 // Close releases held resources.
 func (rt *Runtime) Close() error {
+	var err error
+	if rt.rulesLoader != nil {
+		if e := rt.rulesLoader.Close(); e != nil {
+			err = e
+		}
+	}
 	if rt.registry != nil {
 		rt.registry.Close()
 	}
-	return nil
+	return err
 }
 
 // Config returns the last loaded project config.
@@ -316,6 +335,7 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 		trimmer:      rt.newTrimmer(),
 		tools:        availableTools(rt.registry, prep.toolWhitelist),
 		systemPrompt: rt.opts.SystemPrompt,
+		rulesLoader:  rt.rulesLoader,
 		hooks:        &runtimeHookAdapter{executor: rt.hooks, recorder: rt.recorder},
 	}
 
@@ -645,6 +665,7 @@ type conversationModel struct {
 	trimmer      *message.Trimmer
 	tools        []model.ToolDefinition
 	systemPrompt string
+	rulesLoader  *config.RulesLoader
 	usage        model.Usage
 	stopReason   string
 	hooks        *runtimeHookAdapter
@@ -667,10 +688,16 @@ func (m *conversationModel) Generate(ctx context.Context, _ *agent.Context) (*ag
 	if m.trimmer != nil {
 		snapshot = m.trimmer.Trim(snapshot)
 	}
+	systemPrompt := m.systemPrompt
+	if m.rulesLoader != nil {
+		if rules := m.rulesLoader.GetContent(); rules != "" {
+			systemPrompt = fmt.Sprintf("%s\n\n## Project Rules\n\n%s", systemPrompt, rules)
+		}
+	}
 	req := model.Request{
 		Messages:    convertMessages(snapshot),
 		Tools:       m.tools,
-		System:      m.systemPrompt,
+		System:      systemPrompt,
 		MaxTokens:   0,
 		Model:       "",
 		Temperature: nil,

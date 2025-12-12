@@ -127,6 +127,7 @@ type Options struct {
 	Model        model.Model
 	ModelFactory ModelFactory
 	SystemPrompt string
+	RulesEnabled *bool // nil = 默认启用，false = 禁用
 
 	Middleware        []middleware.Middleware
 	MiddlewareTimeout time.Duration
