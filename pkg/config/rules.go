@@ -206,4 +206,3 @@ func (l *RulesLoader) Close() error {
 	}
 	return nil
 }
-

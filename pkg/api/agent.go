@@ -56,18 +56,18 @@ func streamEmitFromContext(ctx context.Context) streamEmitFunc {
 
 // Runtime exposes the unified SDK surface that powers CLI/CI/enterprise entrypoints.
 type Runtime struct {
-	opts      Options
-	mode      ModeContext
-	settings  *config.Settings
-	cfg       *config.Settings
+	opts        Options
+	mode        ModeContext
+	settings    *config.Settings
+	cfg         *config.Settings
 	rulesLoader *config.RulesLoader
-	sandbox   *sandbox.Manager
-	sbRoot    string
-	registry  *tool.Registry
-	executor  *tool.Executor
-	recorder  HookRecorder
-	hooks     *corehooks.Executor
-	histories *historyStore
+	sandbox     *sandbox.Manager
+	sbRoot      string
+	registry    *tool.Registry
+	executor    *tool.Executor
+	recorder    HookRecorder
+	hooks       *corehooks.Executor
+	histories   *historyStore
 
 	cmdExec *commands.Executor
 	skReg   *skills.Registry
@@ -142,22 +142,22 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 	}
 
 	rt := &Runtime{
-		opts:      opts,
-		mode:      mode,
-		settings:  settings,
-		cfg:       projectConfigFromSettings(settings),
+		opts:        opts,
+		mode:        mode,
+		settings:    settings,
+		cfg:         projectConfigFromSettings(settings),
 		rulesLoader: rulesLoader,
-		sandbox:   sbox,
-		sbRoot:    sbRoot,
-		registry:  registry,
-		executor:  executor,
-		recorder:  recorder,
-		hooks:     hooks,
-		histories: newHistoryStore(opts.MaxSessions),
-		cmdExec:   cmdExec,
-		skReg:     skReg,
-		subMgr:    subMgr,
-		plugins:   plugins,
+		sandbox:     sbox,
+		sbRoot:      sbRoot,
+		registry:    registry,
+		executor:    executor,
+		recorder:    recorder,
+		hooks:       hooks,
+		histories:   newHistoryStore(opts.MaxSessions),
+		cmdExec:     cmdExec,
+		skReg:       skReg,
+		subMgr:      subMgr,
+		plugins:     plugins,
 	}
 
 	if taskTool != nil {
@@ -328,16 +328,16 @@ func (rt *Runtime) runAgent(prep preparedRun) (runResult, error) {
 }
 
 func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware.Middleware) (runResult, error) {
-		modelAdapter := &conversationModel{
-			base:         rt.mustModel(),
-			history:      prep.history,
-			prompt:       prep.prompt,
-			trimmer:      rt.newTrimmer(),
-			tools:        availableTools(rt.registry, prep.toolWhitelist),
-			systemPrompt: rt.opts.SystemPrompt,
-			rulesLoader:  rt.rulesLoader,
-			hooks:        &runtimeHookAdapter{executor: rt.hooks, recorder: rt.recorder},
-		}
+	modelAdapter := &conversationModel{
+		base:         rt.mustModel(),
+		history:      prep.history,
+		prompt:       prep.prompt,
+		trimmer:      rt.newTrimmer(),
+		tools:        availableTools(rt.registry, prep.toolWhitelist),
+		systemPrompt: rt.opts.SystemPrompt,
+		rulesLoader:  rt.rulesLoader,
+		hooks:        &runtimeHookAdapter{executor: rt.hooks, recorder: rt.recorder},
+	}
 
 	toolExec := &runtimeToolExecutor{
 		executor: rt.executor,

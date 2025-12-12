@@ -124,13 +124,13 @@ type Options struct {
 	SettingsOverrides *config.Settings
 	SettingsLoader    *config.SettingsLoader
 
-		Model        model.Model
-		ModelFactory ModelFactory
-		SystemPrompt string
-		RulesEnabled *bool // nil = 默认启用，false = 禁用
+	Model        model.Model
+	ModelFactory ModelFactory
+	SystemPrompt string
+	RulesEnabled *bool // nil = 默认启用，false = 禁用
 
-		Middleware        []middleware.Middleware
-		MiddlewareTimeout time.Duration
+	Middleware        []middleware.Middleware
+	MiddlewareTimeout time.Duration
 	MaxIterations     int
 	Timeout           time.Duration
 	TokenLimit        int
@@ -480,7 +480,7 @@ func (h *runtimeHookAdapter) Stop(ctx context.Context, reason string) error {
 
 func (h *runtimeHookAdapter) PermissionRequest(ctx context.Context, evt coreevents.PermissionRequestPayload) (coreevents.PermissionDecisionType, error) {
 	if h == nil || h.executor == nil {
-		return coreevents.PermissionAllow, nil
+		return coreevents.PermissionAsk, nil
 	}
 	results, err := h.executor.Execute(ctx, coreevents.Event{Type: coreevents.PermissionRequest, Payload: evt})
 	if err != nil {
