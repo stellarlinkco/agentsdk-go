@@ -263,3 +263,128 @@ func TestRequestModelTierOverride(t *testing.T) {
 		t.Errorf("Request.Model = %q, want %q", req.Model, ModelTierHigh)
 	}
 }
+
+func TestSelectModelForSubagentPoolTierMissing(t *testing.T) {
+	// Test fallback when mapping tier is not in pool
+	defaultModel := &mockModel{name: "default"}
+	haiku := &mockModel{name: "haiku"}
+
+	rt := &Runtime{
+		opts: Options{
+			Model: defaultModel,
+			ModelPool: map[ModelTier]model.Model{
+				ModelTierLow: haiku,
+				// ModelTierHigh is NOT in pool
+			},
+			SubagentModelMapping: map[string]ModelTier{
+				"plan": ModelTierHigh, // maps to tier not in pool
+			},
+		},
+	}
+
+	mdl, tier := rt.selectModelForSubagent("plan", "")
+	mock, ok := mdl.(*mockModel)
+	if !ok {
+		t.Fatal("selectModelForSubagent returned non-mockModel type")
+	}
+	// Should fallback to default since ModelTierHigh not in pool
+	if mock.name != "default" {
+		t.Errorf("selectModelForSubagent with missing pool tier = %q, want default", mock.name)
+	}
+	if tier != "" {
+		t.Errorf("tier should be empty when pool tier missing, got %q", tier)
+	}
+}
+
+func TestSelectModelForSubagentNilModelInPool(t *testing.T) {
+	// Test fallback when pool has nil model for tier
+	defaultModel := &mockModel{name: "default"}
+
+	rt := &Runtime{
+		opts: Options{
+			Model: defaultModel,
+			ModelPool: map[ModelTier]model.Model{
+				ModelTierLow: nil, // explicitly nil
+			},
+			SubagentModelMapping: map[string]ModelTier{
+				"explore": ModelTierLow,
+			},
+		},
+	}
+
+	mdl, tier := rt.selectModelForSubagent("explore", "")
+	mock, ok := mdl.(*mockModel)
+	if !ok {
+		t.Fatal("selectModelForSubagent returned non-mockModel type")
+	}
+	// Should fallback to default since pool model is nil
+	if mock.name != "default" {
+		t.Errorf("selectModelForSubagent with nil pool model = %q, want default", mock.name)
+	}
+	if tier != "" {
+		t.Errorf("tier should be empty when pool model is nil, got %q", tier)
+	}
+}
+
+func TestSelectModelForSubagentRequestTierNilInPool(t *testing.T) {
+	// Test request tier override when pool model is nil
+	defaultModel := &mockModel{name: "default"}
+	haiku := &mockModel{name: "haiku"}
+
+	rt := &Runtime{
+		opts: Options{
+			Model: defaultModel,
+			ModelPool: map[ModelTier]model.Model{
+				ModelTierLow:  haiku,
+				ModelTierHigh: nil, // explicitly nil
+			},
+			SubagentModelMapping: map[string]ModelTier{
+				"explore": ModelTierLow,
+			},
+		},
+	}
+
+	// Request tier points to nil model, should check mapping next
+	mdl, tier := rt.selectModelForSubagent("explore", ModelTierHigh)
+	mock, ok := mdl.(*mockModel)
+	if !ok {
+		t.Fatal("selectModelForSubagent returned non-mockModel type")
+	}
+	// Should use mapping since request tier model is nil
+	if mock.name != "haiku" {
+		t.Errorf("selectModelForSubagent with nil request tier model = %q, want haiku", mock.name)
+	}
+	if tier != ModelTierLow {
+		t.Errorf("tier = %q, want low", tier)
+	}
+}
+
+func TestSelectModelForSubagentEmptyInputs(t *testing.T) {
+	// Test with both subagentType and requestTier empty
+	defaultModel := &mockModel{name: "default"}
+	haiku := &mockModel{name: "haiku"}
+
+	rt := &Runtime{
+		opts: Options{
+			Model: defaultModel,
+			ModelPool: map[ModelTier]model.Model{
+				ModelTierLow: haiku,
+			},
+			SubagentModelMapping: map[string]ModelTier{
+				"explore": ModelTierLow,
+			},
+		},
+	}
+
+	mdl, tier := rt.selectModelForSubagent("", "")
+	mock, ok := mdl.(*mockModel)
+	if !ok {
+		t.Fatal("selectModelForSubagent returned non-mockModel type")
+	}
+	if mock.name != "default" {
+		t.Errorf("selectModelForSubagent with empty inputs = %q, want default", mock.name)
+	}
+	if tier != "" {
+		t.Errorf("tier should be empty with empty inputs, got %q", tier)
+	}
+}
