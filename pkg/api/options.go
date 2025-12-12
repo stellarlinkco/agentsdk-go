@@ -36,6 +36,15 @@ const (
 	defaultMaxSessions            = 1000
 )
 
+// ModelTier represents cost-based model classification for optimization.
+type ModelTier string
+
+const (
+	ModelTierLow  ModelTier = "low"  // Low cost: Haiku
+	ModelTierMid  ModelTier = "mid"  // Mid cost: Sonnet
+	ModelTierHigh ModelTier = "high" // High cost: Opus
+)
+
 // CLIContext captures optional metadata supplied by the CLI surface.
 type CLIContext struct {
 	User      string
@@ -126,6 +135,14 @@ type Options struct {
 
 	Model        model.Model
 	ModelFactory ModelFactory
+
+	// ModelPool maps tier names to model instances for cost optimization.
+	// Keys are typically "low", "mid", "high" corresponding to ModelTier constants.
+	ModelPool map[string]model.Model
+	// ToolModelMapping maps tool names to tier names for tool-level model binding.
+	// Tools not in this map use the default Model.
+	ToolModelMapping map[string]string
+
 	SystemPrompt string
 	RulesEnabled *bool // nil = 默认启用，false = 禁用
 
@@ -375,6 +392,24 @@ func cloneStrings(in []string) []string {
 	out := append([]string(nil), in...)
 	slices.Sort(out)
 	return slices.Compact(out)
+}
+
+// WithModelPool configures a pool of models indexed by tier name.
+func WithModelPool(pool map[string]model.Model) func(*Options) {
+	return func(o *Options) {
+		if pool != nil {
+			o.ModelPool = pool
+		}
+	}
+}
+
+// WithToolModelMapping configures tool-to-tier mappings for model selection.
+func WithToolModelMapping(mapping map[string]string) func(*Options) {
+	return func(o *Options) {
+		if mapping != nil {
+			o.ToolModelMapping = mapping
+		}
+	}
 }
 
 // HookRecorder mirrors the historical api hook recorder contract.

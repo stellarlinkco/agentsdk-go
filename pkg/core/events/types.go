@@ -21,6 +21,7 @@ const (
 	SubagentStop      EventType = "SubagentStop"
 	Notification      EventType = "Notification"
 	PermissionRequest EventType = "PermissionRequest"
+	ModelSelected     EventType = "ModelSelected"
 )
 
 // Event represents a single occurrence in the system. It is intentionally
@@ -107,4 +108,11 @@ const (
 type NotificationPayload struct {
 	Message string
 	Meta    map[string]any
+}
+
+// ModelSelectedPayload is emitted when a model is selected for tool execution.
+type ModelSelectedPayload struct {
+	ToolName  string
+	ModelTier string
+	Reason    string
 }

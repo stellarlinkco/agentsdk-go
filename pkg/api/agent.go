@@ -649,6 +649,24 @@ func (rt *Runtime) mustModel() model.Model {
 	return mdl
 }
 
+// selectModelForTool returns the appropriate model for the given tool name.
+// It checks ToolModelMapping first, then ModelPool, falling back to the default model.
+func (rt *Runtime) selectModelForTool(toolName string) (model.Model, string) {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	if rt.opts.ToolModelMapping != nil {
+		if tier, ok := rt.opts.ToolModelMapping[toolName]; ok {
+			if rt.opts.ModelPool != nil {
+				if m, ok := rt.opts.ModelPool[tier]; ok {
+					return m, tier
+				}
+			}
+		}
+	}
+	return rt.opts.Model, ""
+}
+
 func (rt *Runtime) newTrimmer() *message.Trimmer {
 	if rt.opts.TokenLimit <= 0 {
 		return nil
