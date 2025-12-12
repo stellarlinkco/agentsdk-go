@@ -113,6 +113,29 @@ func TestOptionsToolFieldsDefaultsAndPriority(t *testing.T) {
 	}
 }
 
+func TestOptionsCompactAndTokenOptions(t *testing.T) {
+	var opts Options
+	cfg := CompactConfig{Enabled: true, Threshold: 0.9, PreserveCount: 3, SummaryModel: "haiku"}
+	WithAutoCompact(cfg)(&opts)
+	if opts.AutoCompact != cfg {
+		t.Fatalf("expected AutoCompact set, got %+v", opts.AutoCompact)
+	}
+	WithTokenTracking(true)(&opts)
+	if !opts.TokenTracking {
+		t.Fatalf("expected TokenTracking enabled")
+	}
+	called := false
+	cb := func(TokenStats) { called = true }
+	WithTokenCallback(cb)(&opts)
+	if opts.TokenCallback == nil || !opts.TokenTracking {
+		t.Fatalf("expected TokenCallback set and tracking enabled")
+	}
+	opts.TokenCallback(TokenStats{})
+	if !called {
+		t.Fatalf("expected callback invoked")
+	}
+}
+
 type stubTool struct{ name string }
 
 func (t *stubTool) Name() string             { return t.name }
