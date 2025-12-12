@@ -16,6 +16,7 @@ type Settings struct {
 	Env                        map[string]string            `json:"env,omitempty"`                        // Environment variables applied to every session.
 	IncludeCoAuthoredBy        *bool                        `json:"includeCoAuthoredBy,omitempty"`        // Whether to append "co-authored-by Claude" to commits/PRs.
 	Permissions                *PermissionsConfig           `json:"permissions,omitempty"`                // Tool permission rules and defaults.
+	DisallowedTools            []string                     `json:"disallowedTools,omitempty"`            // Tool blacklist; disallowed tools are not registered.
 	Hooks                      *HooksConfig                 `json:"hooks,omitempty"`                      // Hook commands to run around tool execution.
 	DisableAllHooks            *bool                        `json:"disableAllHooks,omitempty"`            // Force-disable all hooks.
 	Model                      string                       `json:"model,omitempty"`                      // Override default model id.

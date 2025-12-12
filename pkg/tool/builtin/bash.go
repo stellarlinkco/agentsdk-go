@@ -3,6 +3,8 @@ package toolbuiltin
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,7 +50,7 @@ const (
 	- **Optional**: timeout in milliseconds (max 600000ms/10 min, default 120000ms/2 min)
 	- **Description**: Write clear 5-10 word description of command purpose
 	- **Output limit**: Truncated if exceeds 30000 characters
-	- **Background execution**: Use 'run_in_background' parameter (no need for '&')
+	- **Async execution**: Set 'async=true' for long-running tasks (dev servers, log tailing). Use BashOutput with task_id to poll output, and KillTask to stop.
 
 	## Command Preferences
 
@@ -191,6 +193,14 @@ var bashSchema = &tool.JSONSchema{
 			"type":        "string",
 			"description": "Optional working directory relative to the sandbox root.",
 		},
+		"async": map[string]interface{}{
+			"type":        "boolean",
+			"description": "Run command asynchronously and return a task_id immediately.",
+		},
+		"task_id": map[string]interface{}{
+			"type":        "string",
+			"description": "Optional async task id to use when async=true.",
+		},
 	},
 	Required: []string{"command"},
 }
@@ -250,6 +260,10 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 	if b == nil || b.sandbox == nil {
 		return nil, errors.New("bash tool is not initialised")
 	}
+	async, err := parseAsyncFlag(params)
+	if err != nil {
+		return nil, err
+	}
 	command, err := extractCommand(params)
 	if err != nil {
 		return nil, err
@@ -264,6 +278,25 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 	timeout, err := b.resolveTimeout(params)
 	if err != nil {
 		return nil, err
+	}
+
+	if async {
+		id, err := optionalAsyncTaskID(params)
+		if err != nil {
+			return nil, err
+		}
+		if id == "" {
+			id = generateAsyncTaskID()
+		}
+		if err := DefaultAsyncTaskManager().startWithContext(ctx, id, command, workdir, timeout); err != nil {
+			return nil, err
+		}
+		payload := map[string]interface{}{
+			"task_id": id,
+			"status":  "running",
+		}
+		out, _ := json.Marshal(payload)
+		return &tool.ToolResult{Success: true, Output: string(out), Data: payload}, nil
 	}
 
 	execCtx := ctx
@@ -476,4 +509,57 @@ func resolveRoot(dir string) string {
 		return abs
 	}
 	return filepath.Clean(trimmed)
+}
+
+func parseAsyncFlag(params map[string]interface{}) (bool, error) {
+	if params == nil {
+		return false, nil
+	}
+	raw, ok := params["async"]
+	if !ok || raw == nil {
+		return false, nil
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v, nil
+	case string:
+		val := strings.TrimSpace(v)
+		if val == "" {
+			return false, nil
+		}
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return false, fmt.Errorf("async must be boolean: %w", err)
+		}
+		return b, nil
+	default:
+		return false, fmt.Errorf("async must be boolean got %T", raw)
+	}
+}
+
+func optionalAsyncTaskID(params map[string]interface{}) (string, error) {
+	if params == nil {
+		return "", nil
+	}
+	raw, ok := params["task_id"]
+	if !ok || raw == nil {
+		return "", nil
+	}
+	value, err := coerceString(raw)
+	if err != nil {
+		return "", fmt.Errorf("task_id must be string: %w", err)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("task_id cannot be empty")
+	}
+	return value, nil
+}
+
+func generateAsyncTaskID() string {
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return "task-" + hex.EncodeToString(buf[:])
+	}
+	return fmt.Sprintf("task-%d", time.Now().UnixNano())
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestBashOutputReturnsNewLines(t *testing.T) {
@@ -185,6 +186,48 @@ func TestBashOutputExecuteErrors(t *testing.T) {
 	}
 	if _, err := tool.Execute(context.Background(), map[string]interface{}{"bash_id": "   "}); err == nil {
 		t.Fatalf("expected whitespace id error")
+	}
+}
+
+func TestBashOutputReadsAsyncTaskOutput(t *testing.T) {
+	skipIfWindows(t)
+	defaultAsyncTaskManager = newAsyncTaskManager()
+	dir := cleanTempDir(t)
+	bash := NewBashToolWithRoot(dir)
+	asyncRes, err := bash.Execute(context.Background(), map[string]interface{}{
+		"command": "echo async-line",
+		"async":   true,
+	})
+	if err != nil {
+		t.Fatalf("start async bash: %v", err)
+	}
+	id := asyncRes.Data.(map[string]interface{})["task_id"].(string)
+
+	outTool := NewBashOutputTool(newShellStore())
+	var got string
+	for i := 0; i < 50; i++ {
+		res, err := outTool.Execute(context.Background(), map[string]interface{}{"task_id": id})
+		if err != nil {
+			t.Fatalf("bashoutput: %v", err)
+		}
+		data := res.Data.(map[string]interface{})
+		if chunk, _ := data["output"].(string); strings.Contains(chunk, "async-line") {
+			got = chunk
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(got, "async-line") {
+		t.Fatalf("expected async output, got %q", got)
+	}
+
+	// BashOutput should also accept bash_id for async tasks.
+	res, err := outTool.Execute(context.Background(), map[string]interface{}{"bash_id": id})
+	if err != nil {
+		t.Fatalf("bashoutput with bash_id: %v", err)
+	}
+	if status, _ := res.Data.(map[string]interface{})["status"].(string); status == "" {
+		t.Fatalf("expected status in async read")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cexll/agentsdk-go/pkg/agent"
+	"github.com/cexll/agentsdk-go/pkg/config"
 	"github.com/cexll/agentsdk-go/pkg/message"
 	"github.com/cexll/agentsdk-go/pkg/model"
 	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
@@ -168,6 +169,44 @@ func TestNewRejectsDisallowedMCPServer(t *testing.T) {
 	}
 	if _, err := New(context.Background(), opts); err == nil {
 		t.Fatal("expected MCP host guard error")
+	}
+}
+
+func TestRegisterToolsFiltersDisallowedTools(t *testing.T) {
+	reg := tool.NewRegistry()
+	allowed := &echoTool{}
+	blocked := &failingTool{err: errors.New("boom")}
+	opts := Options{
+		Tools:           []tool.Tool{allowed, blocked},
+		DisallowedTools: []string{"FAIL"},
+	}
+	if _, err := registerTools(reg, opts, nil, nil, nil); err != nil {
+		t.Fatalf("register tools: %v", err)
+	}
+	if _, err := reg.Get(allowed.Name()); err != nil {
+		t.Fatalf("expected allowed tool to register: %v", err)
+	}
+	if _, err := reg.Get(blocked.Name()); err == nil {
+		t.Fatalf("expected blocked tool to be skipped")
+	}
+}
+
+func TestSettingsLoaderLoadsDisallowedTools(t *testing.T) {
+	root := t.TempDir()
+	claude := filepath.Join(root, ".claude")
+	if err := os.MkdirAll(claude, 0o755); err != nil {
+		t.Fatalf("claude dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(`{"disallowedTools":["echo"]}`), 0o600); err != nil {
+		t.Fatalf("settings write: %v", err)
+	}
+	loader := &config.SettingsLoader{ProjectRoot: root}
+	settings, err := loader.Load()
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if len(settings.DisallowedTools) != 1 || settings.DisallowedTools[0] != "echo" {
+		t.Fatalf("unexpected disallowed tools %+v", settings.DisallowedTools)
 	}
 }
 

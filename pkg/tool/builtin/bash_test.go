@@ -98,6 +98,31 @@ func TestBashToolMetadata(t *testing.T) {
 	}
 }
 
+func TestBashToolExecuteAsyncReturnsTaskID(t *testing.T) {
+	skipIfWindows(t)
+	defaultAsyncTaskManager = newAsyncTaskManager()
+	dir := cleanTempDir(t)
+	tool := NewBashToolWithRoot(dir)
+	res, err := tool.Execute(context.Background(), map[string]interface{}{
+		"command": "echo hi",
+		"async":   true,
+	})
+	if err != nil {
+		t.Fatalf("execute async: %v", err)
+	}
+	data := res.Data.(map[string]interface{})
+	id, ok := data["task_id"].(string)
+	if !ok || !strings.HasPrefix(id, "task-") {
+		t.Fatalf("unexpected task id %v", data["task_id"])
+	}
+	if status, _ := data["status"].(string); status != "running" {
+		t.Fatalf("expected status running, got %v", status)
+	}
+	if _, exists := DefaultAsyncTaskManager().lookup(id); !exists {
+		t.Fatalf("expected task to exist in manager")
+	}
+}
+
 func TestDurationFromParamHelpers(t *testing.T) {
 	if dur, err := durationFromParam("2"); err != nil || dur != 2*time.Second {
 		t.Fatalf("string seconds parse failed: %v %v", dur, err)

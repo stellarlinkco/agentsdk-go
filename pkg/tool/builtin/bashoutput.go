@@ -14,7 +14,7 @@ import (
 
 const bashOutputDescription = `
 - Retrieves output from a running or completed background bash shell
-- Takes a shell_id parameter identifying the shell
+- Takes a bash_id for legacy shells or task_id for async Bash tasks
 - Always returns only new output since the last check
 - Returns stdout and stderr output along with shell status
 - Supports optional regex filtering to show only lines matching a pattern
@@ -29,12 +29,15 @@ var bashOutputSchema = &tool.JSONSchema{
 			"type":        "string",
 			"description": "The ID of the background shell to retrieve output from",
 		},
+		"task_id": map[string]interface{}{
+			"type":        "string",
+			"description": "Async task ID returned from Bash async mode",
+		},
 		"filter": map[string]interface{}{
 			"type":        "string",
 			"description": "Optional regular expression to filter the output lines. Only lines matching this regex will be included in the result. Any lines that do not match will no longer be available to read.",
 		},
 	},
-	Required: []string{"bash_id"},
 }
 
 var defaultShellStore = newShellStore()
@@ -65,7 +68,7 @@ func (b *BashOutputTool) Execute(ctx context.Context, params map[string]interfac
 	if b == nil || b.store == nil {
 		return nil, errors.New("bash output tool is not initialised")
 	}
-	bashID, err := parseBashID(params)
+	id, isAsync, err := parseOutputID(params)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +80,29 @@ func (b *BashOutputTool) Execute(ctx context.Context, params map[string]interfac
 		return nil, err
 	}
 
-	read, err := b.store.Consume(bashID, filter)
+	if isAsync {
+		chunk, done, taskErr := DefaultAsyncTaskManager().GetOutput(id)
+		status := "running"
+		if done {
+			if taskErr != nil {
+				status = "failed"
+			} else {
+				status = "completed"
+			}
+		}
+		output := renderAsyncRead(id, status, chunk, taskErr)
+		data := map[string]interface{}{
+			"task_id": id,
+			"status":  status,
+			"output":  chunk,
+		}
+		if taskErr != nil {
+			data["error"] = taskErr.Error()
+		}
+		return &tool.ToolResult{Success: true, Output: output, Data: data}, nil
+	}
+
+	read, err := b.store.Consume(id, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -101,23 +126,38 @@ func (b *BashOutputTool) Execute(ctx context.Context, params map[string]interfac
 	}, nil
 }
 
-func parseBashID(params map[string]interface{}) (string, error) {
+func parseOutputID(params map[string]interface{}) (string, bool, error) {
 	if params == nil {
-		return "", errors.New("params is nil")
+		return "", false, errors.New("params is nil")
 	}
+	if raw, ok := params["task_id"]; ok && raw != nil {
+		id, err := coerceString(raw)
+		if err != nil {
+			return "", false, fmt.Errorf("task_id must be string: %w", err)
+		}
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return "", false, errors.New("task_id cannot be empty")
+		}
+		return id, true, nil
+	}
+
 	raw, ok := params["bash_id"]
-	if !ok {
-		return "", errors.New("bash_id is required")
+	if !ok || raw == nil {
+		return "", false, errors.New("bash_id or task_id is required")
 	}
 	id, err := coerceString(raw)
 	if err != nil {
-		return "", fmt.Errorf("bash_id must be string: %w", err)
+		return "", false, fmt.Errorf("bash_id must be string: %w", err)
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return "", errors.New("bash_id cannot be empty")
+		return "", false, errors.New("bash_id cannot be empty")
 	}
-	return id, nil
+	if _, exists := DefaultAsyncTaskManager().lookup(id); exists {
+		return id, true, nil
+	}
+	return id, false, nil
 }
 
 func parseFilter(params map[string]interface{}) (*regexp.Regexp, error) {
@@ -167,6 +207,17 @@ func collectStream(lines []ShellLine, stream ShellStream) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func renderAsyncRead(id, status, chunk string, taskErr error) string {
+	if strings.TrimSpace(chunk) == "" {
+		msg := fmt.Sprintf("task %s status=%s (no new output)", id, status)
+		if taskErr != nil {
+			msg += ": " + taskErr.Error()
+		}
+		return msg
+	}
+	return strings.TrimRight(fmt.Sprintf("task %s status=%s\n%s", id, status, chunk), "\n")
 }
 
 // ShellStatus represents the lifecycle status of a shell.

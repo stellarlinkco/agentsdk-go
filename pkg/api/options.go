@@ -145,6 +145,9 @@ type Options struct {
 	// Available built-in names include: bash, file_read, file_write, grep, glob.
 	EnabledBuiltinTools []string
 
+	// DisallowedTools is a blacklist of tool names (case-insensitive) that will not be registered.
+	DisallowedTools []string
+
 	// CustomTools appends caller-supplied tool.Tool implementations to the selected built-ins
 	// when Tools is empty. Ignored when Tools is non-empty (legacy override takes priority).
 	CustomTools []tool.Tool

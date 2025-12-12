@@ -34,6 +34,7 @@ func MergeSettings(lower, higher *Settings) *Settings {
 		result.IncludeCoAuthoredBy = boolPtr(*higher.IncludeCoAuthoredBy)
 	}
 	result.Permissions = mergePermissions(lower.Permissions, higher.Permissions)
+	result.DisallowedTools = mergeStringSlices(lower.DisallowedTools, higher.DisallowedTools)
 	result.Hooks = mergeHooks(lower.Hooks, higher.Hooks)
 	if higher.DisableAllHooks != nil {
 		result.DisableAllHooks = boolPtr(*higher.DisableAllHooks)
@@ -353,6 +354,7 @@ func cloneSettings(src *Settings) *Settings {
 	out.Env = mergeMaps(nil, src.Env)
 	out.IncludeCoAuthoredBy = cloneBoolPtr(src.IncludeCoAuthoredBy)
 	out.Permissions = clonePermissions(src.Permissions)
+	out.DisallowedTools = mergeStringSlices(nil, src.DisallowedTools)
 	out.Hooks = cloneHooks(src.Hooks)
 	out.DisableAllHooks = cloneBoolPtr(src.DisableAllHooks)
 	out.StatusLine = cloneStatusLine(src.StatusLine)
