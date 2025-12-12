@@ -13,24 +13,28 @@ different models for different subagent types to optimize costs.
 ## Configuration
 
 ```go
-haikuProvider := &model.AnthropicProvider{ModelName: "claude-3-5-haiku-20241022"}
 sonnetProvider := &model.AnthropicProvider{ModelName: "claude-sonnet-4-20250514"}
+opusProvider := &model.AnthropicProvider{ModelName: "claude-opus-4-20250514"}
+haikuProvider := &model.AnthropicProvider{ModelName: "claude-3-5-haiku-20241022"}
 
-haiku, _ := haikuProvider.Model(ctx)
 sonnet, _ := sonnetProvider.Model(ctx)
+opus, _ := opusProvider.Model(ctx)
+haiku, _ := haikuProvider.Model(ctx)
 
 rt, _ := api.New(ctx, api.Options{
     Model: sonnet, // default model
 
     ModelPool: map[api.ModelTier]model.Model{
-        api.ModelTierLow:  haiku,
-        api.ModelTierMid:  sonnet,
-        api.ModelTierHigh: sonnet, // placeholder for opus
+        api.ModelTierHigh: opus,   // for planning
+        api.ModelTierMid:  sonnet, // for exploration & general
+        api.ModelTierLow:  haiku,  // available for custom use
     },
 
+    // Inspired by Claude Code's "opus plan" model selection
     SubagentModelMapping: map[string]api.ModelTier{
-        "explore": api.ModelTierLow,  // use Haiku for exploration
-        "plan":    api.ModelTierHigh, // use Opus for planning
+        "plan":            api.ModelTierHigh, // Opus for complex reasoning
+        "explore":         api.ModelTierMid,  // Sonnet for exploration
+        "general-purpose": api.ModelTierMid,  // Sonnet for general tasks
     },
 })
 ```
@@ -42,13 +46,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 go run ./examples/05-multimodel
 ```
 
-## Cost Optimization Strategy
+## Model Selection Strategy (Opus Plan)
 
 | Subagent Type | Recommended Tier | Rationale |
 |---------------|------------------|-----------|
-| explore | low | Fast exploration, simple pattern matching |
-| plan | mid/high | Needs good reasoning for planning |
-| general-purpose | high | Complex reasoning tasks |
+| plan | high (Opus) | Complex reasoning, architecture decisions |
+| explore | mid (Sonnet) | Code exploration, pattern matching |
+| general-purpose | mid (Sonnet) | Balanced for most tasks |
+| (custom) | low (Haiku) | Optional, for simple/fast tasks |
 
 ## Request-Level Override
 

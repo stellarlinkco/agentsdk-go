@@ -27,10 +27,10 @@ func main() {
 	defer cancel()
 
 	// Create model providers for different tiers.
-	// In production, you would typically use:
-	// - low:  claude-3-5-haiku (fast, cheap)
-	// - mid:  claude-sonnet-4 (balanced)
-	// - high: claude-opus-4 (powerful, expensive)
+	// Recommended production setup (inspired by Claude Code's model selection):
+	// - high: claude-opus-4 (planning, complex reasoning)
+	// - mid:  claude-sonnet-4 (exploration, general-purpose tasks)
+	// - low:  claude-3-5-haiku (optional, for simple tasks if needed)
 	haikuProvider := &modelpkg.AnthropicProvider{
 		APIKey:    apiKey,
 		ModelName: "claude-3-5-haiku-20241022",
@@ -71,12 +71,13 @@ func main() {
 			api.ModelTierHigh: opus,
 		},
 
-		// Subagent type to model tier mapping.
+		// Subagent type to model tier mapping (inspired by Claude Code's "opus plan").
 		// Keys should be lowercase subagent type names.
+		// Note: low tier is available in pool for custom use but not mapped by default.
 		SubagentModelMapping: map[string]api.ModelTier{
-			"explore":         api.ModelTierLow,  // Use Haiku for fast exploration
-			"plan":            api.ModelTierMid,  // Use Sonnet for planning
-			"general-purpose": api.ModelTierHigh, // Use Opus for complex reasoning
+			"plan":            api.ModelTierHigh, // Use Opus for planning (needs strong reasoning)
+			"explore":         api.ModelTierMid,  // Use Sonnet for exploration
+			"general-purpose": api.ModelTierMid,  // Use Sonnet for general tasks
 		},
 
 		MaxIterations: 10,
@@ -89,13 +90,13 @@ func main() {
 
 	fmt.Println("Multi-model runtime configured successfully!")
 	fmt.Println("\nModel Pool:")
-	fmt.Println("  - low:  claude-3-5-haiku (fast, cheap)")
+	fmt.Println("  - high: claude-sonnet-4 (placeholder for Opus)")
 	fmt.Println("  - mid:  claude-sonnet-4 (balanced)")
-	fmt.Println("  - high: claude-sonnet-4 (powerful placeholder)")
-	fmt.Println("\nSubagent Mappings:")
-	fmt.Println("  - explore -> low (Haiku)")
-	fmt.Println("  - plan -> mid (Sonnet)")
-	fmt.Println("  - general-purpose -> high (Opus/placeholder)")
+	fmt.Println("  - low:  claude-3-5-haiku (available for custom use)")
+	fmt.Println("\nSubagent Mappings (inspired by Claude Code's opus plan):")
+	fmt.Println("  - plan            -> high (Opus for complex reasoning)")
+	fmt.Println("  - explore         -> mid  (Sonnet for exploration)")
+	fmt.Println("  - general-purpose -> mid  (Sonnet for general tasks)")
 	fmt.Println("\nSubagents not in mapping use the default model (Sonnet).")
 
 	// Example 1: Normal request uses default model
