@@ -768,8 +768,10 @@ func (t *runtimeToolExecutor) Execute(ctx context.Context, call agent.ToolCall, 
 	if !t.isAllowed(ctx, call.Name) {
 		return agent.ToolResult{}, fmt.Errorf("tool %s is not whitelisted", call.Name)
 	}
-	if err := t.hooks.PreToolUse(ctx, coreToolUsePayload(call)); err != nil {
+	if params, err := t.hooks.PreToolUse(ctx, coreToolUsePayload(call)); err != nil {
 		return agent.ToolResult{}, err
+	} else if params != nil {
+		call.Input = params
 	}
 
 	callSpec := tool.Call{

@@ -362,6 +362,14 @@ func buildPayload(evt events.Event) ([]byte, error) {
 		envelope["tool_input"] = sanitizedToolInput(p)
 	case events.ToolResultPayload:
 		envelope["tool_response"] = sanitizedToolResult(p)
+	case events.SubagentStartPayload:
+		envelope["subagent_start"] = p
+	case events.SubagentStopPayload:
+		envelope["subagent_stop"] = p
+	case events.PermissionRequestPayload:
+		envelope["permission_request"] = p
+	case events.SessionPayload:
+		envelope["session"] = p
 	case events.NotificationPayload:
 		envelope["notification"] = p
 	case events.UserPromptPayload:
@@ -421,6 +429,12 @@ func extractToolName(payload any) string {
 		return p.Name
 	case events.ToolResultPayload:
 		return p.Name
+	case events.SubagentStartPayload:
+		return p.Name
+	case events.SubagentStopPayload:
+		return p.Name
+	case events.PermissionRequestPayload:
+		return p.ToolName
 	default:
 		return ""
 	}
@@ -428,7 +442,10 @@ func extractToolName(payload any) string {
 
 func validateEvent(t events.EventType) error {
 	switch t {
-	case events.PreToolUse, events.PostToolUse, events.Notification, events.UserPromptSubmit, events.Stop:
+	case events.PreToolUse, events.PostToolUse, events.Notification, events.UserPromptSubmit,
+		events.SessionStart, events.SessionEnd, events.Stop,
+		events.SubagentStart, events.SubagentStop,
+		events.PermissionRequest:
 		return nil
 	default:
 		return fmt.Errorf("hooks: unsupported event %s", t)

@@ -413,15 +413,33 @@ type runtimeHookAdapter struct {
 	recorder HookRecorder
 }
 
-func (h *runtimeHookAdapter) PreToolUse(ctx context.Context, evt coreevents.ToolUsePayload) error {
+func (h *runtimeHookAdapter) PreToolUse(ctx context.Context, evt coreevents.ToolUsePayload) (map[string]any, error) {
 	if h == nil || h.executor == nil {
-		return nil
+		return evt.Params, nil
 	}
-	if err := h.executor.Publish(coreevents.Event{Type: coreevents.PreToolUse, Payload: evt}); err != nil {
-		return err
+	results, err := h.executor.Execute(ctx, coreevents.Event{Type: coreevents.PreToolUse, Payload: evt})
+	if err != nil {
+		return nil, err
 	}
 	h.record(coreevents.Event{Type: coreevents.PreToolUse, Payload: evt})
-	return nil
+
+	params := evt.Params
+	for _, res := range results {
+		if res.Permission == nil {
+			continue
+		}
+		toolInput, ok := res.Permission["tool_input"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, ok := toolInput["name"].(string); ok && name != "" && name != evt.Name {
+			continue
+		}
+		if modified, ok := toolInput["params"].(map[string]any); ok {
+			params = modified
+		}
+	}
+	return params, nil
 }
 
 func (h *runtimeHookAdapter) PostToolUse(ctx context.Context, evt coreevents.ToolResultPayload) error {
@@ -456,6 +474,74 @@ func (h *runtimeHookAdapter) Stop(ctx context.Context, reason string) error {
 		return err
 	}
 	h.record(coreevents.Event{Type: coreevents.Stop, Payload: payload})
+	return nil
+}
+
+func (h *runtimeHookAdapter) PermissionRequest(ctx context.Context, evt coreevents.PermissionRequestPayload) (coreevents.PermissionDecisionType, error) {
+	if h == nil || h.executor == nil {
+		return coreevents.PermissionAllow, nil
+	}
+	results, err := h.executor.Execute(ctx, coreevents.Event{Type: coreevents.PermissionRequest, Payload: evt})
+	if err != nil {
+		return coreevents.PermissionAsk, err
+	}
+
+	decision := coreevents.PermissionAllow
+	for _, res := range results {
+		switch res.Decision {
+		case corehooks.DecisionDeny:
+			decision = coreevents.PermissionDeny
+		case corehooks.DecisionAsk:
+			if decision != coreevents.PermissionDeny {
+				decision = coreevents.PermissionAsk
+			}
+		}
+	}
+	h.record(coreevents.Event{Type: coreevents.PermissionRequest, Payload: evt})
+	return decision, nil
+}
+
+func (h *runtimeHookAdapter) SessionStart(ctx context.Context, evt coreevents.SessionPayload) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.SessionStart, Payload: evt}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.SessionStart, Payload: evt})
+	return nil
+}
+
+func (h *runtimeHookAdapter) SessionEnd(ctx context.Context, evt coreevents.SessionPayload) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.SessionEnd, Payload: evt}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.SessionEnd, Payload: evt})
+	return nil
+}
+
+func (h *runtimeHookAdapter) SubagentStart(ctx context.Context, evt coreevents.SubagentStartPayload) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.SubagentStart, Payload: evt}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.SubagentStart, Payload: evt})
+	return nil
+}
+
+func (h *runtimeHookAdapter) SubagentStop(ctx context.Context, evt coreevents.SubagentStopPayload) error {
+	if h == nil || h.executor == nil {
+		return nil
+	}
+	if err := h.executor.Publish(coreevents.Event{Type: coreevents.SubagentStop, Payload: evt}); err != nil {
+		return err
+	}
+	h.record(coreevents.Event{Type: coreevents.SubagentStop, Payload: evt})
 	return nil
 }
 

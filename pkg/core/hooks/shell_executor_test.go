@@ -319,10 +319,110 @@ func TestEnvIsMergedIntoCommand(t *testing.T) {
 	}
 }
 
+func TestBuildPayloadSerializesNewPayloadTypes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		evt       events.Event
+		key       string
+		wantField string
+	}{
+		{
+			name: "session_end",
+			evt: events.Event{
+				Type:    events.SessionEnd,
+				Payload: events.SessionPayload{SessionID: "sess", Metadata: map[string]any{"k": "v"}},
+			},
+			key:       "session",
+			wantField: "SessionID",
+		},
+		{
+			name: "subagent_start",
+			evt: events.Event{
+				Type:    events.SubagentStart,
+				Payload: events.SubagentStartPayload{Name: "sa", AgentID: "agent-1"},
+			},
+			key:       "subagent_start",
+			wantField: "AgentID",
+		},
+		{
+			name: "subagent_stop",
+			evt: events.Event{
+				Type: events.SubagentStop,
+				Payload: events.SubagentStopPayload{
+					Name:           "sa",
+					Reason:         "done",
+					AgentID:        "agent-1",
+					TranscriptPath: "/tmp/t.json",
+				},
+			},
+			key:       "subagent_stop",
+			wantField: "TranscriptPath",
+		},
+		{
+			name: "permission_request",
+			evt: events.Event{
+				Type: events.PermissionRequest,
+				Payload: events.PermissionRequestPayload{
+					ToolName:   "Bash",
+					ToolParams: map[string]any{"cmd": "ls"},
+					Reason:     "test",
+				},
+			},
+			key:       "permission_request",
+			wantField: "ToolName",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw, err := buildPayload(tc.evt)
+			if err != nil {
+				t.Fatalf("buildPayload: %v", err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			block, ok := decoded[tc.key].(map[string]any)
+			if !ok {
+				t.Fatalf("expected %s block, got %T", tc.key, decoded[tc.key])
+			}
+			if _, ok := block[tc.wantField]; !ok {
+				t.Fatalf("missing %s in %s: %+v", tc.wantField, tc.key, block)
+			}
+		})
+	}
+}
+
+func TestExecuteAcceptsNewEvents(t *testing.T) {
+	t.Parallel()
+	exec := NewExecutor()
+	types := []events.EventType{
+		events.SessionStart,
+		events.SessionEnd,
+		events.SubagentStart,
+		events.SubagentStop,
+		events.PermissionRequest,
+	}
+	for _, typ := range types {
+		typ := typ
+		t.Run(string(typ), func(t *testing.T) {
+			t.Parallel()
+			if _, err := exec.Execute(context.Background(), events.Event{Type: typ}); err != nil {
+				t.Fatalf("expected %s to be supported: %v", typ, err)
+			}
+		})
+	}
+}
+
 func TestValidateEventRejectsUnsupported(t *testing.T) {
 	t.Parallel()
 	exec := NewExecutor()
-	if _, err := exec.Execute(context.Background(), events.Event{Type: events.EventType("SessionStart")}); err == nil {
+	if _, err := exec.Execute(context.Background(), events.Event{Type: events.EventType("Unknown")}); err == nil {
 		t.Fatalf("expected unsupported event error")
 	}
 }

@@ -11,13 +11,16 @@ import (
 type EventType string
 
 const (
-	PreToolUse       EventType = "PreToolUse"
-	PostToolUse      EventType = "PostToolUse"
-	UserPromptSubmit EventType = "UserPromptSubmit"
-	SessionStart     EventType = "SessionStart"
-	Stop             EventType = "Stop"
-	SubagentStop     EventType = "SubagentStop"
-	Notification     EventType = "Notification"
+	PreToolUse        EventType = "PreToolUse"
+	PostToolUse       EventType = "PostToolUse"
+	UserPromptSubmit  EventType = "UserPromptSubmit"
+	SessionStart      EventType = "SessionStart"
+	SessionEnd        EventType = "SessionEnd"
+	Stop              EventType = "Stop"
+	SubagentStart     EventType = "SubagentStart"
+	SubagentStop      EventType = "SubagentStop"
+	Notification      EventType = "Notification"
+	PermissionRequest EventType = "PermissionRequest"
 )
 
 // Event represents a single occurrence in the system. It is intentionally
@@ -71,9 +74,34 @@ type StopPayload struct {
 
 // SubagentStopPayload is emitted when a subagent stops independently.
 type SubagentStopPayload struct {
-	Name   string
-	Reason string
+	Name           string
+	Reason         string
+	AgentID        string // unique identifier for the subagent instance
+	TranscriptPath string // path to the subagent transcript file
 }
+
+// SubagentStartPayload is emitted when a subagent starts.
+type SubagentStartPayload struct {
+	Name     string
+	AgentID  string         // unique identifier for the subagent instance
+	Metadata map[string]any // optional metadata
+}
+
+// PermissionRequestPayload is emitted when a tool requests permission.
+type PermissionRequestPayload struct {
+	ToolName   string
+	ToolParams map[string]any
+	Reason     string // optional reason for the permission request
+}
+
+// PermissionDecisionType represents the decision from a permission request hook.
+type PermissionDecisionType string
+
+const (
+	PermissionAllow PermissionDecisionType = "allow"
+	PermissionDeny  PermissionDecisionType = "deny"
+	PermissionAsk   PermissionDecisionType = "ask"
+)
 
 // NotificationPayload transports informational messages.
 type NotificationPayload struct {
