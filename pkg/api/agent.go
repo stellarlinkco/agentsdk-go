@@ -1233,6 +1233,7 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 	factories["web_fetch"] = func() tool.Tool { return toolbuiltin.NewWebFetchTool(nil) }
 	factories["web_search"] = func() tool.Tool { return toolbuiltin.NewWebSearchTool(nil) }
 	factories["bash_output"] = func() tool.Tool { return toolbuiltin.NewBashOutputTool(nil) }
+	factories["bash_status"] = func() tool.Tool { return toolbuiltin.NewBashStatusTool() }
 	factories["kill_task"] = func() tool.Tool { return toolbuiltin.NewKillTaskTool() }
 	factories["todo_write"] = func() tool.Tool { return toolbuiltin.NewTodoWriteTool() }
 	factories["ask_user_question"] = func() tool.Tool { return toolbuiltin.NewAskUserQuestionTool() }
@@ -1255,6 +1256,7 @@ func builtinOrder(entry EntryPoint) []string {
 		"web_fetch",
 		"web_search",
 		"bash_output",
+		"bash_status",
 		"kill_task",
 		"todo_write",
 		"ask_user_question",

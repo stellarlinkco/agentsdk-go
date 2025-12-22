@@ -50,7 +50,7 @@ const (
 	- **Optional**: timeout in milliseconds (max 600000ms/10 min, default 120000ms/2 min)
 	- **Description**: Write clear 5-10 word description of command purpose
 	- **Output limit**: Truncated if exceeds 30000 characters
-	- **Async execution**: Set 'async=true' for long-running tasks (dev servers, log tailing). Use BashOutput with task_id to poll output, and KillTask to stop.
+	- **Async execution**: Set 'async=true' for long-running tasks (dev servers, log tailing). Use BashStatus with task_id to poll status (no output consumption), BashOutput with task_id to poll output, and KillTask to stop.
 
 	## Command Preferences
 
