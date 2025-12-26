@@ -130,7 +130,7 @@ func NewAnthropic(cfg AnthropicConfig) (Model, error) {
 		return nil, errors.New("anthropic: api key required")
 	}
 
-	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	opts := []option.RequestOption{}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}

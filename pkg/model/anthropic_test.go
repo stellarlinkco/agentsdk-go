@@ -545,30 +545,30 @@ func TestAdditionalBranchesII(t *testing.T) {
 }
 
 func TestResolveAPIKeyPriority(t *testing.T) {
-	t.Run("auth token wins", func(t *testing.T) {
+	t.Run("configured APIKey wins over env vars", func(t *testing.T) {
 		t.Setenv("ANTHROPIC_AUTH_TOKEN", "  auth-token  ")
 		t.Setenv("ANTHROPIC_API_KEY", "api-key")
-		val := (&AnthropicProvider{APIKey: "cfg-key"}).resolveAPIKey()
+		val := (&AnthropicProvider{APIKey: " cfg-key "}).resolveAPIKey()
+		if val != "cfg-key" {
+			t.Fatalf("expected configured APIKey to win, got %s", val)
+		}
+	})
+
+	t.Run("fallback to ANTHROPIC_AUTH_TOKEN", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_AUTH_TOKEN", "  auth-token  ")
+		t.Setenv("ANTHROPIC_API_KEY", "api-key")
+		val := (&AnthropicProvider{APIKey: ""}).resolveAPIKey()
 		if val != "auth-token" {
 			t.Fatalf("expected ANTHROPIC_AUTH_TOKEN to win, got %s", val)
 		}
 	})
 
-	t.Run("api key when auth token missing", func(t *testing.T) {
+	t.Run("fallback to ANTHROPIC_API_KEY when auth token missing", func(t *testing.T) {
 		t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 		t.Setenv("ANTHROPIC_API_KEY", "  api-key  ")
-		val := (&AnthropicProvider{APIKey: "cfg-key"}).resolveAPIKey()
+		val := (&AnthropicProvider{APIKey: ""}).resolveAPIKey()
 		if val != "api-key" {
 			t.Fatalf("expected ANTHROPIC_API_KEY to win, got %s", val)
-		}
-	})
-
-	t.Run("fallback to explicit config", func(t *testing.T) {
-		t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-		t.Setenv("ANTHROPIC_API_KEY", "")
-		val := (&AnthropicProvider{APIKey: " cfg-key "}).resolveAPIKey()
-		if val != "cfg-key" {
-			t.Fatalf("expected explicit APIKey to be used, got %s", val)
 		}
 	})
 }
@@ -770,6 +770,13 @@ func TestAnthropicRequestOptionsAPIKeyPriority(t *testing.T) {
 			expectedAPIKey: "sk-config-key",
 		},
 		{
+			name:           "configured APIKey is trimmed",
+			configuredKey:  "  sk-key  ",
+			envAuthToken:   "  sk-env  ",
+			envAPIKey:      "sk-env-api-key",
+			expectedAPIKey: "sk-key",
+		},
+		{
 			name:           "fallback to ANTHROPIC_AUTH_TOKEN",
 			configuredKey:  "",
 			envAuthToken:   "sk-env-auth-token",
@@ -777,10 +784,17 @@ func TestAnthropicRequestOptionsAPIKeyPriority(t *testing.T) {
 			expectedAPIKey: "sk-env-auth-token",
 		},
 		{
+			name:           "env auth token is trimmed",
+			configuredKey:  "",
+			envAuthToken:   "  sk-env  ",
+			envAPIKey:      "sk-env-api-key",
+			expectedAPIKey: "sk-env",
+		},
+		{
 			name:           "fallback to ANTHROPIC_API_KEY",
 			configuredKey:  "",
 			envAuthToken:   "",
-			envAPIKey:      "sk-env-api-key",
+			envAPIKey:      "  sk-env-api-key  ",
 			expectedAPIKey: "sk-env-api-key",
 		},
 		{
