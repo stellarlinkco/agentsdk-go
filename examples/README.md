@@ -69,3 +69,30 @@ source .env
 go run ./examples/05-custom-tools
 ```
 - See [05-custom-tools/README.md](05-custom-tools/README.md) for detailed usage and custom tool implementation guide.
+
+## 05-multimodel — multi-model support
+- Key features: model pool configuration, tier-based model routing (low/mid/high), subagent-model mapping, cost optimization.
+- Run:
+```bash
+source .env
+go run ./examples/05-multimodel
+```
+- See [05-multimodel/README.md](05-multimodel/README.md) for configuration examples and best practices.
+
+## 08-askuserquestion — AskUserQuestion tool
+- Key features: three independent demo programs showing different aspects of the AskUserQuestion tool.
+- Run:
+```bash
+# Demo 1: Tool-only test (no API key needed)
+go run ./examples/08-askuserquestion/demo_simple.go
+
+# Demo 2: LLM integration test (requires API key)
+source .env
+go run ./examples/08-askuserquestion/demo_llm.go
+
+# Demo 3: Full agent scenarios (requires API key)
+source .env
+go run ./examples/08-askuserquestion/main.go
+```
+- **Note**: This directory contains 3 independent programs with their own `main()` functions. Run each file separately, not with `go run .`
+- See [08-askuserquestion/README.md](08-askuserquestion/README.md) for detailed usage and implementation patterns.

@@ -2,7 +2,7 @@
 
 # agentsdk-go 示例
 
-五个分层示例，均可在仓库根目录运行。
+七个分层示例，均可在仓库根目录运行。
 
 **环境配置**
 
@@ -28,6 +28,8 @@ export ANTHROPIC_API_KEY=sk-ant-your-key-here
 - `03-http`（约 300 行）：REST + SSE 服务，监听 `:8080`，生产级组合。
 - `04-advanced`（约 1400 行）：全功能集成，包含 middleware、hooks、MCP、sandbox、skills、subagents。
 - `05-custom-tools`（约 150 行）：选择性内置工具和自定义工具注册。
+- `05-multimodel`（约 120 行）：多模型支持，模型池和分层路由。
+- `08-askuserquestion`（约 150 行）：AskUserQuestion 工具集成，多种演示场景。
 
 ## 01-basic — 最小入门
 - 目标：最快看到 SDK 核心循环，一次请求一次响应。
@@ -69,3 +71,30 @@ source .env
 go run ./examples/05-custom-tools
 ```
 - 详细用法和自定义工具实现指南见 [05-custom-tools/README.md](05-custom-tools/README.md)。
+
+## 05-multimodel — 多模型支持
+- 关键特性：模型池配置、分层模型路由（low/mid/high）、子代理-模型映射、成本优化。
+- 运行：
+```bash
+source .env
+go run ./examples/05-multimodel
+```
+- 配置示例和最佳实践见 [05-multimodel/README.md](05-multimodel/README.md)。
+
+## 08-askuserquestion — AskUserQuestion 工具
+- 关键特性：三个独立的演示程序，展示 AskUserQuestion 工具的不同方面。
+- 运行：
+```bash
+# Demo 1：纯工具测试（无需 API key）
+go run ./examples/08-askuserquestion/demo_simple.go
+
+# Demo 2：LLM 集成测试（需要 API key）
+source .env
+go run ./examples/08-askuserquestion/demo_llm.go
+
+# Demo 3：完整 agent 场景（需要 API key）
+source .env
+go run ./examples/08-askuserquestion/main.go
+```
+- **注意**：该目录包含 3 个独立程序，各有自己的 `main()` 函数。请分别运行每个文件，不要使用 `go run .`
+- 详细用法和实现模式见 [08-askuserquestion/README.md](08-askuserquestion/README.md)。

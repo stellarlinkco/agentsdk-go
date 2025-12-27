@@ -20,10 +20,10 @@ func main() {
 	}
 
 	// 创建 Anthropic provider
-	provider := model.NewAnthropicProvider(
-		model.WithAPIKey(apiKey),
-		model.WithModel("claude-sonnet-4-5"),
-	)
+	provider := &model.AnthropicProvider{
+		APIKey:    apiKey,
+		ModelName: "claude-sonnet-4-5-20250929",
+	}
 
 	ctx := context.Background()
 
@@ -60,7 +60,7 @@ func main() {
 	if err != nil {
 		log.Printf("场景 1 执行出错: %v\n", err)
 	} else {
-		fmt.Printf("输出:\n%s\n", result1.Output)
+		fmt.Printf("输出:\n%s\n", result1.Result.Output)
 	}
 	fmt.Println()
 
@@ -91,7 +91,7 @@ func main() {
 	if err != nil {
 		log.Printf("场景 2 执行出错: %v\n", err)
 	} else {
-		fmt.Printf("输出:\n%s\n", result2.Output)
+		fmt.Printf("输出:\n%s\n", result2.Result.Output)
 	}
 	fmt.Println()
 
@@ -115,7 +115,7 @@ func main() {
 	if err != nil {
 		log.Printf("场景 3 执行出错: %v\n", err)
 	} else {
-		fmt.Printf("输出:\n%s\n", result3.Output)
+		fmt.Printf("输出:\n%s\n", result3.Result.Output)
 	}
 	fmt.Println()
 
@@ -132,7 +132,7 @@ func main() {
 	if err != nil {
 		log.Printf("场景 4 执行出错: %v\n", err)
 	} else {
-		fmt.Printf("输出:\n%s\n", result4.Output)
+		fmt.Printf("输出:\n%s\n", result4.Result.Output)
 	}
 	fmt.Println()
 
