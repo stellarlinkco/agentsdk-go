@@ -421,7 +421,7 @@ func TestHelperBranches(t *testing.T) {
 		t.Fatalf("mapModelName default mismatch: %s", got)
 	}
 
-	sys, msgs, err := convertMessages(nil, "sys")
+	sys, msgs, err := convertMessages(nil, false, "sys")
 	if err != nil {
 		t.Fatalf("convertMessages error: %v", err)
 	}
@@ -1131,3 +1131,194 @@ func (tempNetErr) Temporary() bool { return true }
 
 // Avoid "imported and not used" when running go vet in memory constrained CI.
 var _ net.Error = tempNetErr{}
+
+func TestPromptCacheEnabled(t *testing.T) {
+	var seen anthropicsdk.MessageNewParams
+	mock := &fakeMessages{
+		newFn: func(ctx context.Context, params anthropicsdk.MessageNewParams) (*anthropicsdk.Message, error) {
+			seen = params
+			msg := anthropicsdk.Message{
+				Role:    constant.Assistant("assistant"),
+				Content: []anthropicsdk.ContentBlockUnion{{Type: "text", Text: "cached response"}},
+				Usage: anthropicsdk.Usage{
+					InputTokens:              50,
+					OutputTokens:             10,
+					CacheCreationInputTokens: 40,
+					CacheReadInputTokens:     10,
+				},
+			}
+			msg.StopReason = "end_turn"
+			return &msg, nil
+		},
+	}
+
+	m := &anthropicModel{
+		msgs:       mock,
+		model:      anthropicsdk.ModelClaudeSonnet4_5,
+		maxTokens:  256,
+		maxRetries: 0,
+		system:     "base-system",
+	}
+
+	req := Request{
+		System:            "inline-system",
+		EnablePromptCache: true,
+		Messages: []Message{
+			{Role: "user", Content: "first question"},
+			{Role: "assistant", Content: "first answer"},
+			{Role: "user", Content: "second question"},
+			{Role: "assistant", Content: "second answer"},
+			{Role: "user", Content: "third question"},
+		},
+	}
+
+	resp, err := m.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("complete returned error: %v", err)
+	}
+
+	// Verify system blocks have cache control on the last block
+	if len(seen.System) != 2 {
+		t.Fatalf("expected 2 system blocks, got %d", len(seen.System))
+	}
+	lastSysBlock := seen.System[len(seen.System)-1]
+	if lastSysBlock.CacheControl.Type == "" {
+		t.Fatalf("expected cache control on last system block")
+	}
+
+	// Verify the last 3 user messages have cache control
+	userMsgWithCache := 0
+	for i := len(seen.Messages) - 1; i >= 0 && userMsgWithCache < 3; i-- {
+		msg := seen.Messages[i]
+		if msg.Role == anthropicsdk.MessageParamRoleUser {
+			if len(msg.Content) == 0 {
+				t.Fatalf("user message %d has no content", i)
+			}
+			lastContent := msg.Content[len(msg.Content)-1]
+			cacheCtrl := lastContent.GetCacheControl()
+			if cacheCtrl == nil || cacheCtrl.Type == "" {
+				t.Fatalf("expected cache control on user message %d, got nil", i)
+			}
+			userMsgWithCache++
+		}
+	}
+
+	if userMsgWithCache != 3 {
+		t.Fatalf("expected 3 user messages with cache control, got %d", userMsgWithCache)
+	}
+
+	// Verify usage includes cache metrics
+	if resp.Usage.CacheCreationTokens != 40 {
+		t.Fatalf("expected cache creation tokens 40, got %d", resp.Usage.CacheCreationTokens)
+	}
+	if resp.Usage.CacheReadTokens != 10 {
+		t.Fatalf("expected cache read tokens 10, got %d", resp.Usage.CacheReadTokens)
+	}
+}
+
+func TestPromptCacheDisabled(t *testing.T) {
+	var seen anthropicsdk.MessageNewParams
+	mock := &fakeMessages{
+		newFn: func(ctx context.Context, params anthropicsdk.MessageNewParams) (*anthropicsdk.Message, error) {
+			seen = params
+			msg := anthropicsdk.Message{
+				Role:    constant.Assistant("assistant"),
+				Content: []anthropicsdk.ContentBlockUnion{{Type: "text", Text: "non-cached response"}},
+				Usage:   anthropicsdk.Usage{InputTokens: 50, OutputTokens: 10},
+			}
+			msg.StopReason = "end_turn"
+			return &msg, nil
+		},
+	}
+
+	m := &anthropicModel{
+		msgs:       mock,
+		model:      anthropicsdk.ModelClaudeSonnet4_5,
+		maxTokens:  256,
+		maxRetries: 0,
+		system:     "base-system",
+	}
+
+	req := Request{
+		System:            "inline-system",
+		EnablePromptCache: false, // explicitly disabled
+		Messages: []Message{
+			{Role: "user", Content: "question"},
+		},
+	}
+
+	_, err := m.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("complete returned error: %v", err)
+	}
+
+	// Verify system blocks do NOT have cache control
+	for i, block := range seen.System {
+		if block.CacheControl.Type != "" {
+			t.Fatalf("expected no cache control on system block %d", i)
+		}
+	}
+
+	// Verify messages do NOT have cache control
+	for i, msg := range seen.Messages {
+		for j, content := range msg.Content {
+			cacheCtrl := content.GetCacheControl()
+			if cacheCtrl != nil && cacheCtrl.Type != "" {
+				t.Fatalf("expected no cache control on message %d content %d", i, j)
+			}
+		}
+	}
+}
+
+func TestPromptCacheWithLessThanThreeUserMessages(t *testing.T) {
+	var seen anthropicsdk.MessageNewParams
+	mock := &fakeMessages{
+		newFn: func(ctx context.Context, params anthropicsdk.MessageNewParams) (*anthropicsdk.Message, error) {
+			seen = params
+			msg := anthropicsdk.Message{
+				Role:    constant.Assistant("assistant"),
+				Content: []anthropicsdk.ContentBlockUnion{{Type: "text", Text: "response"}},
+				Usage:   anthropicsdk.Usage{InputTokens: 20, OutputTokens: 5},
+			}
+			msg.StopReason = "end_turn"
+			return &msg, nil
+		},
+	}
+
+	m := &anthropicModel{
+		msgs:       mock,
+		model:      anthropicsdk.ModelClaudeSonnet4_5,
+		maxTokens:  256,
+		maxRetries: 0,
+	}
+
+	req := Request{
+		EnablePromptCache: true,
+		Messages: []Message{
+			{Role: "user", Content: "only question"},
+		},
+	}
+
+	_, err := m.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("complete returned error: %v", err)
+	}
+
+	// Verify only 1 user message has cache control (since we only have 1 user message)
+	userMsgWithCache := 0
+	for _, msg := range seen.Messages {
+		if msg.Role == anthropicsdk.MessageParamRoleUser {
+			for _, content := range msg.Content {
+				cacheCtrl := content.GetCacheControl()
+				if cacheCtrl != nil && cacheCtrl.Type != "" {
+					userMsgWithCache++
+					break
+				}
+			}
+		}
+	}
+
+	if userMsgWithCache != 1 {
+		t.Fatalf("expected 1 user message with cache control, got %d", userMsgWithCache)
+	}
+}

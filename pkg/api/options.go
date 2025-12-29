@@ -146,6 +146,11 @@ type Options struct {
 	// Subagents not in this map use the default Model.
 	SubagentModelMapping map[string]ModelTier
 
+	// DefaultEnableCache sets the default prompt caching behavior for all requests.
+	// Individual requests can override this via Request.EnablePromptCache.
+	// Prompt caching reduces costs for repeated context (system prompts, conversation history).
+	DefaultEnableCache bool
+
 	SystemPrompt string
 	RulesEnabled *bool // nil = 默认启用，false = 禁用
 
@@ -212,18 +217,19 @@ func DefaultSubagentDefinitions() []subagents.Definition {
 // forwarded to the declarative runtime layers (skills/subagents) while
 // RunContext overrides the agent-level execution knobs.
 type Request struct {
-	Prompt         string
-	Mode           ModeContext
-	SessionID      string
-	RequestID      string    `json:"request_id,omitempty"` // Auto-generated UUID or user-provided
-	Model          ModelTier // Optional: override model tier for this request
-	Traits         []string
-	Tags           map[string]string
-	Channels       []string
-	Metadata       map[string]any
-	TargetSubagent string
-	ToolWhitelist  []string
-	ForceSkills    []string
+	Prompt            string
+	Mode              ModeContext
+	SessionID         string
+	RequestID         string    `json:"request_id,omitempty"` // Auto-generated UUID or user-provided
+	Model             ModelTier // Optional: override model tier for this request
+	EnablePromptCache *bool     // Optional: enable prompt caching (nil uses global default)
+	Traits            []string
+	Tags              map[string]string
+	Channels          []string
+	Metadata          map[string]any
+	TargetSubagent    string
+	ToolWhitelist     []string
+	ForceSkills       []string
 }
 
 // Response aggregates the final agent result together with metadata emitted

@@ -260,13 +260,85 @@ func newClaudeProject(t *testing.T) string {
 	return root
 }
 
+func TestRuntimeCacheConfigPriority(t *testing.T) {
+	root := newClaudeProject(t)
+
+	tests := []struct {
+		name               string
+		defaultEnableCache bool
+		reqEnableCache     *bool
+		wantCache          bool
+	}{
+		{
+			name:               "global default enabled, request not set",
+			defaultEnableCache: true,
+			reqEnableCache:     nil,
+			wantCache:          true,
+		},
+		{
+			name:               "global default disabled, request not set",
+			defaultEnableCache: false,
+			reqEnableCache:     nil,
+			wantCache:          false,
+		},
+		{
+			name:               "request overrides global (enable)",
+			defaultEnableCache: false,
+			reqEnableCache:     boolPtr(true),
+			wantCache:          true,
+		},
+		{
+			name:               "request overrides global (disable)",
+			defaultEnableCache: true,
+			reqEnableCache:     boolPtr(false),
+			wantCache:          false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mdl := &stubModel{responses: []*model.Response{{Message: model.Message{Role: "assistant", Content: "done"}}}}
+			rt, err := New(context.Background(), Options{
+				ProjectRoot:        root,
+				Model:              mdl,
+				DefaultEnableCache: tt.defaultEnableCache,
+			})
+			if err != nil {
+				t.Fatalf("runtime: %v", err)
+			}
+			t.Cleanup(func() { _ = rt.Close() })
+
+			req := Request{
+				Prompt:            "test",
+				EnablePromptCache: tt.reqEnableCache,
+			}
+
+			_, err = rt.Run(context.Background(), req)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			// Verify model request had correct cache setting
+			if len(mdl.requests) == 0 {
+				t.Fatal("expected model request")
+			}
+			got := mdl.requests[0].EnablePromptCache
+			if got != tt.wantCache {
+				t.Errorf("EnablePromptCache = %v, want %v", got, tt.wantCache)
+			}
+		})
+	}
+}
+
 type stubModel struct {
 	responses []*model.Response
+	requests  []model.Request
 	idx       int
 	err       error
 }
 
-func (s *stubModel) Complete(context.Context, model.Request) (*model.Response, error) {
+func (s *stubModel) Complete(_ context.Context, req model.Request) (*model.Response, error) {
+	s.requests = append(s.requests, req)
 	if s.err != nil {
 		return nil, s.err
 	}

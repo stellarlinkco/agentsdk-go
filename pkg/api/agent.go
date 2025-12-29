@@ -474,6 +474,12 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 		}
 	}
 
+	// Determine cache enablement: request-level overrides global default
+	enableCache := rt.opts.DefaultEnableCache
+	if prep.normalized.EnablePromptCache != nil {
+		enableCache = *prep.normalized.EnablePromptCache
+	}
+
 	modelAdapter := &conversationModel{
 		base:         selectedModel,
 		history:      prep.history,
@@ -482,6 +488,7 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 		tools:        availableTools(rt.registry, prep.toolWhitelist),
 		systemPrompt: rt.opts.SystemPrompt,
 		rulesLoader:  rt.rulesLoader,
+		enableCache:  enableCache,
 		hooks:        &runtimeHookAdapter{executor: rt.hooks, recorder: prep.recorder},
 		recorder:     prep.recorder,
 		compactor:    rt.compactor,
@@ -878,6 +885,7 @@ type conversationModel struct {
 	tools        []model.ToolDefinition
 	systemPrompt string
 	rulesLoader  *config.RulesLoader
+	enableCache  bool // Enable prompt caching for this conversation
 	usage        model.Usage
 	stopReason   string
 	hooks        *runtimeHookAdapter
@@ -916,12 +924,13 @@ func (m *conversationModel) Generate(ctx context.Context, _ *agent.Context) (*ag
 		}
 	}
 	req := model.Request{
-		Messages:    convertMessages(snapshot),
-		Tools:       m.tools,
-		System:      systemPrompt,
-		MaxTokens:   0,
-		Model:       "",
-		Temperature: nil,
+		Messages:          convertMessages(snapshot),
+		Tools:             m.tools,
+		System:            systemPrompt,
+		MaxTokens:         0,
+		Model:             "",
+		Temperature:       nil,
+		EnablePromptCache: m.enableCache,
 	}
 
 	// Populate middleware state with model request if available

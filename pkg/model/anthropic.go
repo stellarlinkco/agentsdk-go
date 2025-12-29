@@ -261,7 +261,7 @@ func (m *anthropicModel) CompleteStream(ctx context.Context, req Request, cb Str
 }
 
 func (m *anthropicModel) buildParams(req Request) (anthropicsdk.MessageNewParams, error) {
-	systemBlocks, messageParams, err := convertMessages(req.Messages, m.system, req.System)
+	systemBlocks, messageParams, err := convertMessages(req.Messages, req.EnablePromptCache, m.system, req.System)
 	if err != nil {
 		return anthropicsdk.MessageNewParams{}, err
 	}
@@ -379,7 +379,7 @@ func convertCountTools(tools []anthropicsdk.ToolUnionParam) []anthropicsdk.Messa
 	return out
 }
 
-func convertMessages(msgs []Message, defaults ...string) ([]anthropicsdk.TextBlockParam, []anthropicsdk.MessageParam, error) {
+func convertMessages(msgs []Message, enableCache bool, defaults ...string) ([]anthropicsdk.TextBlockParam, []anthropicsdk.MessageParam, error) {
 	var systemBlocks []anthropicsdk.TextBlockParam
 	for _, sys := range defaults {
 		if trimmed := strings.TrimSpace(sys); trimmed != "" {
@@ -429,6 +429,35 @@ func convertMessages(msgs []Message, defaults ...string) ([]anthropicsdk.TextBlo
 				anthropicsdk.NewTextBlock("."),
 			},
 		})
+	}
+
+	// Apply cache control if enabled
+	if enableCache {
+		// Mark the last system block for caching
+		if len(systemBlocks) > 0 {
+			systemBlocks[len(systemBlocks)-1].CacheControl = anthropicsdk.NewCacheControlEphemeralParam()
+		}
+
+		// Mark the last 2-3 user messages for caching to optimize multi-turn conversations
+		userMsgCount := 0
+		for i := len(messageParams) - 1; i >= 0 && userMsgCount < 3; i-- {
+			if messageParams[i].Role == anthropicsdk.MessageParamRoleUser && len(messageParams[i].Content) > 0 {
+				// Mark the last content block in this message
+				lastIdx := len(messageParams[i].Content) - 1
+				block := &messageParams[i].Content[lastIdx]
+
+				// Only cache text blocks
+				if text := block.GetText(); text != nil && *text != "" {
+					messageParams[i].Content[lastIdx] = anthropicsdk.ContentBlockParamUnion{
+						OfText: &anthropicsdk.TextBlockParam{
+							Text:         *text,
+							CacheControl: anthropicsdk.NewCacheControlEphemeralParam(),
+						},
+					}
+				}
+				userMsgCount++
+			}
+		}
 	}
 
 	return systemBlocks, messageParams, nil
