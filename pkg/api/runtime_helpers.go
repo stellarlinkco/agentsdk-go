@@ -90,7 +90,12 @@ func convertToolCalls(calls []message.ToolCall) []model.ToolCall {
 	}
 	out := make([]model.ToolCall, len(calls))
 	for i, call := range calls {
-		out[i] = model.ToolCall{ID: call.ID, Name: call.Name, Arguments: cloneArguments(call.Arguments)}
+		out[i] = model.ToolCall{
+			ID:        call.ID,
+			Name:      call.Name,
+			Arguments: cloneArguments(call.Arguments),
+			Result:    call.Result,
+		}
 	}
 	return out
 }
