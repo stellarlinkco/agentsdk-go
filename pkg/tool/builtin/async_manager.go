@@ -279,6 +279,50 @@ func (m *AsyncTaskManager) List() []AsyncTaskInfo {
 	return out
 }
 
+// Shutdown attempts to terminate all tasks and waits for completion.
+// It is best-effort: any kill errors are logged, and the method blocks until
+// every task signals Done or the context is cancelled.
+func (m *AsyncTaskManager) Shutdown(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	m.mu.RLock()
+	tasks := make([]*AsyncTask, 0, len(m.tasks))
+	for _, task := range m.tasks {
+		if task != nil {
+			tasks = append(tasks, task)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, task := range tasks {
+		if task == nil {
+			continue
+		}
+		if err := m.Kill(task.ID); err != nil {
+			log.Printf("async task %s shutdown kill: %v", task.ID, err)
+		}
+	}
+
+	var errs []error
+	for _, task := range tasks {
+		if task == nil || task.Done == nil {
+			continue
+		}
+		select {
+		case <-task.Done:
+		case <-ctx.Done():
+			errs = append(errs, ctx.Err())
+			return errors.Join(errs...)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (m *AsyncTaskManager) lookup(id string) (*AsyncTask, bool) {
 	if m == nil || id == "" {
 		return nil, false

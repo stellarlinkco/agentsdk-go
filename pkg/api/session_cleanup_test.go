@@ -8,11 +8,8 @@ import (
 	"time"
 )
 
-func TestSessionEvictionCleansTempDir(t *testing.T) {
+func TestSessionEvictionDoesNotCleanTempDir(t *testing.T) {
 	store := newHistoryStore(1)
-	var evicted []string
-	var cleanupErr error
-
 	sessionID := "session-to-evict"
 	dir := bashOutputSessionDir(sessionID)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
@@ -24,23 +21,33 @@ func TestSessionEvictionCleansTempDir(t *testing.T) {
 		t.Fatalf("write dummy output: %v", err)
 	}
 
-	store.onEvict = func(id string) {
-		evicted = append(evicted, id)
-		cleanupErr = cleanupBashOutputSessionDir(id)
-	}
-
 	store.Get(sessionID)
 	time.Sleep(100 * time.Microsecond)
 	store.Get("session-to-keep")
 
-	if cleanupErr != nil {
-		t.Fatalf("cleanup evicted session dir: %v", cleanupErr)
+	ids := store.SessionIDs()
+	if len(ids) != 1 || ids[0] != "session-to-keep" {
+		t.Fatalf("expected store to retain only session-to-keep, got %v", ids)
 	}
-	if len(evicted) != 1 || evicted[0] != sessionID {
-		t.Fatalf("evicted=%v, want [%q]", evicted, sessionID)
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("expected session dir to remain after eviction, stat=%v", err)
 	}
-	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected session dir removed, stat=%v", err)
+}
+
+func TestSessionEvictionInvokesCallbackWhenPresent(t *testing.T) {
+	store := newHistoryStore(1)
+	var evicted []string
+
+	store.onEvict = func(id string) {
+		evicted = append(evicted, id)
+	}
+
+	store.Get("session-to-evict")
+	time.Sleep(100 * time.Microsecond)
+	store.Get("session-to-keep")
+
+	if len(evicted) != 1 || evicted[0] != "session-to-evict" {
+		t.Fatalf("evicted=%v, want [session-to-evict]", evicted)
 	}
 }
 

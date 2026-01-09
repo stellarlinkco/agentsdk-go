@@ -785,6 +785,7 @@ type spoolWriter struct {
 	path        string
 	fileFactory func() (*os.File, string, error)
 	truncated   bool
+	err         error
 }
 
 func newSpoolWriter(threshold int, fileFactory func() (*os.File, string, error)) *spoolWriter {
@@ -807,6 +808,9 @@ func (w *spoolWriter) Write(p []byte) (int, error) {
 	}
 	if w.file != nil {
 		if _, err := w.file.Write(p); err != nil {
+			if w.err == nil {
+				w.err = err
+			}
 			w.truncated = true
 		}
 		return len(p), nil
@@ -816,18 +820,45 @@ func (w *spoolWriter) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
+	if w.fileFactory == nil {
+		if w.err == nil {
+			w.err = errors.New("bash spool: file factory is nil")
+		}
+		w.truncated = true
+		return len(p), nil
+	}
+
 	f, path, err := w.fileFactory()
 	if err != nil {
+		if w.err == nil {
+			w.err = err
+		}
+		w.truncated = true
+		return len(p), nil
+	}
+	if f == nil || strings.TrimSpace(path) == "" {
+		if f != nil {
+			_ = f.Close()
+		}
+		if w.err == nil {
+			w.err = errors.New("bash spool: output file is invalid")
+		}
 		w.truncated = true
 		return len(p), nil
 	}
 	if _, err := f.Write(w.buf.Bytes()); err != nil {
+		if w.err == nil {
+			w.err = err
+		}
 		_ = f.Close()
 		_ = os.Remove(path)
 		w.truncated = true
 		return len(p), nil
 	}
 	if _, err := f.Write(p); err != nil {
+		if w.err == nil {
+			w.err = err
+		}
 		_ = f.Close()
 		_ = os.Remove(path)
 		w.truncated = true
@@ -846,11 +877,11 @@ func (w *spoolWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.file == nil {
-		return nil
+		return w.err
 	}
-	err := w.file.Close()
+	closeErr := w.file.Close()
 	w.file = nil
-	return err
+	return errors.Join(w.err, closeErr)
 }
 
 func (w *spoolWriter) Path() string {

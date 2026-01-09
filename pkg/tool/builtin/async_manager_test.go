@@ -189,6 +189,54 @@ func TestAsyncTaskManagerSpoolsLargeOutputToDisk(t *testing.T) {
 	}
 }
 
+func TestAsyncTaskManagerShutdownStopsTasks(t *testing.T) {
+	skipIfWindows(t)
+	m := newAsyncTaskManager()
+	if err := m.Start("task-shutdown", "sleep 5"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := m.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	task, ok := m.lookup("task-shutdown")
+	if !ok {
+		t.Fatalf("expected task to be registered")
+	}
+	select {
+	case <-task.Done:
+	default:
+		t.Fatalf("expected task to be done after shutdown")
+	}
+}
+
+func TestAsyncTaskManagerShutdownRespectsContextCancel(t *testing.T) {
+	skipIfWindows(t)
+	m := newAsyncTaskManager()
+	if err := m.Start("task-shutdown-timeout", "sleep 5"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := m.Shutdown(ctx); err == nil {
+		t.Fatalf("expected shutdown to return context error")
+	}
+
+	_ = m.Kill("task-shutdown-timeout")
+	task, _ := m.lookup("task-shutdown-timeout")
+	if task != nil {
+		select {
+		case <-task.Done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected task to stop after kill")
+		}
+	}
+}
+
 func TestAsyncCoverageHarness(t *testing.T) {
 	run := flag.Lookup("test.run")
 	if run == nil || run.Value.String() == "" || !strings.Contains(run.Value.String(), "TestAsync") {

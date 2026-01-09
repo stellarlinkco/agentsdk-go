@@ -334,6 +334,46 @@ func TestBashSpoolWriterTruncatesAfterFactoryError(t *testing.T) {
 	}
 }
 
+func TestBashSpoolWriterClosePropagatesFactoryError(t *testing.T) {
+	w := newSpoolWriter(1, func() (*os.File, string, error) {
+		return nil, "", errors.New("boom")
+	})
+	_, _ = w.Write([]byte("a"))
+	_, _ = w.Write([]byte("b"))
+	if err := w.Close(); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expected close to surface factory error, got %v", err)
+	}
+}
+
+func TestBashSpoolWriterTruncatesWhenFactoryNil(t *testing.T) {
+	w := newSpoolWriter(0, nil)
+	_, _ = w.Write([]byte("a"))
+	if !w.truncated {
+		t.Fatalf("expected writer to truncate when factory is nil")
+	}
+	if err := w.Close(); err == nil || !strings.Contains(err.Error(), "file factory") {
+		t.Fatalf("expected close to surface factory error, got %v", err)
+	}
+}
+
+func TestBashSpoolWriterTruncatesWhenFactoryReturnsEmptyPath(t *testing.T) {
+	dir := cleanTempDir(t)
+	w := newSpoolWriter(0, func() (*os.File, string, error) {
+		f, err := os.CreateTemp(dir, "badpath-*.tmp")
+		if err != nil {
+			return nil, "", err
+		}
+		return f, "   ", nil
+	})
+	_, _ = w.Write([]byte("a"))
+	if !w.truncated {
+		t.Fatalf("expected writer to truncate when factory returns empty path")
+	}
+	if err := w.Close(); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("expected close to surface invalid path error, got %v", err)
+	}
+}
+
 func TestBashSpoolWriterTruncatesAfterFileWriteFailure(t *testing.T) {
 	dir := cleanTempDir(t)
 	tmp, err := os.CreateTemp(dir, "ro-*.tmp")

@@ -189,11 +189,6 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		tracer:      tracer,
 	}
 	rt.sessionGate = newSessionGate()
-	rt.histories.onEvict = func(sessionID string) {
-		if err := cleanupBashOutputSessionDir(sessionID); err != nil {
-			log.Printf("api: session %q temp cleanup failed: %v", sessionID, err)
-		}
-	}
 
 	if taskTool != nil {
 		taskTool.SetRunner(rt.taskRunner())
@@ -334,7 +329,13 @@ func (rt *Runtime) Close() error {
 		rt.runWG.Wait()
 
 		var err error
-		if rt.histories != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownErr := toolbuiltin.DefaultAsyncTaskManager().Shutdown(shutdownCtx)
+		cancel()
+		if shutdownErr != nil {
+			err = errors.Join(err, shutdownErr)
+		}
+		if shutdownErr == nil && rt.histories != nil {
 			for _, sessionID := range rt.histories.SessionIDs() {
 				if cleanupErr := cleanupBashOutputSessionDir(sessionID); cleanupErr != nil {
 					log.Printf("api: session %q temp cleanup failed: %v", sessionID, cleanupErr)
@@ -343,15 +344,15 @@ func (rt *Runtime) Close() error {
 		}
 		if rt.rulesLoader != nil {
 			if e := rt.rulesLoader.Close(); e != nil {
-				err = e
+				err = errors.Join(err, e)
 			}
 		}
 		if rt.registry != nil {
 			rt.registry.Close()
 		}
 		if rt.tracer != nil {
-			if e := rt.tracer.Shutdown(); e != nil && err == nil {
-				err = e
+			if e := rt.tracer.Shutdown(); e != nil {
+				err = errors.Join(err, e)
 			}
 		}
 		rt.closeErr = err
