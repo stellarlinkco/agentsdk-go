@@ -55,6 +55,7 @@ func MergeSettings(lower, higher *Settings) *Settings {
 		result.ForceLoginOrgUUID = higher.ForceLoginOrgUUID
 	}
 	result.Sandbox = mergeSandbox(lower.Sandbox, higher.Sandbox)
+	result.BashOutput = mergeBashOutput(lower.BashOutput, higher.BashOutput)
 	if higher.EnableAllProjectMCPServers != nil {
 		result.EnableAllProjectMCPServers = boolPtr(*higher.EnableAllProjectMCPServers)
 	}
@@ -172,6 +173,28 @@ func mergeSandboxNetwork(lower, higher *SandboxNetworkConfig) *SandboxNetworkCon
 	if higher.SocksProxyPort != nil {
 		v := *higher.SocksProxyPort
 		out.SocksProxyPort = &v
+	}
+	return out
+}
+
+func mergeBashOutput(lower, higher *BashOutputConfig) *BashOutputConfig {
+	if lower == nil && higher == nil {
+		return nil
+	}
+	if lower == nil {
+		return cloneBashOutput(higher)
+	}
+	if higher == nil {
+		return cloneBashOutput(lower)
+	}
+	out := cloneBashOutput(lower)
+	if higher.SyncThresholdBytes != nil {
+		v := *higher.SyncThresholdBytes
+		out.SyncThresholdBytes = &v
+	}
+	if higher.AsyncThresholdBytes != nil {
+		v := *higher.AsyncThresholdBytes
+		out.AsyncThresholdBytes = &v
 	}
 	return out
 }
@@ -359,6 +382,7 @@ func cloneSettings(src *Settings) *Settings {
 	out.DisableAllHooks = cloneBoolPtr(src.DisableAllHooks)
 	out.StatusLine = cloneStatusLine(src.StatusLine)
 	out.Sandbox = cloneSandbox(src.Sandbox)
+	out.BashOutput = cloneBashOutput(src.BashOutput)
 	out.EnableAllProjectMCPServers = cloneBoolPtr(src.EnableAllProjectMCPServers)
 	out.EnabledMCPJSONServers = mergeStringSlices(nil, src.EnabledMCPJSONServers)
 	out.DisabledMCPJSONServers = mergeStringSlices(nil, src.DisabledMCPJSONServers)
@@ -427,6 +451,26 @@ func cloneSandboxNetwork(src *SandboxNetworkConfig) *SandboxNetworkConfig {
 		out.SocksProxyPort = &v
 	}
 	out.AllowLocalBinding = cloneBoolPtr(src.AllowLocalBinding)
+	return &out
+}
+
+func cloneBashOutput(src *BashOutputConfig) *BashOutputConfig {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	if src.SyncThresholdBytes != nil {
+		v := *src.SyncThresholdBytes
+		out.SyncThresholdBytes = &v
+	} else {
+		out.SyncThresholdBytes = nil
+	}
+	if src.AsyncThresholdBytes != nil {
+		v := *src.AsyncThresholdBytes
+		out.AsyncThresholdBytes = &v
+	} else {
+		out.AsyncThresholdBytes = nil
+	}
 	return &out
 }
 

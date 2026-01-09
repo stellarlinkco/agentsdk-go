@@ -14,6 +14,10 @@ func TestMergeSettingsDeepCopyAndOverrides(t *testing.T) {
 		Env:                  map[string]string{"K1": "V1", "shared": "low"},
 		IncludeCoAuthoredBy:  boolPtr(true),
 		Model:                "claude-3",
+		BashOutput: &BashOutputConfig{
+			SyncThresholdBytes:  intPtr(100),
+			AsyncThresholdBytes: intPtr(200),
+		},
 		Permissions: &PermissionsConfig{
 			Allow:                 []string{"fs"},
 			DefaultMode:           "askBeforeRunningTools",
@@ -39,6 +43,9 @@ func TestMergeSettingsDeepCopyAndOverrides(t *testing.T) {
 		Env:                  map[string]string{"K2": "V2", "shared": "high"},
 		IncludeCoAuthoredBy:  boolPtr(false),
 		Model:                "claude-3-5",
+		BashOutput: &BashOutputConfig{
+			SyncThresholdBytes: intPtr(150),
+		},
 		Permissions: &PermissionsConfig{
 			Allow:       []string{"fs", "net"},
 			DefaultMode: "acceptEdits",
@@ -84,6 +91,12 @@ func TestMergeSettingsDeepCopyAndOverrides(t *testing.T) {
 
 	require.Equal(t, map[string]bool{"p1": false, "p2": true}, merged.EnabledPlugins)
 
+	require.NotNil(t, merged.BashOutput)
+	require.Equal(t, 150, *merged.BashOutput.SyncThresholdBytes)
+	require.Equal(t, 200, *merged.BashOutput.AsyncThresholdBytes)
+	require.NotSame(t, lower.BashOutput, merged.BashOutput)
+	require.NotSame(t, lower.BashOutput.SyncThresholdBytes, merged.BashOutput.SyncThresholdBytes)
+
 	// Ensure inputs untouched.
 	require.Equal(t, "claude-3", lower.Model)
 	require.Equal(t, map[string]string{"K1": "V1", "shared": "low"}, lower.Env)
@@ -116,6 +129,7 @@ func TestMergeSettingsNestedFields(t *testing.T) {
 		Permissions: &PermissionsConfig{Allow: []string{"A"}, DefaultMode: "askBeforeRunningTools"},
 		Hooks:       &HooksConfig{PreToolUse: map[string]string{"bash": "echo low"}},
 		Sandbox:     &SandboxConfig{ExcludedCommands: []string{"rm"}, Network: &SandboxNetworkConfig{HTTPProxyPort: intPtr(8080)}},
+		BashOutput:  &BashOutputConfig{SyncThresholdBytes: intPtr(30_000)},
 		StatusLine:  &StatusLineConfig{Type: "command", Command: "echo"},
 		MCP:         &MCPConfig{Servers: map[string]MCPServerConfig{"one": {Type: "stdio", Command: "bin"}}},
 	}
@@ -124,6 +138,7 @@ func TestMergeSettingsNestedFields(t *testing.T) {
 		Permissions: &PermissionsConfig{Ask: []string{"B"}, DefaultMode: "acceptEdits"},
 		Hooks:       &HooksConfig{PostToolUse: map[string]string{"bash": "echo hi"}},
 		Sandbox:     &SandboxConfig{Network: &SandboxNetworkConfig{SocksProxyPort: intPtr(9000)}},
+		BashOutput:  &BashOutputConfig{AsyncThresholdBytes: intPtr(1024 * 1024)},
 		StatusLine:  &StatusLineConfig{Type: "template", Template: "ok"},
 		MCP:         &MCPConfig{Servers: map[string]MCPServerConfig{"two": {Type: "http", URL: "https://api"}}},
 	}
@@ -141,6 +156,26 @@ func TestMergeSettingsNestedFields(t *testing.T) {
 	require.Equal(t, "ok", merged.StatusLine.Template)
 	require.Equal(t, "bin", merged.MCP.Servers["one"].Command)
 	require.Equal(t, "https://api", merged.MCP.Servers["two"].URL)
+	require.Equal(t, 30_000, *merged.BashOutput.SyncThresholdBytes)
+	require.Equal(t, 1024*1024, *merged.BashOutput.AsyncThresholdBytes)
+}
+
+func TestMergeBashOutputNilCases(t *testing.T) {
+	require.Nil(t, mergeBashOutput(nil, nil))
+
+	higher := &BashOutputConfig{SyncThresholdBytes: intPtr(1)}
+	merged := mergeBashOutput(nil, higher)
+	require.NotNil(t, merged)
+	require.Equal(t, 1, *merged.SyncThresholdBytes)
+	require.NotSame(t, higher, merged)
+	require.NotSame(t, higher.SyncThresholdBytes, merged.SyncThresholdBytes)
+
+	lower := &BashOutputConfig{AsyncThresholdBytes: intPtr(2)}
+	merged = mergeBashOutput(lower, nil)
+	require.NotNil(t, merged)
+	require.Equal(t, 2, *merged.AsyncThresholdBytes)
+	require.NotSame(t, lower, merged)
+	require.NotSame(t, lower.AsyncThresholdBytes, merged.AsyncThresholdBytes)
 }
 
 func intPtr(v int) *int { return &v }

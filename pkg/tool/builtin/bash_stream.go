@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 
 // StreamExecute runs the bash command while emitting incremental output. It
 // preserves backwards compatibility by sharing validation and metadata with
-// Execute, and enforces the same 30k output cap to avoid unbounded buffers.
+// Execute, and spools output to disk after crossing the configured threshold.
 func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interface{}, emit func(chunk string, isStderr bool)) (*tool.ToolResult, error) {
 	if ctx == nil {
 		return nil, errors.New("context is nil")
@@ -62,7 +61,7 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 		return nil, fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	acc := &streamAccumulator{}
+	spool := newBashOutputSpool(ctx, b.effectiveOutputThresholdBytes())
 	start := time.Now()
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start command: %w", err)
@@ -74,13 +73,13 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		stdoutErr = consumeStream(execCtx, stdoutPipe, emit, acc, false)
+		stdoutErr = consumeStream(execCtx, stdoutPipe, emit, spool, false)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		stderrErr = consumeStream(execCtx, stderrPipe, emit, acc, true)
+		stderrErr = consumeStream(execCtx, stderrPipe, emit, spool, true)
 	}()
 
 	wg.Wait()
@@ -95,14 +94,24 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 		runErr = errors.Join(runErr, fmt.Errorf("stderr read: %w", stderrErr))
 	}
 
+	output, outputFile, spoolErr := spool.Finalize()
+
+	data := map[string]interface{}{
+		"workdir":     workdir,
+		"duration_ms": duration.Milliseconds(),
+		"timeout_ms":  timeout.Milliseconds(),
+	}
+	if outputFile != "" {
+		data["output_file"] = outputFile
+	}
+	if spoolErr != nil {
+		data["spool_error"] = spoolErr.Error()
+	}
+
 	result := &tool.ToolResult{
 		Success: runErr == nil,
-		Output:  truncateOutput(combineOutput(acc.stdout.String(), acc.stderr.String())),
-		Data: map[string]interface{}{
-			"workdir":     workdir,
-			"duration_ms": duration.Milliseconds(),
-			"timeout_ms":  timeout.Milliseconds(),
-		},
+		Output:  output,
+		Data:    data,
 	}
 
 	if runErr != nil {
@@ -117,34 +126,7 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 	return result, nil
 }
 
-type streamAccumulator struct {
-	mu     sync.Mutex
-	total  int
-	stdout strings.Builder
-	stderr strings.Builder
-}
-
-func (a *streamAccumulator) append(text string, isStderr bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.total >= maxBashOutputLen {
-		return
-	}
-	remaining := maxBashOutputLen - a.total
-	if len(text) > remaining {
-		text = text[:remaining]
-	}
-	var dst *strings.Builder
-	if isStderr {
-		dst = &a.stderr
-	} else {
-		dst = &a.stdout
-	}
-	dst.WriteString(text)
-	a.total += len(text)
-}
-
-func consumeStream(ctx context.Context, r io.ReadCloser, emit func(chunk string, isStderr bool), acc *streamAccumulator, isStderr bool) error {
+func consumeStream(ctx context.Context, r io.ReadCloser, emit func(chunk string, isStderr bool), spool *bashOutputSpool, isStderr bool) error {
 	defer r.Close()
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -153,8 +135,10 @@ func consumeStream(ctx context.Context, r io.ReadCloser, emit func(chunk string,
 		if emit != nil {
 			emit(line, isStderr)
 		}
-		acc.append(line, isStderr)
-		acc.append("\n", isStderr)
+		if spool != nil {
+			_ = spool.Append(line, isStderr)
+			_ = spool.Append("\n", isStderr)
+		}
 		if ctx.Err() != nil {
 			break
 		}
@@ -163,11 +147,4 @@ func consumeStream(ctx context.Context, r io.ReadCloser, emit func(chunk string,
 		return err
 	}
 	return nil
-}
-
-func truncateOutput(text string) string {
-	if len(text) > maxBashOutputLen {
-		return text[:maxBashOutputLen]
-	}
-	return text
 }

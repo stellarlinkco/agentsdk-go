@@ -10,6 +10,10 @@ func TestValidateSettingsSuccess(t *testing.T) {
 	httpPort, socksPort := 8080, 1080
 	s := &Settings{
 		Model: "claude-3",
+		BashOutput: &BashOutputConfig{
+			SyncThresholdBytes:  intPtr(30_000),
+			AsyncThresholdBytes: intPtr(1024 * 1024),
+		},
 		Permissions: &PermissionsConfig{
 			DefaultMode: "acceptEdits",
 			Allow:       []string{"Bash(git:*)"},
@@ -42,6 +46,10 @@ func TestValidateSettingsAggregatesErrors(t *testing.T) {
 	badHTTP, badSocks := 0, 70000
 	s := &Settings{
 		Model: "",
+		BashOutput: &BashOutputConfig{
+			SyncThresholdBytes:  intPtr(0),
+			AsyncThresholdBytes: intPtr(-1),
+		},
 		Permissions: &PermissionsConfig{
 			DefaultMode: "invalid",
 			Allow:       []string{"tool()"},
@@ -74,6 +82,8 @@ func TestValidateSettingsAggregatesErrors(t *testing.T) {
 	require.Contains(t, msg, "sandbox.network.httpProxyPort")
 	require.Contains(t, msg, "sandbox.network.socksProxyPort")
 	require.Contains(t, msg, "sandbox.excludedCommands[0]")
+	require.Contains(t, msg, "bashOutput.syncThresholdBytes")
+	require.Contains(t, msg, "bashOutput.asyncThresholdBytes")
 	require.Contains(t, msg, "enabledPlugins[broken-key]")
 	require.Contains(t, msg, "extraKnownMarketplaces[broken]")
 	require.Contains(t, msg, "statusLine.type")

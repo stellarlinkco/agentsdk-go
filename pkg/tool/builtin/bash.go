@@ -8,13 +8,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/cexll/agentsdk-go/pkg/middleware"
+	"github.com/cexll/agentsdk-go/pkg/model"
 	"github.com/cexll/agentsdk-go/pkg/security"
 	"github.com/cexll/agentsdk-go/pkg/tool"
 )
@@ -49,7 +54,7 @@ const (
 	- **Required**: command argument
 	- **Optional**: timeout in milliseconds (max 600000ms/10 min, default 120000ms/2 min)
 	- **Description**: Write clear 5-10 word description of command purpose
-	- **Output limit**: Truncated if exceeds 30000 characters
+	- **Output limit**: Saved to disk if exceeds 30000 characters
 	- **Async execution**: Set 'async=true' for long-running tasks (dev servers, log tailing). Use BashStatus with task_id to poll status (no output consumption), BashOutput with task_id to poll output, and KillTask to stop.
 
 	## Command Preferences
@@ -210,6 +215,8 @@ type BashTool struct {
 	sandbox *security.Sandbox
 	root    string
 	timeout time.Duration
+
+	outputThresholdBytes int
 }
 
 // NewBashTool builds a BashTool rooted at the current directory.
@@ -224,6 +231,8 @@ func NewBashToolWithRoot(root string) *BashTool {
 		sandbox: security.NewSandbox(resolved),
 		root:    resolved,
 		timeout: defaultBashTimeout,
+
+		outputThresholdBytes: maxBashOutputLen,
 	}
 }
 
@@ -235,7 +244,24 @@ func NewBashToolWithSandbox(root string, sandbox *security.Sandbox) *BashTool {
 		sandbox: sandbox,
 		root:    resolved,
 		timeout: defaultBashTimeout,
+
+		outputThresholdBytes: maxBashOutputLen,
 	}
+}
+
+// SetOutputThresholdBytes controls when output is spooled to disk.
+func (b *BashTool) SetOutputThresholdBytes(threshold int) {
+	if b == nil {
+		return
+	}
+	b.outputThresholdBytes = threshold
+}
+
+func (b *BashTool) effectiveOutputThresholdBytes() int {
+	if b == nil || b.outputThresholdBytes <= 0 {
+		return maxBashOutputLen
+	}
+	return b.outputThresholdBytes
 }
 
 // AllowShellMetachars enables shell pipes and metacharacters (CLI mode).
@@ -310,22 +336,32 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 	cmd.Env = os.Environ()
 	cmd.Dir = workdir
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	spool := newBashOutputSpool(ctx, b.effectiveOutputThresholdBytes())
+	cmd.Stdout = spool.StdoutWriter()
+	cmd.Stderr = spool.StderrWriter()
 
 	start := time.Now()
 	runErr := cmd.Run()
 	duration := time.Since(start)
 
+	output, outputFile, spoolErr := spool.Finalize()
+
+	data := map[string]interface{}{
+		"workdir":     workdir,
+		"duration_ms": duration.Milliseconds(),
+		"timeout_ms":  timeout.Milliseconds(),
+	}
+	if outputFile != "" {
+		data["output_file"] = outputFile
+	}
+	if spoolErr != nil {
+		data["spool_error"] = spoolErr.Error()
+	}
+
 	result := &tool.ToolResult{
 		Success: runErr == nil,
-		Output:  truncateOutput(combineOutput(stdout.String(), stderr.String())),
-		Data: map[string]interface{}{
-			"workdir":     workdir,
-			"duration_ms": duration.Milliseconds(),
-			"timeout_ms":  timeout.Milliseconds(),
-		},
+		Output:  output,
+		Data:    data,
 	}
 
 	if runErr != nil {
@@ -562,4 +598,438 @@ func generateAsyncTaskID() string {
 		return "task-" + hex.EncodeToString(buf[:])
 	}
 	return fmt.Sprintf("task-%d", time.Now().UnixNano())
+}
+
+type bashOutputSpool struct {
+	threshold  int
+	outputPath string
+	stdout     *spoolWriter
+	stderr     *spoolWriter
+}
+
+func newBashOutputSpool(ctx context.Context, threshold int) *bashOutputSpool {
+	sessionID := bashSessionID(ctx)
+	dir := filepath.Join(bashOutputBaseDir(), sanitizePathComponent(sessionID))
+	filename := bashOutputFilename()
+	outputPath := filepath.Join(dir, filename)
+
+	spool := &bashOutputSpool{
+		threshold:  threshold,
+		outputPath: outputPath,
+	}
+	spool.stdout = newSpoolWriter(threshold, func() (*os.File, string, error) {
+		return openBashOutputFile(outputPath)
+	})
+	spool.stderr = newSpoolWriter(threshold, func() (*os.File, string, error) {
+		if err := ensureBashOutputDir(dir); err != nil {
+			return nil, "", err
+		}
+		f, err := os.CreateTemp(dir, "stderr-*.tmp")
+		if err != nil {
+			return nil, "", err
+		}
+		return f, f.Name(), nil
+	})
+	return spool
+}
+
+func (s *bashOutputSpool) StdoutWriter() io.Writer { return s.stdout }
+
+func (s *bashOutputSpool) StderrWriter() io.Writer { return s.stderr }
+
+func (s *bashOutputSpool) Append(text string, isStderr bool) error {
+	if isStderr {
+		_, err := s.stderr.WriteString(text)
+		return err
+	}
+	_, err := s.stdout.WriteString(text)
+	return err
+}
+
+func (s *bashOutputSpool) Finalize() (string, string, error) {
+	if s == nil {
+		return "", "", nil
+	}
+	stdoutCloseErr := s.stdout.Close()
+	stderrCloseErr := s.stderr.Close()
+	closeErr := errors.Join(stdoutCloseErr, stderrCloseErr)
+
+	if s.stdout.truncated || s.stderr.truncated {
+		combined := combineOutput(s.stdout.String(), s.stderr.String())
+		return combined, "", closeErr
+	}
+
+	stdoutPath := s.stdout.Path()
+	stderrPath := s.stderr.Path()
+	defer func() {
+		if stderrPath == "" {
+			return
+		}
+		_ = os.Remove(stderrPath)
+	}()
+
+	if stdoutPath == "" && stderrPath == "" {
+		combined := combineOutput(s.stdout.String(), s.stderr.String())
+		if len(combined) <= s.threshold {
+			return combined, "", closeErr
+		}
+		if err := ensureBashOutputDir(filepath.Dir(s.outputPath)); err != nil {
+			return combined, "", errors.Join(closeErr, err)
+		}
+		if err := os.WriteFile(s.outputPath, []byte(combined), 0o600); err != nil {
+			return combined, "", errors.Join(closeErr, err)
+		}
+		return formatBashOutputReference(s.outputPath), s.outputPath, closeErr
+	}
+
+	if stdoutPath == "" {
+		if err := ensureBashOutputDir(filepath.Dir(s.outputPath)); err != nil {
+			combined := combineOutput(s.stdout.String(), s.stderr.String())
+			return combined, "", errors.Join(closeErr, err)
+		}
+		out, err := os.OpenFile(s.outputPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+		if err != nil {
+			combined := combineOutput(s.stdout.String(), s.stderr.String())
+			return combined, "", errors.Join(closeErr, err)
+		}
+		if err := writeCombinedOutput(out, s.stdout.String(), stderrPath, s.stderr.String()); err != nil {
+			_ = out.Close()
+			return "", "", errors.Join(closeErr, err)
+		}
+		if err := out.Close(); err != nil {
+			return "", "", errors.Join(closeErr, err)
+		}
+		return formatBashOutputReference(s.outputPath), s.outputPath, closeErr
+	}
+
+	out, err := os.OpenFile(s.outputPath, os.O_RDWR, 0)
+	if err != nil {
+		return "", "", errors.Join(closeErr, err)
+	}
+	stdoutLen, err := trimRightNewlinesInFile(out)
+	if err != nil {
+		_ = out.Close()
+		return "", "", errors.Join(closeErr, err)
+	}
+	if err := appendStderr(out, stdoutLen, stderrPath, s.stderr.String()); err != nil {
+		_ = out.Close()
+		return "", "", errors.Join(closeErr, err)
+	}
+	if err := out.Close(); err != nil {
+		return "", "", errors.Join(closeErr, err)
+	}
+	return formatBashOutputReference(s.outputPath), s.outputPath, closeErr
+}
+
+func writeCombinedOutput(out *os.File, stdoutText, stderrPath, stderrText string) error {
+	stdoutTrim := strings.TrimRight(stdoutText, "\r\n")
+	if stdoutTrim != "" {
+		if _, err := out.WriteString(stdoutTrim); err != nil {
+			return err
+		}
+	}
+	return appendStderr(out, int64(len(stdoutTrim)), stderrPath, stderrText)
+}
+
+func appendStderr(out *os.File, stdoutLen int64, stderrPath, stderrText string) error {
+	stderrTrim := strings.TrimRight(stderrText, "\r\n")
+	hasStderr := stderrTrim != "" || stderrPath != ""
+	if !hasStderr {
+		return nil
+	}
+	stderrLen := int64(len(stderrTrim))
+	if stderrPath != "" {
+		f, err := os.Open(stderrPath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		size, err := trimmedFileSize(f)
+		if err != nil {
+			return err
+		}
+		stderrLen = size
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		if stdoutLen > 0 && stderrLen > 0 {
+			if _, err := out.WriteString("\n"); err != nil {
+				return err
+			}
+		}
+		if stderrLen > 0 {
+			if _, err := io.CopyN(out, f, stderrLen); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if stdoutLen > 0 && stderrLen > 0 {
+		if _, err := out.WriteString("\n"); err != nil {
+			return err
+		}
+	}
+	if stderrLen > 0 {
+		if _, err := out.WriteString(stderrTrim); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type spoolWriter struct {
+	mu          sync.Mutex
+	threshold   int
+	buf         bytes.Buffer
+	file        *os.File
+	path        string
+	fileFactory func() (*os.File, string, error)
+	truncated   bool
+}
+
+func newSpoolWriter(threshold int, fileFactory func() (*os.File, string, error)) *spoolWriter {
+	return &spoolWriter{threshold: threshold, fileFactory: fileFactory}
+}
+
+func (w *spoolWriter) WriteString(s string) (int, error) {
+	return w.Write([]byte(s))
+}
+
+func (w *spoolWriter) Write(p []byte) (int, error) {
+	if w == nil {
+		return len(p), nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.truncated {
+		return len(p), nil
+	}
+	if w.file != nil {
+		if _, err := w.file.Write(p); err != nil {
+			w.truncated = true
+		}
+		return len(p), nil
+	}
+	if w.buf.Len()+len(p) <= w.threshold {
+		_, _ = w.buf.Write(p)
+		return len(p), nil
+	}
+
+	f, path, err := w.fileFactory()
+	if err != nil {
+		w.truncated = true
+		return len(p), nil
+	}
+	if _, err := f.Write(w.buf.Bytes()); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		w.truncated = true
+		return len(p), nil
+	}
+	if _, err := f.Write(p); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		w.truncated = true
+		return len(p), nil
+	}
+	w.buf.Reset()
+	w.file = f
+	w.path = path
+	return len(p), nil
+}
+
+func (w *spoolWriter) Close() error {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		return nil
+	}
+	err := w.file.Close()
+	w.file = nil
+	return err
+}
+
+func (w *spoolWriter) Path() string {
+	if w == nil {
+		return ""
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.truncated {
+		return ""
+	}
+	return w.path
+}
+
+func (w *spoolWriter) String() string {
+	if w == nil {
+		return ""
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func bashOutputBaseDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "agentsdk", "bash-output")
+	}
+	return filepath.Join(string(filepath.Separator), "tmp", "agentsdk", "bash-output")
+}
+
+func bashSessionID(ctx context.Context) string {
+	const fallback = "default"
+	var session string
+	if ctx != nil {
+		if st, ok := ctx.Value(model.MiddlewareStateKey).(*middleware.State); ok && st != nil {
+			if value, ok := st.Values["session_id"]; ok && value != nil {
+				if s, err := coerceString(value); err == nil {
+					session = s
+				}
+			}
+			if session == "" {
+				if value, ok := st.Values["trace.session_id"]; ok && value != nil {
+					if s, err := coerceString(value); err == nil {
+						session = s
+					}
+				}
+			}
+		}
+		if session == "" {
+			if value, ok := ctx.Value(middleware.TraceSessionIDContextKey).(string); ok {
+				session = value
+			} else if value, ok := ctx.Value(middleware.SessionIDContextKey).(string); ok {
+				session = value
+			}
+		}
+	}
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return fallback
+	}
+	return session
+}
+
+func sanitizePathComponent(value string) string {
+	const fallback = "default"
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	sanitized := strings.Trim(b.String(), "-")
+	if sanitized == "" {
+		return fallback
+	}
+	return sanitized
+}
+
+func bashOutputFilename() string {
+	var randBuf [4]byte
+	ts := time.Now().UnixNano()
+	if _, err := rand.Read(randBuf[:]); err == nil {
+		return fmt.Sprintf("%d-%s.txt", ts, hex.EncodeToString(randBuf[:]))
+	}
+	return fmt.Sprintf("%d.txt", ts)
+}
+
+func ensureBashOutputDir(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return errors.New("output directory is empty")
+	}
+	return os.MkdirAll(dir, 0o700)
+}
+
+func openBashOutputFile(path string) (*os.File, string, error) {
+	dir := filepath.Dir(path)
+	if err := ensureBashOutputDir(dir); err != nil {
+		return nil, "", err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, "", err
+	}
+	return f, path, nil
+}
+
+func formatBashOutputReference(path string) string {
+	return fmt.Sprintf("[Output saved to: %s]", path)
+}
+
+func trimmedFileSize(f *os.File) (int64, error) {
+	if f == nil {
+		return 0, nil
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := info.Size()
+	if size == 0 {
+		return 0, nil
+	}
+
+	const chunkSize int64 = 1024
+	offset := size
+	trimmed := size
+
+	for offset > 0 {
+		readSize := chunkSize
+		if readSize > offset {
+			readSize = offset
+		}
+		buf := make([]byte, readSize)
+		if _, err := f.ReadAt(buf, offset-readSize); err != nil {
+			return 0, err
+		}
+		i := len(buf) - 1
+		for i >= 0 {
+			if buf[i] != '\n' && buf[i] != '\r' {
+				break
+			}
+			i--
+		}
+		trimmed = (offset - readSize) + int64(i+1)
+		if i >= 0 {
+			break
+		}
+		offset -= readSize
+	}
+	if trimmed < 0 {
+		return 0, nil
+	}
+	return trimmed, nil
+}
+
+func trimRightNewlinesInFile(f *os.File) (int64, error) {
+	if f == nil {
+		return 0, nil
+	}
+	trimmed, err := trimmedFileSize(f)
+	if err != nil {
+		return 0, err
+	}
+	if err := f.Truncate(trimmed); err != nil {
+		return 0, err
+	}
+	if _, err := f.Seek(trimmed, io.SeekStart); err != nil {
+		return 0, err
+	}
+	return trimmed, nil
 }

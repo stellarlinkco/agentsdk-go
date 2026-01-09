@@ -3,11 +3,17 @@ package toolbuiltin
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cexll/agentsdk-go/pkg/middleware"
 )
 
 func TestBashOutputReturnsNewLines(t *testing.T) {
@@ -228,6 +234,65 @@ func TestBashOutputReadsAsyncTaskOutput(t *testing.T) {
 	}
 	if status, _ := res.Data.(map[string]interface{})["status"].(string); status == "" {
 		t.Fatalf("expected status in async read")
+	}
+}
+
+func TestAsyncBashOutputReturnsPathReferenceForLargeOutput(t *testing.T) {
+	skipIfWindows(t)
+	defaultAsyncTaskManager = newAsyncTaskManager()
+	ctx := context.WithValue(context.Background(), middleware.SessionIDContextKey, "session-bashoutput")
+	command := fmt.Sprintf("yes B | head -c %d", maxAsyncOutputLen+4096)
+
+	if err := defaultAsyncTaskManager.startWithContext(ctx, "task-large-out", command, "", 0); err != nil {
+		t.Fatalf("start task: %v", err)
+	}
+	task, _ := defaultAsyncTaskManager.lookup("task-large-out")
+	select {
+	case <-task.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("task did not complete")
+	}
+
+	outTool := NewBashOutputTool(newShellStore())
+	res, err := outTool.Execute(ctx, map[string]interface{}{"task_id": "task-large-out"})
+	if err != nil {
+		t.Fatalf("bashoutput: %v", err)
+	}
+	if !strings.Contains(res.Output, "Output saved to:") {
+		t.Fatalf("expected output reference, got %q", res.Output)
+	}
+	data := res.Data.(map[string]interface{})
+	if chunk, _ := data["output"].(string); chunk != "" {
+		t.Fatalf("expected empty output chunk, got %d bytes", len(chunk))
+	}
+	outputFile, _ := data["output_file"].(string)
+	if strings.TrimSpace(outputFile) == "" {
+		t.Fatalf("expected output_file in result data")
+	}
+	t.Cleanup(func() { _ = os.Remove(outputFile) })
+
+	wantDir := filepath.Join(bashOutputBaseDir(), "session-bashoutput") + string(filepath.Separator)
+	if !strings.Contains(filepath.Clean(outputFile)+string(filepath.Separator), wantDir) {
+		t.Fatalf("expected output file under %q, got %q", wantDir, outputFile)
+	}
+	info, err := os.Stat(outputFile)
+	if err != nil {
+		t.Fatalf("stat output file: %v", err)
+	}
+	if info.Size() <= int64(maxAsyncOutputLen) {
+		t.Fatalf("expected output file > %d bytes, got %d", maxAsyncOutputLen, info.Size())
+	}
+	f, err := os.Open(outputFile)
+	if err != nil {
+		t.Fatalf("open output file: %v", err)
+	}
+	defer f.Close()
+	var buf [1]byte
+	if _, err := io.ReadFull(f, buf[:]); err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if buf[0] != 'B' {
+		t.Fatalf("unexpected file prefix %q", string(buf[:]))
 	}
 }
 

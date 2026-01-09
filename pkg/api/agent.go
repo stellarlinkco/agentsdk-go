@@ -189,6 +189,11 @@ func New(ctx context.Context, opts Options) (*Runtime, error) {
 		tracer:      tracer,
 	}
 	rt.sessionGate = newSessionGate()
+	rt.histories.onEvict = func(sessionID string) {
+		if err := cleanupBashOutputSessionDir(sessionID); err != nil {
+			log.Printf("api: session %q temp cleanup failed: %v", sessionID, err)
+		}
+	}
 
 	if taskTool != nil {
 		taskTool.SetRunner(rt.taskRunner())
@@ -329,6 +334,13 @@ func (rt *Runtime) Close() error {
 		rt.runWG.Wait()
 
 		var err error
+		if rt.histories != nil {
+			for _, sessionID := range rt.histories.SessionIDs() {
+				if cleanupErr := cleanupBashOutputSessionDir(sessionID); cleanupErr != nil {
+					log.Printf("api: session %q temp cleanup failed: %v", sessionID, cleanupErr)
+				}
+			}
+		}
 		if rt.rulesLoader != nil {
 			if e := rt.rulesLoader.Close(); e != nil {
 				err = e
@@ -1138,7 +1150,7 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 			cmdExec = commands.NewExecutor()
 		}
 
-		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, skReg, cmdExec)
+		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, settings, skReg, cmdExec)
 		names := builtinOrder(entry)
 		selectedNames := filterBuiltinNames(opts.EnabledBuiltinTools, names)
 		for _, name := range selectedNames {
@@ -1210,8 +1222,24 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 	return taskTool, nil
 }
 
-func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, skReg *skills.Registry, cmdExec *commands.Executor) map[string]func() tool.Tool {
+func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, settings *config.Settings, skReg *skills.Registry, cmdExec *commands.Executor) map[string]func() tool.Tool {
 	factories := map[string]func() tool.Tool{}
+
+	var (
+		syncThresholdBytes  int
+		asyncThresholdBytes int
+	)
+	if settings != nil && settings.BashOutput != nil {
+		if settings.BashOutput.SyncThresholdBytes != nil {
+			syncThresholdBytes = *settings.BashOutput.SyncThresholdBytes
+		}
+		if settings.BashOutput.AsyncThresholdBytes != nil {
+			asyncThresholdBytes = *settings.BashOutput.AsyncThresholdBytes
+		}
+	}
+	if asyncThresholdBytes > 0 {
+		toolbuiltin.DefaultAsyncTaskManager().SetMaxOutputLen(asyncThresholdBytes)
+	}
 
 	bashCtor := func() tool.Tool {
 		var bash *toolbuiltin.BashTool
@@ -1219,6 +1247,9 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 			bash = toolbuiltin.NewBashToolWithSandbox(root, security.NewDisabledSandbox())
 		} else {
 			bash = toolbuiltin.NewBashToolWithRoot(root)
+		}
+		if syncThresholdBytes > 0 {
+			bash.SetOutputThresholdBytes(syncThresholdBytes)
 		}
 		if entry == EntryPointCLI {
 			bash.AllowShellMetachars(true)

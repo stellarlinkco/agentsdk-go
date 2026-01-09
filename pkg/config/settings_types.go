@@ -27,6 +27,7 @@ type Settings struct {
 	ForceLoginMethod           string                       `json:"forceLoginMethod,omitempty"`           // Restrict login to "claudeai" or "console".
 	ForceLoginOrgUUID          string                       `json:"forceLoginOrgUUID,omitempty"`          // Org UUID to auto-select during login when set.
 	Sandbox                    *SandboxConfig               `json:"sandbox,omitempty"`                    // Bash sandbox configuration.
+	BashOutput                 *BashOutputConfig            `json:"bashOutput,omitempty"`                 // Thresholds for spooling bash output to disk.
 	EnableAllProjectMCPServers *bool                        `json:"enableAllProjectMcpServers,omitempty"` // Auto-approve all project .mcp.json servers.
 	EnabledMCPJSONServers      []string                     `json:"enabledMcpjsonServers,omitempty"`      // Allowlist of project MCP servers.
 	DisabledMCPJSONServers     []string                     `json:"disabledMcpjsonServers,omitempty"`     // Denylist of project MCP servers.
@@ -80,6 +81,12 @@ type SandboxNetworkConfig struct {
 	SocksProxyPort    *int     `json:"socksProxyPort,omitempty"`    // Port for custom SOCKS5 proxy if bringing your own.
 }
 
+// BashOutputConfig configures when bash output is spooled to disk.
+type BashOutputConfig struct {
+	SyncThresholdBytes  *int `json:"syncThresholdBytes,omitempty"`  // Spool sync output to disk after exceeding this many bytes.
+	AsyncThresholdBytes *int `json:"asyncThresholdBytes,omitempty"` // Spool async output to disk after exceeding this many bytes.
+}
+
 // MarketplaceConfig holds plugin marketplace related fields.
 type MarketplaceConfig = plugins.MarketplaceConfig
 
@@ -119,10 +126,16 @@ type StatusLineConfig struct {
 
 // GetDefaultSettings returns Anthropic's documented defaults.
 func GetDefaultSettings() Settings {
+	syncThresholdBytes := 30_000
+	asyncThresholdBytes := 1024 * 1024
 	return Settings{
 		CleanupPeriodDays:   30,
 		IncludeCoAuthoredBy: boolPtr(true),
 		DisableAllHooks:     boolPtr(false),
+		BashOutput: &BashOutputConfig{
+			SyncThresholdBytes:  &syncThresholdBytes,
+			AsyncThresholdBytes: &asyncThresholdBytes,
+		},
 		Permissions: &PermissionsConfig{
 			DefaultMode: "askBeforeRunningTools",
 		},

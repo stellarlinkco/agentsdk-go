@@ -82,6 +82,7 @@ func (b *BashOutputTool) Execute(ctx context.Context, params map[string]interfac
 
 	if isAsync {
 		chunk, done, taskErr := DefaultAsyncTaskManager().GetOutput(id)
+		outputFile := DefaultAsyncTaskManager().OutputFile(id)
 		status := "running"
 		if done {
 			if taskErr != nil {
@@ -90,11 +91,18 @@ func (b *BashOutputTool) Execute(ctx context.Context, params map[string]interfac
 				status = "completed"
 			}
 		}
-		output := renderAsyncRead(id, status, chunk, taskErr)
+		display := chunk
+		if strings.TrimSpace(display) == "" && outputFile != "" {
+			display = formatBashOutputReference(outputFile)
+		}
+		output := renderAsyncRead(id, status, display, taskErr)
 		data := map[string]interface{}{
 			"task_id": id,
 			"status":  status,
 			"output":  chunk,
+		}
+		if outputFile != "" {
+			data["output_file"] = outputFile
 		}
 		if taskErr != nil {
 			data["error"] = taskErr.Error()

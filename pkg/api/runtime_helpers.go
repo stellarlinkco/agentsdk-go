@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -333,6 +336,7 @@ type historyStore struct {
 	data     map[string]*message.History
 	lastUsed map[string]time.Time
 	maxSize  int
+	onEvict  func(string)
 }
 
 func newHistoryStore(maxSize int) *historyStore {
@@ -351,24 +355,30 @@ func (s *historyStore) Get(id string) *message.History {
 		id = defaultSessionID(defaultEntrypoint)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := time.Now()
 	if hist, ok := s.data[id]; ok {
 		s.lastUsed[id] = now
+		s.mu.Unlock()
 		return hist
 	}
 	hist := message.NewHistory()
 	s.data[id] = hist
 	s.lastUsed[id] = now
+	onEvict := s.onEvict
+	evicted := ""
 	if len(s.data) > s.maxSize {
-		s.evictOldest()
+		evicted = s.evictOldest()
+	}
+	s.mu.Unlock()
+	if evicted != "" && onEvict != nil {
+		onEvict(evicted)
 	}
 	return hist
 }
 
-func (s *historyStore) evictOldest() {
+func (s *historyStore) evictOldest() string {
 	if len(s.data) <= s.maxSize {
-		return
+		return ""
 	}
 	var oldestKey string
 	var oldestTime time.Time
@@ -381,10 +391,73 @@ func (s *historyStore) evictOldest() {
 		}
 	}
 	if oldestKey == "" {
-		return
+		return ""
 	}
 	delete(s.data, oldestKey)
 	delete(s.lastUsed, oldestKey)
+	return oldestKey
+}
+
+func (s *historyStore) SessionIDs() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := make([]string, 0, len(s.data))
+	for id := range s.data {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func bashOutputBaseDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.TempDir(), "agentsdk", "bash-output")
+	}
+	return filepath.Join(string(filepath.Separator), "tmp", "agentsdk", "bash-output")
+}
+
+func bashOutputSessionDir(sessionID string) string {
+	base := strings.TrimSpace(bashOutputBaseDir())
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, sanitizePathComponent(sessionID))
+}
+
+func cleanupBashOutputSessionDir(sessionID string) error {
+	dir := bashOutputSessionDir(sessionID)
+	if strings.TrimSpace(dir) == "" {
+		return errors.New("bash output directory is empty")
+	}
+	return os.RemoveAll(dir)
+}
+
+func sanitizePathComponent(value string) string {
+	const fallback = "default"
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	sanitized := strings.Trim(b.String(), "-")
+	if sanitized == "" {
+		return fallback
+	}
+	return sanitized
 }
 
 func definitionSnapshot(exec *commands.Executor, name string) commands.Definition {

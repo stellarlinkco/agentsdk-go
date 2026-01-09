@@ -1,13 +1,13 @@
 package toolbuiltin
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,10 +24,10 @@ type AsyncTask struct {
 	Command   string
 	StartTime time.Time
 	Done      chan struct{}
-	Output    bytes.Buffer
 	Error     error
 
 	mu       sync.Mutex
+	output   *spoolWriter
 	consumed int
 	cancel   context.CancelFunc
 	cmd      *exec.Cmd
@@ -44,8 +44,9 @@ type AsyncTaskInfo struct {
 
 // AsyncTaskManager tracks and manages async bash tasks.
 type AsyncTaskManager struct {
-	mu    sync.RWMutex
-	tasks map[string]*AsyncTask
+	mu           sync.RWMutex
+	tasks        map[string]*AsyncTask
+	maxOutputLen int
 }
 
 var defaultAsyncTaskManager = newAsyncTaskManager()
@@ -56,7 +57,23 @@ func DefaultAsyncTaskManager() *AsyncTaskManager {
 }
 
 func newAsyncTaskManager() *AsyncTaskManager {
-	return &AsyncTaskManager{tasks: map[string]*AsyncTask{}}
+	return &AsyncTaskManager{
+		tasks:        map[string]*AsyncTask{},
+		maxOutputLen: maxAsyncOutputLen,
+	}
+}
+
+func (m *AsyncTaskManager) SetMaxOutputLen(maxLen int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if maxLen <= 0 {
+		m.maxOutputLen = maxAsyncOutputLen
+	} else {
+		m.maxOutputLen = maxLen
+	}
+	m.mu.Unlock()
 }
 
 // Start launches a task in the background using a detached context.
@@ -98,6 +115,16 @@ func (m *AsyncTaskManager) startWithContext(ctx context.Context, id, command, wo
 		StartTime: time.Now(),
 		Done:      make(chan struct{}),
 	}
+	threshold := m.maxOutputLen
+	if threshold <= 0 {
+		threshold = maxAsyncOutputLen
+	}
+	task.output = newSpoolWriter(threshold, func() (*os.File, string, error) {
+		sessionID := bashSessionID(ctx)
+		dir := filepath.Join(bashOutputBaseDir(), sanitizePathComponent(sessionID))
+		outputPath := filepath.Join(dir, bashOutputFilename())
+		return openBashOutputFile(outputPath)
+	})
 	m.tasks[trimmedID] = task
 	m.mu.Unlock()
 
@@ -118,12 +145,12 @@ func (m *AsyncTaskManager) startWithContext(ctx context.Context, id, command, wo
 	if strings.TrimSpace(workdir) != "" {
 		cmd.Dir = workdir
 	}
-	writer := &asyncTaskWriter{task: task}
-	cmd.Stdout = writer
-	cmd.Stderr = writer
+	cmd.Stdout = task.output
+	cmd.Stderr = task.output
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		_ = task.output.Close()
 		m.mu.Lock()
 		delete(m.tasks, trimmedID)
 		m.mu.Unlock()
@@ -136,6 +163,7 @@ func (m *AsyncTaskManager) startWithContext(ctx context.Context, id, command, wo
 
 	go func() {
 		err := cmd.Wait()
+		_ = task.output.Close()
 		task.mu.Lock()
 		task.Error = err
 		task.mu.Unlock()
@@ -152,15 +180,36 @@ func (m *AsyncTaskManager) GetOutput(id string) (string, bool, error) {
 	if !ok {
 		return "", false, fmt.Errorf("task %s not found", strings.TrimSpace(id))
 	}
+	done := isDone(task.Done)
 	task.mu.Lock()
 	defer task.mu.Unlock()
-	data := task.Output.Bytes()
-	if task.consumed >= len(data) {
-		return "", isDone(task.Done), task.Error
+	if task.output == nil {
+		return "", done, task.Error
 	}
-	chunk := string(data[task.consumed:])
+	if path := task.output.Path(); path != "" {
+		return "", done, task.Error
+	}
+	data := task.output.String()
+	if task.consumed >= len(data) {
+		return "", done, task.Error
+	}
+	chunk := data[task.consumed:]
 	task.consumed = len(data)
-	return chunk, isDone(task.Done), task.Error
+	return chunk, done, task.Error
+}
+
+func (m *AsyncTaskManager) OutputFile(id string) string {
+	task, ok := m.lookup(strings.TrimSpace(id))
+	if !ok {
+		return ""
+	}
+	task.mu.Lock()
+	writer := task.output
+	task.mu.Unlock()
+	if writer == nil {
+		return ""
+	}
+	return writer.Path()
 }
 
 // Kill terminates a running task.
@@ -251,31 +300,6 @@ func (m *AsyncTaskManager) runningCountLocked() int {
 		}
 	}
 	return count
-}
-
-type asyncTaskWriter struct {
-	task *AsyncTask
-}
-
-func (w *asyncTaskWriter) Write(p []byte) (int, error) {
-	if w == nil || w.task == nil || len(p) == 0 {
-		return len(p), nil
-	}
-	origLen := len(p)
-	w.task.mu.Lock()
-	defer w.task.mu.Unlock()
-	if w.task.Output.Len() >= maxAsyncOutputLen {
-		return origLen, nil
-	}
-	remaining := maxAsyncOutputLen - w.task.Output.Len()
-	if remaining <= 0 {
-		return origLen, nil
-	}
-	if len(p) > remaining {
-		p = p[:remaining]
-	}
-	_, _ = w.task.Output.Write(p)
-	return origLen, nil
 }
 
 func isDone(done <-chan struct{}) bool {

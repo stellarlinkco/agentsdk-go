@@ -36,6 +36,9 @@ func ValidateSettings(s *Settings) error {
 	// sandbox
 	errs = append(errs, validateSandboxConfig(s.Sandbox)...)
 
+	// bash output spooling thresholds
+	errs = append(errs, validateBashOutputConfig(s.BashOutput)...)
+
 	// mcp
 	errs = append(errs, validateMCPConfig(s.MCP, s.LegacyMCPServers)...)
 
@@ -212,6 +215,24 @@ func validateSandboxConfig(s *SandboxConfig) []error {
 			if err := validatePortRange(*s.Network.SocksProxyPort); err != nil {
 				errs = append(errs, fmt.Errorf("sandbox.network.socksProxyPort: %w", err))
 			}
+		}
+	}
+	return errs
+}
+
+func validateBashOutputConfig(cfg *BashOutputConfig) []error {
+	if cfg == nil {
+		return nil
+	}
+	var errs []error
+	if cfg.SyncThresholdBytes != nil {
+		if v := *cfg.SyncThresholdBytes; v <= 0 {
+			errs = append(errs, fmt.Errorf("bashOutput.syncThresholdBytes must be >0, got %d", v))
+		}
+	}
+	if cfg.AsyncThresholdBytes != nil {
+		if v := *cfg.AsyncThresholdBytes; v <= 0 {
+			errs = append(errs, fmt.Errorf("bashOutput.asyncThresholdBytes must be >0, got %d", v))
 		}
 	}
 	return errs
