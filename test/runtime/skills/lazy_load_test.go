@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
 )
@@ -42,17 +43,21 @@ func TestLazyLoadViaRegistry(t *testing.T) {
 		t.Fatalf("expected lazy body %q, got %#v", updatedBody, output["body"])
 	}
 
-	writeSkill(t, filepath.Join(dir, "SKILL.md"), "ext", "body after first execute")
-	resCached, err := registry.Execute(context.Background(), "ext", skills.ActivationContext{})
+	// Hot-reload: file changes should trigger reload on next execute
+	// Sleep to ensure mtime changes on filesystems with 1s granularity
+	time.Sleep(1100 * time.Millisecond)
+	hotReloadBody := "body after first execute"
+	writeSkill(t, filepath.Join(dir, "SKILL.md"), "ext", hotReloadBody)
+	resReloaded, err := registry.Execute(context.Background(), "ext", skills.ActivationContext{})
 	if err != nil {
-		t.Fatalf("execute cached: %v", err)
+		t.Fatalf("execute reloaded: %v", err)
 	}
-	cachedOutput, ok := resCached.Output.(map[string]any)
+	reloadedOutput, ok := resReloaded.Output.(map[string]any)
 	if !ok {
-		t.Fatalf("unexpected cached output type: %T", resCached.Output)
+		t.Fatalf("unexpected reloaded output type: %T", resReloaded.Output)
 	}
-	if cachedOutput["body"] != updatedBody {
-		t.Fatalf("expected cached body %q, got %#v", updatedBody, cachedOutput["body"])
+	if reloadedOutput["body"] != hotReloadBody {
+		t.Fatalf("expected hot-reloaded body %q, got %#v", hotReloadBody, reloadedOutput["body"])
 	}
 }
 
