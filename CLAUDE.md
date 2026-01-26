@@ -310,7 +310,7 @@ go test -bench=. ./pkg/agent
 - Copy `.env.example` to `.env` and set your API key
 - Use `source .env` before running examples
 - Or export directly: `export ANTHROPIC_API_KEY=sk-ant-...`
-- Alternatively, use `ANTHROPIC_AUTH_TOKEN` which takes precedence
+- `ANTHROPIC_AUTH_TOKEN` is deprecated, use `ANTHROPIC_API_KEY` instead
 
 ### Test hangs or times out
 - Some integration tests call live APIs and may take 10+ minutes
@@ -549,7 +549,7 @@ Some integration tests may have long execution times:
 ### Required
 
 - `ANTHROPIC_API_KEY` - Anthropic API key for Claude models (required for all examples, unless using auth token)
-- `ANTHROPIC_AUTH_TOKEN` - Alternative to ANTHROPIC_API_KEY, takes precedence if both are set
+- `ANTHROPIC_AUTH_TOKEN` - (deprecated) Legacy auth token, use ANTHROPIC_API_KEY instead
 
 ### Optional
 

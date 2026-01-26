@@ -67,10 +67,14 @@ func (p *AnthropicProvider) resolveAPIKey() string {
 	if key := strings.TrimSpace(p.APIKey); key != "" {
 		return key
 	}
-	if key := strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")); key != "" {
+	if key := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); key != "" {
 		return key
 	}
-	return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	if key := strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")); key != "" {
+		_, _ = fmt.Fprintln(os.Stderr, "DEPRECATED: ANTHROPIC_AUTH_TOKEN is deprecated, use ANTHROPIC_API_KEY instead")
+		return key
+	}
+	return ""
 }
 
 func (p *AnthropicProvider) cachedModel() Model {

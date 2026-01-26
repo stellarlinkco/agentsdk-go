@@ -3,7 +3,7 @@
 - Copy the template: `cp .env.example .env` (the resulting `.env` stays ignored, no secrets in git).
 - Fill **required** variables in `.env`:
   - `ANTHROPIC_API_KEY` - Your Anthropic API key (required for all examples)
-  - OR `ANTHROPIC_AUTH_TOKEN` - Alternative auth token (takes precedence if both are set)
+  - OR `ANTHROPIC_AUTH_TOKEN` - (deprecated) Legacy auth token, use ANTHROPIC_API_KEY instead
 - **Optional** variables you can adjust:
   - `ANTHROPIC_BASE_URL` - Custom API endpoint (for proxies or private deployments)
   - `AGENTSDK_MODEL` - Override default model (default: `claude-sonnet-4-5-20250929`)
