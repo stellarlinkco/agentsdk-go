@@ -498,12 +498,14 @@ SDK 包含以下内置工具：
 - `bash_output` - 读取后台 bash 进程输出
 - `bash_status` - 轮询后台 bash 进程状态
 - `kill_task` - 终止运行中的后台 bash 任务
-- `todo_write` - 任务跟踪与管理
+- `task_create` - 创建新任务
+- `task_list` - 列出任务
+- `task_get` - 按 ID 获取任务
 - `task_update` - 更新任务状态与依赖关系
 - `ask_user_question` - 在执行过程中向用户提问
 - `skill` - 执行 `.claude/skills/` 中的技能
 - `slash_command` - 执行 `.claude/commands/` 中的斜杠命令
-- `task` - 生成子代理处理复杂任务（仅 CLI/CI 模式）
+- `task` - 生成子代理处理复杂任务（仅 CLI/Platform 入口点）
 
 所有内置工具遵循沙箱策略，受路径白名单和命令验证器约束。使用 `EnabledBuiltinTools` 选择性启用工具，或使用 `CustomTools` 注册自定义实现。
 

@@ -554,12 +554,14 @@ The SDK ships with the following built-in tools:
 - `bash_output` - Read output from background bash processes
 - `bash_status` - Poll status of background bash processes
 - `kill_task` - Terminate a running background bash process
-- `todo_write` - Task tracking and management
+- `task_create` - Create a new task
+- `task_list` - List tasks
+- `task_get` - Get a task by ID
 - `task_update` - Update task status and dependencies
 - `ask_user_question` - Ask the user questions during execution
 - `skill` - Execute skills from `.claude/skills/`
 - `slash_command` - Execute slash commands from `.claude/commands/`
-- `task` - Spawn subagents for complex tasks (CLI/CI modes only)
+- `task` - Spawn subagents for complex tasks (CLI/Platform entrypoints only)
 
 All built-in tools obey sandbox policies and are constrained by the path whitelist and command validator. Use `EnabledBuiltinTools` to selectively enable tools or `CustomTools` to register your own implementations.
 
