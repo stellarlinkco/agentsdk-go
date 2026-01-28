@@ -225,3 +225,19 @@ func formatAskUserQuestionOutput(questions []Question) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
+
+func readRequiredString(obj map[string]interface{}, key string) (string, error) {
+	raw, ok := obj[key]
+	if !ok {
+		return "", errors.New("field is required")
+	}
+	value, err := coerceString(raw)
+	if err != nil {
+		return "", fmt.Errorf("must be string: %w", err)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("cannot be empty")
+	}
+	return value, nil
+}

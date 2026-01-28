@@ -258,7 +258,7 @@ func deriveTarget(tool string, params map[string]any) string {
 			return name + ":"
 		}
 		return name + ":" + args
-	case "read", "write", "todowrite", "edit":
+	case "read", "write", "edit":
 		if p := firstString(params, "file_path", "path"); p != "" {
 			return filepath.Clean(p)
 		}

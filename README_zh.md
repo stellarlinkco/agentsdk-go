@@ -496,7 +496,7 @@ SDK 包含以下内置工具：
 - `web_fetch` - 获取 Web 内容，基于提示词提取
 - `web_search` - Web 搜索，支持域名过滤
 - `bash_output` - 读取后台 bash 进程输出
-- `todo_write` - 任务跟踪与管理
+- `task_create` - 任务跟踪与管理
 - `skill` - 执行 `.claude/skills/` 中的技能
 - `slash_command` - 执行 `.claude/commands/` 中的斜杠命令
 - `task` - 生成子代理处理复杂任务（仅 CLI/CI 模式）

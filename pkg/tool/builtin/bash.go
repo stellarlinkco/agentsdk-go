@@ -126,7 +126,7 @@ const (
 
 	### Important Notes
 	- ❌ NEVER run additional code exploration commands
-	- ❌ NEVER use TodoWrite or Task tools
+	- ❌ NEVER use TaskCreate or Task tools
 	- ❌ DO NOT push unless explicitly asked
 	- ❌ NEVER use '-i' flag (interactive not supported)
 	- ⚠️ Don't create empty commits if no changes
@@ -167,7 +167,7 @@ const (
 	'''
 
 	### Important Notes
-	- ❌ DO NOT use TodoWrite or Task tools
+	- ❌ DO NOT use TaskCreate or Task tools
 	- ✅ Return PR URL when done
 
 	---

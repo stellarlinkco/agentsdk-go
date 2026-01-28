@@ -24,7 +24,7 @@ type Tool interface {
   - `nil` (default): register all built-ins  
   - empty slice: disable all built-ins  
   - non-empty: enable only the listed built-ins  
-  Available names (lowercase with underscores): `bash`, `file_read`, `file_write`, `file_edit`, `grep`, `glob`, `web_fetch`, `web_search`, `bash_output`, `todo_write`, `skill`, `slash_command`, `task` (Task is only auto-enabled in CLI/Platform entrypoints).
+  Available names (lowercase with underscores): `bash`, `file_read`, `file_write`, `file_edit`, `grep`, `glob`, `web_fetch`, `web_search`, `bash_output`, `task_create`, `skill`, `slash_command`, `task` (Task is only auto-enabled in CLI/Platform entrypoints).
 - `Options.CustomTools []tool.Tool`  
   Appends custom tools when `Tools` is empty (nil entries are skipped).
 
