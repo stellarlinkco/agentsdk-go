@@ -25,6 +25,7 @@ import (
 	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
 	"github.com/cexll/agentsdk-go/pkg/sandbox"
 	"github.com/cexll/agentsdk-go/pkg/security"
+	"github.com/cexll/agentsdk-go/pkg/tasks"
 	"github.com/cexll/agentsdk-go/pkg/tool"
 	toolbuiltin "github.com/cexll/agentsdk-go/pkg/tool/builtin"
 	"github.com/google/uuid"
@@ -1297,6 +1298,7 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 		}
 		return toolbuiltin.NewGlobToolWithRoot(root)
 	}
+	taskStore := toolbuiltin.NewTaskStore()
 
 	factories["bash"] = bashCtor
 	factories["file_read"] = readCtor
@@ -1309,7 +1311,10 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 	factories["bash_output"] = func() tool.Tool { return toolbuiltin.NewBashOutputTool(nil) }
 	factories["bash_status"] = func() tool.Tool { return toolbuiltin.NewBashStatusTool() }
 	factories["kill_task"] = func() tool.Tool { return toolbuiltin.NewKillTaskTool() }
-	factories["todo_write"] = func() tool.Tool { return toolbuiltin.NewTodoWriteTool() }
+	factories["task_create"] = func() tool.Tool { return toolbuiltin.NewTaskCreateTool(tasks.NewTaskStore()) }
+	factories["task_list"] = func() tool.Tool { return toolbuiltin.NewTaskListTool(taskStore) }
+	factories["task_get"] = func() tool.Tool { return toolbuiltin.NewTaskGetTool(taskStore) }
+	factories["task_update"] = func() tool.Tool { return toolbuiltin.NewTaskUpdateTool(taskStore) }
 	factories["ask_user_question"] = func() tool.Tool { return toolbuiltin.NewAskUserQuestionTool() }
 	factories["skill"] = func() tool.Tool { return toolbuiltin.NewSkillTool(skReg, nil) }
 	factories["slash_command"] = func() tool.Tool { return toolbuiltin.NewSlashCommandTool(cmdExec) }
@@ -1332,7 +1337,10 @@ func builtinOrder(entry EntryPoint) []string {
 		"bash_output",
 		"bash_status",
 		"kill_task",
-		"todo_write",
+		"task_create",
+		"task_list",
+		"task_get",
+		"task_update",
 		"ask_user_question",
 		"skill",
 		"slash_command",

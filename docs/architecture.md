@@ -279,7 +279,7 @@ _ = a.mw.Execute(ctx, middleware.StageAfterModel, state)
 │  │  ├─ builtin/ (20+ 内置工具)                                 │ │
 │  │  │   ├─ bash (异步支持)    ├─ grep/glob                    │ │
 │  │  │   ├─ read/write/edit   ├─ web_fetch/search              │ │
-│  │  │   ├─ task/skill        └─ todo_write                    │ │
+│  │  │   ├─ task/skill        └─ task_create                   │ │
 │  │  └─ MCP 集成 (stdio/SSE)                                    │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                              ↓                                   │

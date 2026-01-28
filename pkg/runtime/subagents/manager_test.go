@@ -216,7 +216,7 @@ func TestManagerDispatchBuiltinTypeContext(t *testing.T) {
 		{
 			name:    TypePlan,
 			model:   ModelSonnet,
-			allowed: []string{"todo_write", "web_fetch"},
+			allowed: []string{"task_create", "web_fetch"},
 		},
 	}
 
