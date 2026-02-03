@@ -147,17 +147,17 @@ func (g *GlobTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	truncated := len(matches) > len(results) || len(results) >= g.maxResults
 
-		return &tool.ToolResult{
-			Success: true,
-			Output:  formatGlobOutput(results, truncated),
-			Data: map[string]interface{}{
-				"pattern":   pattern,
-				"path":      displayPath(dir, g.root),
-				"matches":   results,
-				"count":     len(results),
-				"truncated": truncated,
-			},
-		}, nil
+	return &tool.ToolResult{
+		Success: true,
+		Output:  formatGlobOutput(results, truncated),
+		Data: map[string]interface{}{
+			"pattern":   pattern,
+			"path":      displayPath(dir, g.root),
+			"matches":   results,
+			"count":     len(results),
+			"truncated": truncated,
+		},
+	}, nil
 }
 
 func parseGlobPattern(params map[string]interface{}) (string, error) {

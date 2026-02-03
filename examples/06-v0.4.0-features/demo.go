@@ -73,8 +73,8 @@ func main() {
 
 	compactCfg := api.CompactConfig{
 		Enabled:       true,
-		Threshold:     0.7,  // Trigger at 70% of context limit
-		PreserveCount: 3,     // Keep latest 3 messages
+		Threshold:     0.7, // Trigger at 70% of context limit
+		PreserveCount: 3,   // Keep latest 3 messages
 		SummaryModel:  "claude-3-5-haiku-20241022",
 	}
 
