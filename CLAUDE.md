@@ -199,7 +199,30 @@ State is passed through `middleware.State` with a `Values` map for cross-middlew
 
 **Location**: `pkg/core/hooks/`
 
-⚠️ **Breaking Change**: in-process hook interfaces (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `Notification`) are removed. Hooks now run as shell commands via `ShellHook` and receive the event payload as JSON on stdin. Exit codes: `0=allow`, `1=deny`, `2=ask`, any other code errors out. The executor injects `hook_event_name`, optional `session_id`, and a payload block (`tool_input`, `tool_response`, `user_prompt`, `notification`, or `stop`). Configure hooks through `.claude/settings.json` (`Hooks.PreToolUse` / `Hooks.PostToolUse`) or programmatically with `api.Options.TypedHooks`.
+Hooks run as shell commands via `ShellHook` and receive a flat JSON payload on stdin. Exit code semantics follow the Claude Code specification:
+
+| Exit Code | Decision | Behavior |
+|-----------|----------|----------|
+| 0 | Success | Parse stdout as JSON (`HookOutput`) |
+| 2 | Blocking Error | stderr is the error message, execution stops |
+| Other | Non-blocking | Log stderr and continue |
+
+**JSON Input (stdin)**: Flat format with fields at top level:
+```json
+{"hook_event_name":"PreToolUse","session_id":"...","cwd":"...","tool_name":"Bash","tool_input":{"command":"ls"}}
+```
+
+**JSON Output (stdout, exit 0)**: Structured `HookOutput`:
+- `{"decision":"deny","reason":"..."}` — deny tool execution
+- `{"hookSpecificOutput":{"permissionDecision":"ask"}}` — request approval
+- `{"hookSpecificOutput":{"updatedInput":{...}}}` — modify tool params
+- `{"continue":false,"stopReason":"..."}` — stop execution
+
+**Supported Events**: PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, SessionStart, SessionEnd, SubagentStart, SubagentStop, Stop, Notification, UserPromptSubmit, PreCompact. Each event has event-specific matcher targets (e.g., tool name for tool events, source for SessionStart, reason for SessionEnd).
+
+**ShellHook Options**: `Async` (fire-and-forget), `Once` (per-session dedup), `Timeout` (default 600s for commands), `StatusMessage`.
+
+**Configuration**: Via `.claude/settings.json` using `[]HookMatcherEntry` format or programmatically with `api.Options.TypedHooks`. Legacy `map[string]string` format is auto-converted.
 
 ### Message History
 
