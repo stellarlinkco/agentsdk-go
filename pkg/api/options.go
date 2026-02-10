@@ -257,6 +257,7 @@ func DefaultSubagentDefinitions() []subagents.Definition {
 // RunContext overrides the agent-level execution knobs.
 type Request struct {
 	Prompt            string
+	ContentBlocks     []model.ContentBlock // Multimodal content; when non-empty, used alongside Prompt
 	Mode              ModeContext
 	SessionID         string
 	RequestID         string    `json:"request_id,omitempty"` // Auto-generated UUID or user-provided
@@ -573,6 +574,9 @@ func (r Request) normalized(defaultMode ModeContext, fallbackSession string) Req
 	}
 	if len(req.ToolWhitelist) > 0 {
 		req.ToolWhitelist = cloneStrings(req.ToolWhitelist)
+	}
+	if len(req.ContentBlocks) > 0 {
+		req.ContentBlocks = append([]model.ContentBlock(nil), req.ContentBlocks...)
 	}
 	if len(req.Channels) > 0 {
 		req.Channels = cloneStrings(req.Channels)

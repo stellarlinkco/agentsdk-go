@@ -417,15 +417,21 @@ func convertMessages(msgs []Message, enableCache bool, defaults ...string) ([]an
 				Content: content,
 			})
 		default:
-			content := msg.Content
-			if strings.TrimSpace(content) == "" {
-				content = "."
+			var content []anthropicsdk.ContentBlockParamUnion
+			if len(msg.ContentBlocks) > 0 {
+				content = convertContentBlocks(msg.ContentBlocks)
+			} else {
+				text := msg.Content
+				if strings.TrimSpace(text) == "" {
+					text = "."
+				}
+				content = []anthropicsdk.ContentBlockParamUnion{
+					anthropicsdk.NewTextBlock(text),
+				}
 			}
 			messageParams = append(messageParams, anthropicsdk.MessageParam{
-				Role: anthropicsdk.MessageParamRoleUser,
-				Content: []anthropicsdk.ContentBlockParamUnion{
-					anthropicsdk.NewTextBlock(content),
-				},
+				Role:    anthropicsdk.MessageParamRoleUser,
+				Content: content,
 			})
 		}
 	}
@@ -450,20 +456,23 @@ func convertMessages(msgs []Message, enableCache bool, defaults ...string) ([]an
 		userMsgCount := 0
 		for i := len(messageParams) - 1; i >= 0 && userMsgCount < 3; i-- {
 			if messageParams[i].Role == anthropicsdk.MessageParamRoleUser && len(messageParams[i].Content) > 0 {
-				// Mark the last content block in this message
-				lastIdx := len(messageParams[i].Content) - 1
-				block := &messageParams[i].Content[lastIdx]
-
-				// Only cache text blocks
-				if text := block.GetText(); text != nil && *text != "" {
-					messageParams[i].Content[lastIdx] = anthropicsdk.ContentBlockParamUnion{
-						OfText: &anthropicsdk.TextBlockParam{
-							Text:         *text,
-							CacheControl: anthropicsdk.NewCacheControlEphemeralParam(),
-						},
+				// Walk backward through content blocks to find the last text block
+				cached := false
+				for j := len(messageParams[i].Content) - 1; j >= 0; j-- {
+					if text := messageParams[i].Content[j].GetText(); text != nil && *text != "" {
+						messageParams[i].Content[j] = anthropicsdk.ContentBlockParamUnion{
+							OfText: &anthropicsdk.TextBlockParam{
+								Text:         *text,
+								CacheControl: anthropicsdk.NewCacheControlEphemeralParam(),
+							},
+						}
+						cached = true
+						break
 					}
 				}
-				userMsgCount++
+				if cached {
+					userMsgCount++
+				}
 			}
 		}
 	}
@@ -517,6 +526,37 @@ func buildToolResults(msg Message) []anthropicsdk.ContentBlockParamUnion {
 		blocks = append(blocks, anthropicsdk.NewTextBlock(msg.Content))
 	}
 	return blocks
+}
+
+// convertContentBlocks maps SDK ContentBlocks to Anthropic API content blocks.
+func convertContentBlocks(blocks []ContentBlock) []anthropicsdk.ContentBlockParamUnion {
+	out := make([]anthropicsdk.ContentBlockParamUnion, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case ContentBlockText:
+			text := b.Text
+			if strings.TrimSpace(text) == "" {
+				text = "."
+			}
+			out = append(out, anthropicsdk.NewTextBlock(text))
+		case ContentBlockImage:
+			if b.URL != "" {
+				out = append(out, anthropicsdk.NewImageBlock(anthropicsdk.URLImageSourceParam{URL: b.URL}))
+			} else if b.Data != "" {
+				out = append(out, anthropicsdk.NewImageBlockBase64(b.MediaType, b.Data))
+			}
+		case ContentBlockDocument:
+			if b.Data != "" {
+				out = append(out, anthropicsdk.NewDocumentBlock(anthropicsdk.Base64PDFSourceParam{Data: b.Data}))
+			}
+		default:
+			log.Printf("WARNING: unknown content block type %q, skipping", b.Type)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, anthropicsdk.NewTextBlock("."))
+	}
+	return out
 }
 
 func toolResultIsError(text string) bool {

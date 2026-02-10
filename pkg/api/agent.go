@@ -274,7 +274,7 @@ func (rt *Runtime) RunStream(ctx context.Context, req Request) (<-chan StreamEve
 	if rt == nil {
 		return nil, ErrRuntimeClosed
 	}
-	if strings.TrimSpace(req.Prompt) == "" {
+	if strings.TrimSpace(req.Prompt) == "" && len(req.ContentBlocks) == 0 {
 		return nil, errors.New("api: prompt is empty")
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
@@ -446,6 +446,7 @@ func (rt *Runtime) GetTotalStats() *SessionTokenStats {
 type preparedRun struct {
 	ctx            context.Context
 	prompt         string
+	contentBlocks  []model.ContentBlock
 	history        *message.History
 	normalized     Request
 	recorder       *hookRecorder
@@ -469,7 +470,7 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 	fallbackSession := defaultSessionID(rt.mode.EntryPoint)
 	normalized := req.normalized(rt.mode, fallbackSession)
 	prompt := strings.TrimSpace(normalized.Prompt)
-	if prompt == "" {
+	if prompt == "" && len(normalized.ContentBlocks) == 0 {
 		return preparedRun{}, errors.New("api: prompt is empty")
 	}
 
@@ -516,6 +517,7 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 	return preparedRun{
 		ctx:            ctx,
 		prompt:         prompt,
+		contentBlocks:  normalized.ContentBlocks,
 		history:        history,
 		normalized:     normalized,
 		recorder:       recorder,
@@ -556,18 +558,19 @@ func (rt *Runtime) runAgentWithMiddleware(prep preparedRun, extras ...middleware
 
 	hookAdapter := &runtimeHookAdapter{executor: rt.hooks, recorder: prep.recorder}
 	modelAdapter := &conversationModel{
-		base:         selectedModel,
-		history:      prep.history,
-		prompt:       prep.prompt,
-		trimmer:      rt.newTrimmer(),
-		tools:        availableTools(rt.registry, prep.toolWhitelist),
-		systemPrompt: rt.opts.SystemPrompt,
-		rulesLoader:  rt.rulesLoader,
-		enableCache:  enableCache,
-		hooks:        hookAdapter,
-		recorder:     prep.recorder,
-		compactor:    rt.compactor,
-		sessionID:    prep.normalized.SessionID,
+		base:          selectedModel,
+		history:       prep.history,
+		prompt:        prep.prompt,
+		contentBlocks: prep.contentBlocks,
+		trimmer:       rt.newTrimmer(),
+		tools:         availableTools(rt.registry, prep.toolWhitelist),
+		systemPrompt:  rt.opts.SystemPrompt,
+		rulesLoader:   rt.rulesLoader,
+		enableCache:   enableCache,
+		hooks:         hookAdapter,
+		recorder:      prep.recorder,
+		compactor:     rt.compactor,
+		sessionID:     prep.normalized.SessionID,
 	}
 
 	toolExec := &runtimeToolExecutor{
@@ -961,20 +964,21 @@ func (rt *Runtime) newTrimmer() *message.Trimmer {
 // ----------------- adapters -----------------
 
 type conversationModel struct {
-	base         model.Model
-	history      *message.History
-	prompt       string
-	trimmer      *message.Trimmer
-	tools        []model.ToolDefinition
-	systemPrompt string
-	rulesLoader  *config.RulesLoader
-	enableCache  bool // Enable prompt caching for this conversation
-	usage        model.Usage
-	stopReason   string
-	hooks        *runtimeHookAdapter
-	recorder     *hookRecorder
-	compactor    *compactor
-	sessionID    string
+	base          model.Model
+	history       *message.History
+	prompt        string
+	contentBlocks []model.ContentBlock
+	trimmer       *message.Trimmer
+	tools         []model.ToolDefinition
+	systemPrompt  string
+	rulesLoader   *config.RulesLoader
+	enableCache   bool // Enable prompt caching for this conversation
+	usage         model.Usage
+	stopReason    string
+	hooks         *runtimeHookAdapter
+	recorder      *hookRecorder
+	compactor     *compactor
+	sessionID     string
 }
 
 func (m *conversationModel) Generate(ctx context.Context, _ *agent.Context) (*agent.ModelOutput, error) {
@@ -982,12 +986,17 @@ func (m *conversationModel) Generate(ctx context.Context, _ *agent.Context) (*ag
 		return nil, errors.New("model is nil")
 	}
 
-	if strings.TrimSpace(m.prompt) != "" {
-		m.history.Append(message.Message{Role: "user", Content: strings.TrimSpace(m.prompt)})
+	if strings.TrimSpace(m.prompt) != "" || len(m.contentBlocks) > 0 {
+		userMsg := message.Message{Role: "user", Content: strings.TrimSpace(m.prompt)}
+		if len(m.contentBlocks) > 0 {
+			userMsg.ContentBlocks = convertAPIContentBlocks(m.contentBlocks)
+		}
+		m.history.Append(userMsg)
 		if err := m.hooks.UserPrompt(ctx, m.prompt); err != nil {
 			return nil, err
 		}
 		m.prompt = ""
+		m.contentBlocks = nil
 	}
 
 	if m.compactor != nil {

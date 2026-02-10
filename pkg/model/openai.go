@@ -376,6 +376,9 @@ func convertMessagesToOpenAI(msgs []Message, defaults ...string) []openai.ChatCo
 			result = append(result, buildOpenAIToolResults(msg)...)
 		default: // user
 			content := msg.Content
+			if len(msg.ContentBlocks) > 0 {
+				content = msg.TextContent()
+			}
 			if strings.TrimSpace(content) == "" {
 				content = "."
 			}

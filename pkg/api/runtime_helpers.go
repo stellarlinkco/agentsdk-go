@@ -80,9 +80,44 @@ func convertMessages(msgs []message.Message) []model.Message {
 		out = append(out, model.Message{
 			Role:             msg.Role,
 			Content:          msg.Content,
+			ContentBlocks:    convertContentBlocksToModel(msg.ContentBlocks),
 			ToolCalls:        convertToolCalls(msg.ToolCalls),
 			ReasoningContent: msg.ReasoningContent,
 		})
+	}
+	return out
+}
+
+func convertContentBlocksToModel(blocks []message.ContentBlock) []model.ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]model.ContentBlock, len(blocks))
+	for i, b := range blocks {
+		out[i] = model.ContentBlock{
+			Type:      model.ContentBlockType(b.Type),
+			Text:      b.Text,
+			MediaType: b.MediaType,
+			Data:      b.Data,
+			URL:       b.URL,
+		}
+	}
+	return out
+}
+
+func convertAPIContentBlocks(blocks []model.ContentBlock) []message.ContentBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]message.ContentBlock, len(blocks))
+	for i, b := range blocks {
+		out[i] = message.ContentBlock{
+			Type:      message.ContentBlockType(b.Type),
+			Text:      b.Text,
+			MediaType: b.MediaType,
+			Data:      b.Data,
+			URL:       b.URL,
+		}
 	}
 	return out
 }

@@ -13,6 +13,20 @@ type NaiveCounter struct{}
 // Count implements TokenCounter.
 func (NaiveCounter) Count(msg Message) int {
 	tokens := len(msg.Content)/4 + len(msg.Role)/10
+	for _, block := range msg.ContentBlocks {
+		switch block.Type {
+		case ContentBlockText:
+			tokens += len(block.Text) / 4
+		case ContentBlockImage:
+			// Anthropic images cost ~1000-1600 tokens depending on resolution; use upper bound
+			tokens += 1600
+		case ContentBlockDocument:
+			// Base64 inflates ~33%; divide by 6 ≈ original_bytes/4.5 tokens, plus structure overhead
+			tokens += len(block.Data)/6 + 500
+		default:
+			tokens += 1
+		}
+	}
 	for _, call := range msg.ToolCalls {
 		tokens += len(call.Name)
 		for k, v := range call.Arguments {
