@@ -82,3 +82,23 @@ func TestConvertMessages(t *testing.T) {
 		t.Fatalf("unexpected empty def")
 	}
 }
+
+func TestConvertMessagesPreservesReasoningContent(t *testing.T) {
+	t.Parallel()
+
+	msgs := []message.Message{
+		{Role: "user", Content: "What is 1+1?"},
+		{Role: "assistant", Content: "2", ReasoningContent: "I need to add 1 and 1"},
+	}
+	modelMsgs := convertMessages(msgs)
+	if len(modelMsgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(modelMsgs))
+	}
+	if modelMsgs[1].ReasoningContent != "I need to add 1 and 1" {
+		t.Fatalf("ReasoningContent not preserved: got %q", modelMsgs[1].ReasoningContent)
+	}
+	// User message should have empty reasoning
+	if modelMsgs[0].ReasoningContent != "" {
+		t.Fatalf("user message should not have ReasoningContent")
+	}
+}

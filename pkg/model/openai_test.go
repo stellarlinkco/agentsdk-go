@@ -609,6 +609,34 @@ func TestBuildOpenAIAssistantMessage(t *testing.T) {
 		require.NotNil(t, result.OfAssistant)
 	})
 
+	t.Run("with reasoning_content sets extra fields", func(t *testing.T) {
+		msg := Message{
+			Role:             "assistant",
+			Content:          "The answer is 42",
+			ReasoningContent: "Let me think about this...",
+		}
+		result := buildOpenAIAssistantMessage(msg)
+
+		require.NotNil(t, result.OfAssistant)
+		// Verify the message was created with reasoning content
+		// Marshal to JSON to check extra fields are set
+		data, err := json.Marshal(result.OfAssistant)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "reasoning_content")
+		assert.Contains(t, string(data), "Let me think about this...")
+	})
+
+	t.Run("empty reasoning_content does not set extra fields", func(t *testing.T) {
+		msg := Message{Role: "assistant", Content: "Hello", ReasoningContent: ""}
+		result := buildOpenAIAssistantMessage(msg)
+
+		require.NotNil(t, result.OfAssistant)
+		// When ReasoningContent is empty, extra fields should not be set
+		data, err := json.Marshal(result.OfAssistant)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "reasoning_content")
+	})
+
 	t.Run("with tool calls", func(t *testing.T) {
 		msg := Message{
 			Role: "assistant",
