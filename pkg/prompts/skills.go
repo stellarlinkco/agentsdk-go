@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -113,7 +113,7 @@ func parseSkills(fsys fs.FS, dir string, validate bool) ([]SkillRegistration, []
 		}
 
 		dirName := entry.Name()
-		path := filepath.Join(dir, dirName, "SKILL.md")
+		path := path.Join(dir, dirName, "SKILL.md")
 		content, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
