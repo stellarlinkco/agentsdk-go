@@ -8,12 +8,15 @@ import (
 )
 
 type mcpServer struct {
-	Name           string
-	Spec           string
-	URL            string
-	Headers        map[string]string
-	Env            map[string]string
-	TimeoutSeconds int
+	Name               string
+	Spec               string
+	URL                string
+	Headers            map[string]string
+	Env                map[string]string
+	TimeoutSeconds     int
+	EnabledTools       []string
+	DisabledTools      []string
+	ToolTimeoutSeconds int
 }
 
 // collectMCPServers merges explicit API inputs, settings.json entries, and
@@ -60,12 +63,15 @@ func collectMCPServers(settings *config.Settings, explicit []string) []mcpServer
 				}
 			}
 			add(mcpServer{
-				Name:           name,
-				Spec:           spec,
-				URL:            cfg.URL,
-				Headers:        cfg.Headers,
-				Env:            cfg.Env,
-				TimeoutSeconds: cfg.TimeoutSeconds,
+				Name:               name,
+				Spec:               spec,
+				URL:                cfg.URL,
+				Headers:            cfg.Headers,
+				Env:                cfg.Env,
+				TimeoutSeconds:     cfg.TimeoutSeconds,
+				EnabledTools:       cfg.EnabledTools,
+				DisabledTools:      cfg.DisabledTools,
+				ToolTimeoutSeconds: cfg.ToolTimeoutSeconds,
 			})
 		}
 	}

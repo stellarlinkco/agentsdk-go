@@ -33,11 +33,14 @@ func TestCollectMCPServersPreservesSettingsOptions(t *testing.T) {
 		MCP: &config.MCPConfig{
 			Servers: map[string]config.MCPServerConfig{
 				"api": {
-					Type:           "http",
-					URL:            "http://settings.example",
-					Headers:        map[string]string{"Authorization": "Bearer x"},
-					Env:            map[string]string{"K": "V"},
-					TimeoutSeconds: 7,
+					Type:               "http",
+					URL:                "http://settings.example",
+					Headers:            map[string]string{"Authorization": "Bearer x"},
+					Env:                map[string]string{"K": "V"},
+					TimeoutSeconds:     7,
+					EnabledTools:       []string{"echo"},
+					DisabledTools:      []string{"sum"},
+					ToolTimeoutSeconds: 9,
 				},
 			},
 		},
@@ -57,6 +60,15 @@ func TestCollectMCPServersPreservesSettingsOptions(t *testing.T) {
 	}
 	if servers[0].Env["K"] != "V" {
 		t.Fatalf("expected env propagated, got %+v", servers[0].Env)
+	}
+	if len(servers[0].EnabledTools) != 1 || servers[0].EnabledTools[0] != "echo" {
+		t.Fatalf("expected enabled tools propagated, got %+v", servers[0].EnabledTools)
+	}
+	if len(servers[0].DisabledTools) != 1 || servers[0].DisabledTools[0] != "sum" {
+		t.Fatalf("expected disabled tools propagated, got %+v", servers[0].DisabledTools)
+	}
+	if servers[0].ToolTimeoutSeconds != 9 {
+		t.Fatalf("expected toolTimeoutSeconds=9, got %d", servers[0].ToolTimeoutSeconds)
 	}
 }
 

@@ -333,6 +333,142 @@ func TestRegisterMCPServerWithOptionsSuccess(t *testing.T) {
 	r.Close()
 }
 
+func TestRegisterMCPServerWithOptionsEnabledToolsFilters(t *testing.T) {
+	server := &stubMCPServer{tools: []*mcp.Tool{
+		{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+		{Name: "sum", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+	}}
+	orig := newMCPClientWithOptions
+	newMCPClientWithOptions = func(context.Context, string, MCPServerOptions, mcpListChangedHandler) (*mcp.ClientSession, error) {
+		return server.newSession()
+	}
+	defer func() { newMCPClientWithOptions = orig }()
+
+	r := NewRegistry()
+	if err := r.RegisterMCPServerWithOptions(context.Background(), "fake", "svc", MCPServerOptions{EnabledTools: []string{"echo"}}); err != nil {
+		t.Fatalf("register with options failed: %v", err)
+	}
+	if _, err := r.Get("svc__echo"); err != nil {
+		t.Fatalf("expected enabled tool registered: %v", err)
+	}
+	if _, err := r.Get("svc__sum"); err == nil {
+		t.Fatalf("expected filtered tool to be absent")
+	}
+	r.Close()
+}
+
+func TestRegisterMCPServerWithOptionsDenyTakesPrecedence(t *testing.T) {
+	server := &stubMCPServer{tools: []*mcp.Tool{
+		{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+		{Name: "sum", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+	}}
+	orig := newMCPClientWithOptions
+	newMCPClientWithOptions = func(context.Context, string, MCPServerOptions, mcpListChangedHandler) (*mcp.ClientSession, error) {
+		return server.newSession()
+	}
+	defer func() { newMCPClientWithOptions = orig }()
+
+	r := NewRegistry()
+	if err := r.RegisterMCPServerWithOptions(context.Background(), "fake", "svc", MCPServerOptions{
+		EnabledTools:  []string{"echo", "sum"},
+		DisabledTools: []string{"sum"},
+	}); err != nil {
+		t.Fatalf("register with options failed: %v", err)
+	}
+	if _, err := r.Get("svc__echo"); err != nil {
+		t.Fatalf("expected allowlisted tool registered: %v", err)
+	}
+	if _, err := r.Get("svc__sum"); err == nil {
+		t.Fatalf("expected denylisted tool to be absent")
+	}
+	r.Close()
+}
+
+func TestRegisterMCPServerWithOptionsFilterRemovesAllTools(t *testing.T) {
+	server := &stubMCPServer{tools: []*mcp.Tool{{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}}}}
+	orig := newMCPClientWithOptions
+	newMCPClientWithOptions = func(context.Context, string, MCPServerOptions, mcpListChangedHandler) (*mcp.ClientSession, error) {
+		return server.newSession()
+	}
+	defer func() { newMCPClientWithOptions = orig }()
+
+	err := NewRegistry().RegisterMCPServerWithOptions(context.Background(), "fake", "svc", MCPServerOptions{
+		EnabledTools: []string{"missing"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "after applying filters") {
+		t.Fatalf("expected filtered-empty error, got %v", err)
+	}
+}
+
+func TestRegisterMCPServerWithOptionsRefreshPreservesFilters(t *testing.T) {
+	server := &stubMCPServer{tools: []*mcp.Tool{
+		{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+		{Name: "sum", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+	}}
+	orig := newMCPClientWithOptions
+	newMCPClientWithOptions = func(context.Context, string, MCPServerOptions, mcpListChangedHandler) (*mcp.ClientSession, error) {
+		return server.newSession()
+	}
+	defer func() { newMCPClientWithOptions = orig }()
+
+	r := NewRegistry()
+	if err := r.RegisterMCPServerWithOptions(context.Background(), "fake", "svc", MCPServerOptions{
+		DisabledTools: []string{"sum"},
+	}); err != nil {
+		t.Fatalf("register with options failed: %v", err)
+	}
+	if _, err := r.Get("svc__echo"); err != nil {
+		t.Fatalf("expected echo tool registered: %v", err)
+	}
+	if _, err := r.Get("svc__sum"); err == nil {
+		t.Fatalf("expected sum to be filtered on initial register")
+	}
+
+	server.tools = []*mcp.Tool{
+		{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+		{Name: "sum", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+		{Name: "mul", Description: "remote", InputSchema: map[string]any{"type": "object"}},
+	}
+	if err := r.refreshMCPTools(context.Background(), "fake", ""); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+	if _, err := r.Get("svc__mul"); err != nil {
+		t.Fatalf("expected newly added tool after refresh: %v", err)
+	}
+	if _, err := r.Get("svc__sum"); err == nil {
+		t.Fatalf("expected disabled tool to stay filtered after refresh")
+	}
+	r.Close()
+}
+
+func TestRegisterMCPServerWithOptionsPropagatesToolTimeout(t *testing.T) {
+	server := &stubMCPServer{tools: []*mcp.Tool{{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}}}}
+	orig := newMCPClientWithOptions
+	newMCPClientWithOptions = func(context.Context, string, MCPServerOptions, mcpListChangedHandler) (*mcp.ClientSession, error) {
+		return server.newSession()
+	}
+	defer func() { newMCPClientWithOptions = orig }()
+
+	r := NewRegistry()
+	if err := r.RegisterMCPServerWithOptions(context.Background(), "fake", "svc", MCPServerOptions{
+		ToolTimeout: 3 * time.Second,
+	}); err != nil {
+		t.Fatalf("register with options failed: %v", err)
+	}
+	impl, err := r.Get("svc__echo")
+	if err != nil {
+		t.Fatalf("expected namespaced tool: %v", err)
+	}
+	rt, ok := impl.(*remoteTool)
+	if !ok {
+		t.Fatalf("expected remoteTool type, got %T", impl)
+	}
+	if rt.timeout != 3*time.Second {
+		t.Fatalf("expected tool timeout=3s, got %v", rt.timeout)
+	}
+	r.Close()
+}
+
 func TestConnectMCPClientWithOptions(t *testing.T) {
 	server := &stubMCPServer{tools: []*mcp.Tool{{Name: "echo", InputSchema: map[string]any{"type": "object"}}}}
 	transport := &stubTransport{server: server}
@@ -438,6 +574,28 @@ func TestRemoteToolExecuteError(t *testing.T) {
 	tool := &remoteTool{name: "remote", session: session}
 	if _, err := tool.Execute(context.Background(), map[string]any{"x": 1}); err == nil || !strings.Contains(err.Error(), "call failed") {
 		t.Fatalf("expected call error, got %v", err)
+	}
+}
+
+func TestRemoteToolExecuteHonorsTimeout(t *testing.T) {
+	server := &stubMCPServer{tools: []*mcp.Tool{{Name: "remote"}}}
+	server.callFn = func(context.Context, *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+		time.Sleep(200 * time.Millisecond)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "late"}}}, nil
+	}
+	session, err := server.newSession()
+	if err != nil {
+		t.Fatalf("stub session failed: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	tool := &remoteTool{name: "remote", session: session, timeout: 30 * time.Millisecond}
+	_, err = tool.Execute(context.Background(), map[string]any{"x": 1})
+	if err == nil || !strings.Contains(err.Error(), "timeout after") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded wrapped, got %v", err)
 	}
 }
 

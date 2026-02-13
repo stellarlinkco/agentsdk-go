@@ -35,10 +35,13 @@ func TestValidateSettingsMCPHappyPath(t *testing.T) {
 	settings.Model = "dummy"
 	settings.MCP = &MCPConfig{Servers: map[string]MCPServerConfig{
 		"api": {
-			Type:           "http",
-			URL:            "https://api.example",
-			Headers:        map[string]string{"Authorization": "Bearer x"},
-			TimeoutSeconds: 2,
+			Type:               "http",
+			URL:                "https://api.example",
+			Headers:            map[string]string{"Authorization": "Bearer x"},
+			TimeoutSeconds:     2,
+			EnabledTools:       []string{"tool_a"},
+			DisabledTools:      []string{"tool_b"},
+			ToolTimeoutSeconds: 3,
 		},
 	}}
 
@@ -50,15 +53,21 @@ func TestValidateSettingsMCPHeaderAndTimeoutErrors(t *testing.T) {
 	settings.Model = "dummy"
 	settings.MCP = &MCPConfig{Servers: map[string]MCPServerConfig{
 		"bad": {
-			Type:           "http",
-			URL:            "https://example",
-			TimeoutSeconds: -1,
-			Headers:        map[string]string{"": "value"},
+			Type:               "http",
+			URL:                "https://example",
+			TimeoutSeconds:     -1,
+			ToolTimeoutSeconds: -1,
+			Headers:            map[string]string{"": "value"},
+			EnabledTools:       []string{"echo", "", "echo"},
+			DisabledTools:      []string{"sum", "   ", "sum"},
 		},
 	}}
 
 	err := settings.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "timeoutSeconds")
+	require.Contains(t, err.Error(), "toolTimeoutSeconds")
 	require.Contains(t, err.Error(), "headers")
+	require.Contains(t, err.Error(), "enabledTools")
+	require.Contains(t, err.Error(), "disabledTools")
 }

@@ -99,5 +99,5 @@ func (t *EchoTool) Execute(ctx context.Context, params map[string]any) (*tool.To
 
 - Name matching is case-insensitive; `-` or spaces are treated as `_`. Prefer the listed lowercase underscore forms.
 - Task tool auto-attaches only in CLI/Platform entrypoints; CI entrypoint skips it.
-- MCP tool registration is independent of these options and always registers all MCP tools.
+- MCP tools are registered by default; when MCP server config includes `enabledTools`/`disabledTools`, registration is filtered accordingly.
 - When names collide, the first tool wins and a warning is logged to highlight the conflict.
