@@ -246,6 +246,37 @@ func TestBuildResponsesInput_MultimodalUserMessage(t *testing.T) {
 	assert.Equal(t, "data:image/png;base64,YWJj", parts[2].OfInputImage.ImageURL.Value)
 }
 
+func TestBuildResponsesInput_MultimodalPreservesAllRoles(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "You are helpful"},
+		{
+			Role:    "user",
+			Content: "describe this",
+			ContentBlocks: []ContentBlock{
+				{Type: ContentBlockImage, MediaType: "image/png", Data: "YWJj"},
+			},
+		},
+		{Role: "assistant", Content: "I see an image"},
+		{Role: "user", Content: "what color?"},
+	}
+
+	result := buildResponsesInput(msgs)
+	require.NotNil(t, result.OfInputItemList)
+	require.Len(t, result.OfInputItemList, 4)
+
+	require.NotNil(t, result.OfInputItemList[0].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleDeveloper, result.OfInputItemList[0].OfMessage.Role)
+
+	require.NotNil(t, result.OfInputItemList[1].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleUser, result.OfInputItemList[1].OfMessage.Role)
+
+	require.NotNil(t, result.OfInputItemList[2].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleAssistant, result.OfInputItemList[2].OfMessage.Role)
+
+	require.NotNil(t, result.OfInputItemList[3].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleUser, result.OfInputItemList[3].OfMessage.Role)
+}
+
 func TestBuildResponsesInput_MultimodalImageURL(t *testing.T) {
 	msgs := []Message{
 		{
@@ -265,6 +296,44 @@ func TestBuildResponsesInput_MultimodalImageURL(t *testing.T) {
 	require.NotNil(t, parts[0].OfInputImage)
 	require.True(t, parts[0].OfInputImage.ImageURL.Valid())
 	assert.Equal(t, "https://example.com/vision.png", parts[0].OfInputImage.ImageURL.Value)
+}
+
+func TestBuildResponsesMultimodalInput_SkipsEmptyAssistantSystemAndKeepsDeveloper(t *testing.T) {
+	msgs := []Message{
+		{Role: "assistant", Content: "   "},
+		{Role: "system", Content: "   "},
+		{Role: "developer", Content: "Prefer concise output"},
+		{Role: "user", Content: "hello"},
+	}
+
+	items := buildResponsesMultimodalInput(msgs)
+	require.Len(t, items, 2)
+
+	require.NotNil(t, items[0].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleDeveloper, items[0].OfMessage.Role)
+	assert.Equal(t, "Prefer concise output", items[0].OfMessage.Content.OfString.Value)
+
+	require.NotNil(t, items[1].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleUser, items[1].OfMessage.Role)
+	require.Len(t, items[1].OfMessage.Content.OfInputItemContentList, 1)
+	require.NotNil(t, items[1].OfMessage.Content.OfInputItemContentList[0].OfInputText)
+	assert.Equal(t, "hello", items[1].OfMessage.Content.OfInputItemContentList[0].OfInputText.Text)
+}
+
+func TestBuildResponsesInputParts_AllEmptyBlocksFallback(t *testing.T) {
+	msg := Message{
+		Role:    "user",
+		Content: "   ",
+		ContentBlocks: []ContentBlock{
+			{Type: ContentBlockText, Text: "   "},
+			{Type: ContentBlockImage, URL: "   ", Data: "   "},
+		},
+	}
+
+	parts := buildResponsesInputParts(msg)
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].OfInputText)
+	assert.Equal(t, ".", parts[0].OfInputText.Text)
 }
 
 func TestConvertToolsToResponsesAPI(t *testing.T) {

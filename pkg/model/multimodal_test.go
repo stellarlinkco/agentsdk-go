@@ -346,3 +346,54 @@ func TestConvertMessagesToOpenAI_MultimodalImageURL(t *testing.T) {
 		t.Fatalf("expected image URL part, got %+v", image)
 	}
 }
+
+func TestOpenAIImageURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		block ContentBlock
+		want  string
+	}{
+		{
+			name:  "empty url and data returns empty",
+			block: ContentBlock{Type: ContentBlockImage, URL: "   ", Data: "   "},
+			want:  "",
+		},
+		{
+			name:  "url only returns url",
+			block: ContentBlock{Type: ContentBlockImage, URL: "https://example.com/image.png"},
+			want:  "https://example.com/image.png",
+		},
+		{
+			name:  "data only defaults to jpeg",
+			block: ContentBlock{Type: ContentBlockImage, Data: "YWJj"},
+			want:  "data:image/jpeg;base64,YWJj",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := openAIImageURL(tt.block)
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestBuildOpenAIUserContentParts_AllEmptyBlocksFallback(t *testing.T) {
+	msg := Message{
+		Content: "   ",
+		ContentBlocks: []ContentBlock{
+			{Type: ContentBlockText, Text: "   "},
+			{Type: ContentBlockImage, URL: "   ", Data: "   "},
+		},
+	}
+
+	parts := buildOpenAIUserContentParts(msg)
+	if len(parts) != 1 {
+		t.Fatalf("expected fallback single content part, got %d", len(parts))
+	}
+	if text := parts[0].GetText(); text == nil || *text != "." {
+		t.Fatalf("expected fallback '.', got %v", text)
+	}
+}

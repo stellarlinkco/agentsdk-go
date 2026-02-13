@@ -31,6 +31,66 @@ func TestExecutorWithWorkDirAndClose(t *testing.T) {
 	exec.Close()
 }
 
+func TestNewShellCommandUnixNormalCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-only assertion")
+	}
+
+	cmd := newShellCommand(context.Background(), "echo hello")
+	if cmd.Path != "/bin/sh" {
+		t.Fatalf("expected /bin/sh, got %q", cmd.Path)
+	}
+	if len(cmd.Args) != 3 {
+		t.Fatalf("expected 3 args, got %v", cmd.Args)
+	}
+	if cmd.Args[1] != "-c" {
+		t.Fatalf("expected -c, got %q", cmd.Args[1])
+	}
+	if cmd.Args[2] != "echo hello" {
+		t.Fatalf("expected command %q, got %q", "echo hello", cmd.Args[2])
+	}
+}
+
+func TestNewShellCommandUnixEmptyCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-only assertion")
+	}
+
+	cmd := newShellCommand(context.Background(), "")
+	if cmd.Path != "/bin/sh" {
+		t.Fatalf("expected /bin/sh, got %q", cmd.Path)
+	}
+	if len(cmd.Args) != 3 {
+		t.Fatalf("expected 3 args, got %v", cmd.Args)
+	}
+	if cmd.Args[2] != "" {
+		t.Fatalf("expected empty command, got %q", cmd.Args[2])
+	}
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("expected empty shell command to run, got %v", err)
+	}
+}
+
+func TestNewShellCommandUnixWhitespaceCommandTrimmed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-only assertion")
+	}
+
+	cmd := newShellCommand(context.Background(), " \n\t ")
+	if cmd.Path != "/bin/sh" {
+		t.Fatalf("expected /bin/sh, got %q", cmd.Path)
+	}
+	if len(cmd.Args) != 3 {
+		t.Fatalf("expected 3 args, got %v", cmd.Args)
+	}
+	if cmd.Args[2] != "" {
+		t.Fatalf("expected trimmed empty command, got %q", cmd.Args[2])
+	}
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("expected whitespace shell command to run, got %v", err)
+	}
+}
+
 func sameWorkDirPath(expected, got string) bool {
 	expected = filepath.Clean(expected)
 	got = strings.TrimSpace(got)

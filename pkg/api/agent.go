@@ -1464,9 +1464,6 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 		}
 
 		taskStore := opts.TaskStore
-		if taskStore == nil {
-			taskStore = tasks.NewTaskStore()
-		}
 
 		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, settings, skReg, cmdExec, taskStore)
 		names := builtinOrder(entry)
@@ -1618,10 +1615,6 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 		glob.SetRespectGitignore(respectGitignore)
 		return glob
 	}
-	if taskStore == nil {
-		taskStore = tasks.NewTaskStore()
-	}
-
 	factories["bash"] = bashCtor
 	factories["file_read"] = readCtor
 	factories["file_write"] = writeCtor
