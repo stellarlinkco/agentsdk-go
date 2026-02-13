@@ -315,6 +315,64 @@ func TestBuildResponsesInput_MultimodalToolMessagePreserved(t *testing.T) {
 	assert.Equal(t, responses.EasyInputMessageRoleUser, result.OfInputItemList[3].OfMessage.Role)
 }
 
+func TestBuildResponsesInput_MultimodalSystemAndUnknownRoles(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    "system",
+			Content: "system instructions",
+			ContentBlocks: []ContentBlock{
+				{Type: ContentBlockImage, MediaType: "image/png", Data: "YWJj"},
+			},
+		},
+		{
+			Role:    "developer",
+			Content: "dev instructions",
+		},
+		{
+			Role:    "custom_role",
+			Content: "unknown role text",
+		},
+	}
+
+	result := buildResponsesInput(msgs)
+	require.Len(t, result.OfInputItemList, 3)
+
+	// system → developer role
+	require.NotNil(t, result.OfInputItemList[0].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleDeveloper, result.OfInputItemList[0].OfMessage.Role)
+
+	// developer → developer role
+	require.NotNil(t, result.OfInputItemList[1].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleDeveloper, result.OfInputItemList[1].OfMessage.Role)
+
+	// unknown → user role
+	require.NotNil(t, result.OfInputItemList[2].OfMessage)
+	assert.Equal(t, responses.EasyInputMessageRoleUser, result.OfInputItemList[2].OfMessage.Role)
+}
+
+func TestResponsesRoleForMessage(t *testing.T) {
+	tests := []struct {
+		role string
+		want responses.EasyInputMessageRole
+	}{
+		{"user", responses.EasyInputMessageRoleUser},
+		{"assistant", responses.EasyInputMessageRoleAssistant},
+		{"system", responses.EasyInputMessageRoleDeveloper},
+		{"developer", responses.EasyInputMessageRoleDeveloper},
+		{"tool", responses.EasyInputMessageRoleUser},
+		{"ASSISTANT", responses.EasyInputMessageRoleAssistant},
+		{" System ", responses.EasyInputMessageRoleDeveloper},
+		{"unknown", responses.EasyInputMessageRoleUser},
+		{"", responses.EasyInputMessageRoleUser},
+	}
+	for _, tt := range tests {
+		got := responsesRoleForMessage(tt.role)
+		if got != tt.want {
+			t.Errorf("responsesRoleForMessage(%q) = %v, want %v", tt.role, got, tt.want)
+		}
+	}
+}
+
 func TestConvertToolsToResponsesAPI(t *testing.T) {
 	tests := []struct {
 		name    string

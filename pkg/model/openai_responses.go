@@ -366,79 +366,35 @@ func hasOpenAIImageContentBlocks(msgs []Message) bool {
 func buildResponsesMultimodalInput(msgs []Message) responses.ResponseInputParam {
 	items := make(responses.ResponseInputParam, 0, len(msgs))
 	for _, msg := range msgs {
-		role := strings.ToLower(strings.TrimSpace(msg.Role))
-		switch role {
-		case "user":
-			parts := buildResponsesInputParts(msg)
-			if len(parts) == 0 {
-				continue
-			}
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleUser,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfInputItemContentList: parts,
-					},
-				},
-			})
-		case "assistant":
-			parts := buildResponsesInputParts(msg)
-			if len(parts) == 0 {
-				continue
-			}
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleAssistant,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfInputItemContentList: parts,
-					},
-				},
-			})
-		case "system", "developer":
-			parts := buildResponsesInputParts(msg)
-			if len(parts) == 0 {
-				continue
-			}
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleDeveloper,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfInputItemContentList: parts,
-					},
-				},
-			})
-		case "tool":
-			// Tool results: include as user message with text content.
-			// The Responses API EasyInputMessage doesn't have a tool role.
-			parts := buildResponsesInputParts(msg)
-			if len(parts) == 0 {
-				continue
-			}
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleUser,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfInputItemContentList: parts,
-					},
-				},
-			})
-		default:
-			// Unknown roles: map to user
-			parts := buildResponsesInputParts(msg)
-			if len(parts) == 0 {
-				continue
-			}
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleUser,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfInputItemContentList: parts,
-					},
-				},
-			})
+		apiRole := responsesRoleForMessage(msg.Role)
+		parts := buildResponsesInputParts(msg)
+		if len(parts) == 0 {
+			continue
 		}
+		items = append(items, responses.ResponseInputItemUnionParam{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: apiRole,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfInputItemContentList: parts,
+				},
+			},
+		})
 	}
 	return items
+}
+
+// responsesRoleForMessage maps SDK message roles to Responses API roles.
+// Tool results and unknown roles are mapped to user because EasyInputMessage
+// doesn't have a tool role.
+func responsesRoleForMessage(role string) responses.EasyInputMessageRole {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "assistant":
+		return responses.EasyInputMessageRoleAssistant
+	case "system", "developer":
+		return responses.EasyInputMessageRoleDeveloper
+	default: // user, tool, unknown
+		return responses.EasyInputMessageRoleUser
+	}
 }
 
 func buildResponsesInputParts(msg Message) responses.ResponseInputMessageContentListParam {

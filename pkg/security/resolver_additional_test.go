@@ -9,6 +9,51 @@ import (
 	"testing"
 )
 
+func TestSplitPathForWalk(t *testing.T) {
+	sep := string(filepath.Separator)
+	tests := []struct {
+		name      string
+		input     string
+		wantRoot  string
+		wantParts []string
+	}{
+		{
+			name:      "relative path",
+			input:     filepath.Join("a", "b", "c"),
+			wantRoot:  "",
+			wantParts: []string{"a", "b", "c"},
+		},
+		{
+			name:      "absolute root only",
+			input:     sep,
+			wantRoot:  sep,
+			wantParts: nil,
+		},
+		{
+			name:      "absolute with parts",
+			input:     sep + filepath.Join("usr", "local", "bin"),
+			wantRoot:  sep,
+			wantParts: []string{"usr", "local", "bin"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, parts := splitPathForWalk(tt.input)
+			if root != tt.wantRoot {
+				t.Errorf("root = %q, want %q", root, tt.wantRoot)
+			}
+			if len(parts) != len(tt.wantParts) {
+				t.Fatalf("parts = %v, want %v", parts, tt.wantParts)
+			}
+			for i := range parts {
+				if parts[i] != tt.wantParts[i] {
+					t.Errorf("parts[%d] = %q, want %q", i, parts[i], tt.wantParts[i])
+				}
+			}
+		})
+	}
+}
+
 func TestOpenNoFollowSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no O_NOFOLLOW on windows")

@@ -132,6 +132,17 @@ func TestNewTaskStoreFromSnapshot(t *testing.T) {
 	require.Equal(t, "Task One", reloaded.Subject)
 }
 
+func TestTaskStoreCloseIsNoOp(t *testing.T) {
+	store := NewTaskStore()
+	if err := store.Close(); err != nil {
+		t.Fatalf("expected no error from Close, got %v", err)
+	}
+	// Idempotent: calling Close again should also succeed.
+	if err := store.Close(); err != nil {
+		t.Fatalf("expected no error from second Close, got %v", err)
+	}
+}
+
 func TestTaskStoreValidationAndErrors(t *testing.T) {
 	var store TaskStore
 
