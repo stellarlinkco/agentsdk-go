@@ -327,6 +327,9 @@ func validateMCPConfig(cfg *MCPConfig, legacy []string) []error {
 		if entry.TimeoutSeconds < 0 {
 			errs = append(errs, fmt.Errorf("mcp.servers[%s].timeoutSeconds must be >=0", name))
 		}
+		if entry.ToolTimeoutSeconds < 0 {
+			errs = append(errs, fmt.Errorf("mcp.servers[%s].toolTimeoutSeconds must be >=0", name))
+		}
 		switch serverType {
 		case "stdio":
 			if strings.TrimSpace(entry.Command) == "" {
@@ -345,6 +348,29 @@ func validateMCPConfig(cfg *MCPConfig, legacy []string) []error {
 				break
 			}
 		}
+		errs = append(errs, validateMCPToolList(name, "enabledTools", entry.EnabledTools)...)
+		errs = append(errs, validateMCPToolList(name, "disabledTools", entry.DisabledTools)...)
+	}
+	return errs
+}
+
+func validateMCPToolList(serverName, field string, tools []string) []error {
+	if len(tools) == 0 {
+		return nil
+	}
+	seen := make(map[string]int, len(tools))
+	var errs []error
+	for idx, raw := range tools {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			errs = append(errs, fmt.Errorf("mcp.servers[%s].%s[%d] cannot be empty", serverName, field, idx))
+			continue
+		}
+		if prev, ok := seen[name]; ok {
+			errs = append(errs, fmt.Errorf("mcp.servers[%s].%s[%d] duplicates entry at index %d (%q)", serverName, field, idx, prev, name))
+			continue
+		}
+		seen[name] = idx
 	}
 	return errs
 }

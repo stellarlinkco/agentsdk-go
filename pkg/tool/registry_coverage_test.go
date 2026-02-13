@@ -70,7 +70,7 @@ func TestRegisterMCPServerConnectContextCanceled(t *testing.T) {
 
 func TestRegisterMCPSessionErrors(t *testing.T) {
 	r := NewRegistry()
-	if err := r.registerMCPSession("srv", "name", nil, nil, nil); err == nil {
+	if err := r.registerMCPSession("srv", "name", nil, nil, nil, MCPServerOptions{}); err == nil {
 		t.Fatalf("expected nil session error")
 	}
 
@@ -81,14 +81,14 @@ func TestRegisterMCPSessionErrors(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	if err := r.registerMCPSession("srv", "name", session, []Tool{}, []string{"x"}); err == nil {
+	if err := r.registerMCPSession("srv", "name", session, []Tool{}, []string{"x"}, MCPServerOptions{}); err == nil {
 		t.Fatalf("expected tool mismatch error")
 	}
 
-	if err := r.registerMCPSession("srv", "name", session, []Tool{&spyTool{name: "echo"}}, []string{"echo"}); err != nil {
+	if err := r.registerMCPSession("srv", "name", session, []Tool{&spyTool{name: "echo"}}, []string{"echo"}, MCPServerOptions{}); err != nil {
 		t.Fatalf("unexpected register error: %v", err)
 	}
-	if err := r.registerMCPSession("srv", "name", session, []Tool{&spyTool{name: "echo"}}, []string{"echo"}); err == nil {
+	if err := r.registerMCPSession("srv", "name", session, []Tool{&spyTool{name: "echo"}}, []string{"echo"}, MCPServerOptions{}); err == nil {
 		t.Fatalf("expected duplicate tool error")
 	}
 }

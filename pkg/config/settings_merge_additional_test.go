@@ -46,7 +46,13 @@ func TestMergeMCPServerRules(t *testing.T) {
 
 func TestMergeMCPConfig(t *testing.T) {
 	lower := &MCPConfig{Servers: map[string]MCPServerConfig{
-		"base": {Type: "stdio", Command: "node"},
+		"base": {
+			Type:               "stdio",
+			Command:            "node",
+			EnabledTools:       []string{"echo"},
+			DisabledTools:      []string{"sum"},
+			ToolTimeoutSeconds: 2,
+		},
 	}}
 	higher := &MCPConfig{Servers: map[string]MCPServerConfig{
 		"remote": {Type: "http", URL: "https://example"},
@@ -55,10 +61,21 @@ func TestMergeMCPConfig(t *testing.T) {
 	out := mergeMCPConfig(lower, higher)
 	require.Len(t, out.Servers, 2)
 	require.Equal(t, "node", out.Servers["base"].Command)
+	require.Equal(t, []string{"echo"}, out.Servers["base"].EnabledTools)
+	require.Equal(t, []string{"sum"}, out.Servers["base"].DisabledTools)
+	require.Equal(t, 2, out.Servers["base"].ToolTimeoutSeconds)
 	require.Equal(t, "https://example", out.Servers["remote"].URL)
 
 	out.Servers["base"] = MCPServerConfig{}
 	require.Equal(t, "node", lower.Servers["base"].Command)
+
+	clone := mergeMCPConfig(lower, nil)
+	cloneServer := clone.Servers["base"]
+	cloneServer.EnabledTools[0] = "changed"
+	cloneServer.DisabledTools[0] = "changed"
+	clone.Servers["base"] = cloneServer
+	require.Equal(t, "echo", lower.Servers["base"].EnabledTools[0])
+	require.Equal(t, "sum", lower.Servers["base"].DisabledTools[0])
 }
 
 func TestMergeHooksAndCloneHooks(t *testing.T) {

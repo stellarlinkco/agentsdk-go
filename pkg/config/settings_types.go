@@ -121,13 +121,16 @@ type MCPConfig struct {
 
 // MCPServerConfig describes how to reach an MCP server.
 type MCPServerConfig struct {
-	Type           string            `json:"type"`              // stdio/http/sse
-	Command        string            `json:"command,omitempty"` // for stdio
-	Args           []string          `json:"args,omitempty"`
-	URL            string            `json:"url,omitempty"` // for http/sse
-	Env            map[string]string `json:"env,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	TimeoutSeconds int               `json:"timeoutSeconds,omitempty"` // optional per-transport timeout
+	Type               string            `json:"type"`              // stdio/http/sse
+	Command            string            `json:"command,omitempty"` // for stdio
+	Args               []string          `json:"args,omitempty"`
+	URL                string            `json:"url,omitempty"` // for http/sse
+	Env                map[string]string `json:"env,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	TimeoutSeconds     int               `json:"timeoutSeconds,omitempty"`     // optional connect/list timeout
+	EnabledTools       []string          `json:"enabledTools,omitempty"`       // optional remote tool allowlist
+	DisabledTools      []string          `json:"disabledTools,omitempty"`      // optional remote tool denylist
+	ToolTimeoutSeconds int               `json:"toolTimeoutSeconds,omitempty"` // optional timeout for each MCP tool call
 }
 
 // MCPServerRule constrains which MCP servers can be enabled.

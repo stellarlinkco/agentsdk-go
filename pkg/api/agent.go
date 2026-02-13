@@ -1463,12 +1463,7 @@ func registerTools(registry *tool.Registry, opts Options, settings *config.Setti
 			cmdExec = commands.NewExecutor()
 		}
 
-		taskStore := opts.TaskStore
-		if taskStore == nil {
-			taskStore = tasks.NewTaskStore()
-		}
-
-		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, settings, skReg, cmdExec, taskStore)
+		factories := builtinToolFactories(opts.ProjectRoot, sandboxDisabled, entry, settings, skReg, cmdExec, opts.TaskStore)
 		names := builtinOrder(entry)
 		selectedNames := filterBuiltinNames(opts.EnabledBuiltinTools, names)
 		for _, name := range selectedNames {
@@ -1618,6 +1613,8 @@ func builtinToolFactories(root string, sandboxDisabled bool, entry EntryPoint, s
 		glob.SetRespectGitignore(respectGitignore)
 		return glob
 	}
+	// Keep a defensive fallback because this helper is called directly in tests
+	// and package-internal wiring paths outside Runtime.New.
 	if taskStore == nil {
 		taskStore = tasks.NewTaskStore()
 	}
@@ -1738,13 +1735,21 @@ func registerMCPServers(ctx context.Context, registry *tool.Registry, manager *s
 		if err := enforceSandboxHost(manager, spec); err != nil {
 			return err
 		}
-		opts := tool.MCPServerOptions{Headers: server.Headers, Env: server.Env}
+		opts := tool.MCPServerOptions{
+			Headers:       server.Headers,
+			Env:           server.Env,
+			EnabledTools:  server.EnabledTools,
+			DisabledTools: server.DisabledTools,
+		}
 		if server.TimeoutSeconds > 0 {
 			opts.Timeout = time.Duration(server.TimeoutSeconds) * time.Second
 		}
+		if server.ToolTimeoutSeconds > 0 {
+			opts.ToolTimeout = time.Duration(server.ToolTimeoutSeconds) * time.Second
+		}
 
 		var err error
-		if len(opts.Headers) == 0 && len(opts.Env) == 0 && opts.Timeout <= 0 {
+		if !hasMCPServerOptions(opts) {
 			err = registry.RegisterMCPServer(ctx, spec, server.Name)
 		} else {
 			err = registry.RegisterMCPServerWithOptions(ctx, spec, server.Name, opts)
@@ -1754,6 +1759,15 @@ func registerMCPServers(ctx context.Context, registry *tool.Registry, manager *s
 		}
 	}
 	return nil
+}
+
+func hasMCPServerOptions(opts tool.MCPServerOptions) bool {
+	return len(opts.Headers) > 0 ||
+		len(opts.Env) > 0 ||
+		opts.Timeout > 0 ||
+		len(opts.EnabledTools) > 0 ||
+		len(opts.DisabledTools) > 0 ||
+		opts.ToolTimeout > 0
 }
 
 func enforceSandboxHost(manager *sandbox.Manager, server string) error {

@@ -33,9 +33,12 @@ var newMCPClient = func(ctx context.Context, spec string, handler mcpListChanged
 var buildMCPTransport = mcp.BuildSessionTransport //nolint:staticcheck // TODO: migrate to ConnectSession
 
 type MCPServerOptions struct {
-	Headers map[string]string
-	Env     map[string]string
-	Timeout time.Duration
+	Headers       map[string]string
+	Env           map[string]string
+	Timeout       time.Duration
+	EnabledTools  []string
+	DisabledTools []string
+	ToolTimeout   time.Duration
 }
 
 var newMCPClientWithOptions = func(ctx context.Context, spec string, opts MCPServerOptions, handler mcpListChangedHandler) (*mcp.ClientSession, error) {
@@ -178,11 +181,11 @@ func (r *Registry) RegisterMCPServer(ctx context.Context, serverPath, serverName
 		return fmt.Errorf("MCP server returned no tools")
 	}
 
-	wrappers, names, err := buildRemoteToolWrappers(session, serverName, tools)
+	wrappers, names, err := buildRemoteToolWrappers(session, serverName, tools, MCPServerOptions{})
 	if err != nil {
 		return err
 	}
-	if err := r.registerMCPSession(serverPath, serverName, session, wrappers, names); err != nil {
+	if err := r.registerMCPSession(serverPath, serverName, session, wrappers, names, MCPServerOptions{}); err != nil {
 		return err
 	}
 
@@ -246,11 +249,11 @@ func (r *Registry) RegisterMCPServerWithOptions(ctx context.Context, serverPath,
 		return fmt.Errorf("MCP server returned no tools")
 	}
 
-	wrappers, names, err := buildRemoteToolWrappers(session, serverName, tools)
+	wrappers, names, err := buildRemoteToolWrappers(session, serverName, tools, opts)
 	if err != nil {
 		return err
 	}
-	if err := r.registerMCPSession(serverPath, serverName, session, wrappers, names); err != nil {
+	if err := r.registerMCPSession(serverPath, serverName, session, wrappers, names, opts); err != nil {
 		return err
 	}
 
@@ -323,9 +326,10 @@ type mcpSessionInfo struct {
 	sessionID  string
 	session    *mcp.ClientSession
 	toolNames  map[string]struct{}
+	opts       MCPServerOptions
 }
 
-func (r *Registry) registerMCPSession(serverID, serverName string, session *mcp.ClientSession, wrappers []Tool, names []string) error {
+func (r *Registry) registerMCPSession(serverID, serverName string, session *mcp.ClientSession, wrappers []Tool, names []string, opts MCPServerOptions) error {
 	if session == nil {
 		return fmt.Errorf("mcp session is nil")
 	}
@@ -349,15 +353,17 @@ func (r *Registry) registerMCPSession(serverID, serverName string, session *mcp.
 		sessionID:  session.ID(),
 		session:    session,
 		toolNames:  toNameSet(names),
+		opts:       cloneMCPServerOptions(opts),
 	}
 	r.mcpSessions = append(r.mcpSessions, info)
 	return nil
 }
 
-func buildRemoteToolWrappers(session *mcp.ClientSession, serverName string, tools []*mcp.Tool) ([]Tool, []string, error) {
+func buildRemoteToolWrappers(session *mcp.ClientSession, serverName string, tools []*mcp.Tool, opts MCPServerOptions) ([]Tool, []string, error) {
 	wrappers := make([]Tool, 0, len(tools))
 	names := make([]string, 0, len(tools))
 	seen := map[string]struct{}{}
+	filter := newMCPToolFilter(opts.EnabledTools, opts.DisabledTools)
 	for _, desc := range tools {
 		if desc == nil || strings.TrimSpace(desc.Name) == "" {
 			return nil, nil, fmt.Errorf("encountered MCP tool with empty name")
@@ -365,6 +371,9 @@ func buildRemoteToolWrappers(session *mcp.ClientSession, serverName string, tool
 		toolName := desc.Name
 		if serverName != "" {
 			toolName = fmt.Sprintf("%s__%s", serverName, desc.Name)
+		}
+		if !filter.allows(desc.Name, toolName) {
+			continue
 		}
 		if _, ok := seen[toolName]; ok {
 			return nil, nil, fmt.Errorf("tool %s already registered", toolName)
@@ -380,8 +389,12 @@ func buildRemoteToolWrappers(session *mcp.ClientSession, serverName string, tool
 			description: desc.Description,
 			schema:      schema,
 			session:     session,
+			timeout:     opts.ToolTimeout,
 		})
 		names = append(names, toolName)
+	}
+	if len(wrappers) == 0 {
+		return nil, nil, fmt.Errorf("MCP server returned no tools after applying filters")
 	}
 	return wrappers, names, nil
 }
@@ -416,6 +429,7 @@ func (r *Registry) refreshMCPTools(ctx context.Context, serverID, sessionID stri
 	var (
 		serverName string
 		session    *mcp.ClientSession
+		opts       MCPServerOptions
 	)
 	r.mu.RLock()
 	for _, info := range r.mcpSessions {
@@ -425,11 +439,13 @@ func (r *Registry) refreshMCPTools(ctx context.Context, serverID, sessionID stri
 		if sessionID != "" && info.sessionID == sessionID {
 			serverName = info.serverName
 			session = info.session
+			opts = cloneMCPServerOptions(info.opts)
 			break
 		}
 		if session == nil && serverID != "" && info.serverID == serverID {
 			serverName = info.serverName
 			session = info.session
+			opts = cloneMCPServerOptions(info.opts)
 		}
 	}
 	r.mu.RUnlock()
@@ -451,7 +467,7 @@ func (r *Registry) refreshMCPTools(ctx context.Context, serverID, sessionID stri
 		return fmt.Errorf("MCP server returned no tools")
 	}
 
-	wrappers, names, err := buildRemoteToolWrappers(session, serverName, tools)
+	wrappers, names, err := buildRemoteToolWrappers(session, serverName, tools, opts)
 	if err != nil {
 		return err
 	}
@@ -522,6 +538,82 @@ func toNameSet(names []string) map[string]struct{} {
 			continue
 		}
 		out[name] = struct{}{}
+	}
+	return out
+}
+
+type mcpToolFilter struct {
+	enabled  map[string]struct{}
+	disabled map[string]struct{}
+}
+
+func newMCPToolFilter(enabled, disabled []string) mcpToolFilter {
+	return mcpToolFilter{
+		enabled:  normalizeMCPToolNameSet(enabled),
+		disabled: normalizeMCPToolNameSet(disabled),
+	}
+}
+
+func normalizeMCPToolNameSet(names []string) map[string]struct{} {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		out[name] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (f mcpToolFilter) allows(remoteName, localName string) bool {
+	if len(f.enabled) > 0 && !f.matches(f.enabled, remoteName, localName) {
+		return false
+	}
+	if len(f.disabled) > 0 && f.matches(f.disabled, remoteName, localName) {
+		return false
+	}
+	return true
+}
+
+func (f mcpToolFilter) matches(set map[string]struct{}, names ...string) bool {
+	if len(set) == 0 {
+		return false
+	}
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, ok := set[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneMCPServerOptions(src MCPServerOptions) MCPServerOptions {
+	out := src
+	out.Headers = cloneStringMap(src.Headers)
+	out.Env = cloneStringMap(src.Env)
+	out.EnabledTools = append([]string(nil), src.EnabledTools...)
+	out.DisabledTools = append([]string(nil), src.DisabledTools...)
+	return out
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
 	}
 	return out
 }
@@ -738,6 +830,7 @@ type remoteTool struct {
 	description string
 	schema      *JSONSchema
 	session     *mcp.ClientSession
+	timeout     time.Duration
 }
 
 func (r *remoteTool) Name() string        { return r.name }
@@ -751,15 +844,24 @@ func (r *remoteTool) Execute(ctx context.Context, params map[string]interface{})
 	if params == nil {
 		params = map[string]interface{}{}
 	}
+	callCtx := nonNilContext(ctx)
+	if r.timeout > 0 {
+		var cancel context.CancelFunc
+		callCtx, cancel = context.WithTimeout(callCtx, r.timeout)
+		defer cancel()
+	}
 	remoteName := r.remoteName
 	if remoteName == "" {
 		remoteName = r.name
 	}
-	res, err := r.session.CallTool(ctx, &mcp.CallToolParams{
+	res, err := r.session.CallTool(callCtx, &mcp.CallToolParams{
 		Name:      remoteName,
 		Arguments: params,
 	})
 	if err != nil {
+		if r.timeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("mcp tool %s timeout after %s: %w", remoteName, r.timeout, err)
+		}
 		return nil, err
 	}
 	if res == nil {

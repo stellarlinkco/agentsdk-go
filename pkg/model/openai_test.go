@@ -313,6 +313,18 @@ func TestConvertMessagesToOpenAI(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesToOpenAI_PreservesUserWhitespace(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "  keep leading and trailing spaces  "},
+	}
+
+	result := convertMessagesToOpenAI(msgs)
+	if len(result) != 1 || result[0].OfUser == nil {
+		t.Fatalf("expected one user message, got %+v", result)
+	}
+	assert.Equal(t, "  keep leading and trailing spaces  ", result[0].OfUser.Content.OfString.Value)
+}
+
 func TestConvertToolsToOpenAI(t *testing.T) {
 	tests := []struct {
 		name    string

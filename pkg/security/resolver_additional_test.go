@@ -40,12 +40,3 @@ func TestOpenNoFollowRegularFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-
-func TestSupportsNoFollow(t *testing.T) {
-	if runtime.GOOS == "windows" && supportsNoFollow() {
-		t.Fatalf("expected no O_NOFOLLOW on windows")
-	}
-	if runtime.GOOS != "windows" && !supportsNoFollow() {
-		t.Fatalf("expected O_NOFOLLOW support on unix")
-	}
-}

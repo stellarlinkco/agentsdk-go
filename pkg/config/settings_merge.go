@@ -495,6 +495,8 @@ func cloneMCPServerConfig(src MCPServerConfig) MCPServerConfig {
 	out.Args = mergeStringSlices(nil, src.Args)
 	out.Env = mergeMaps(nil, src.Env)
 	out.Headers = mergeMaps(nil, src.Headers)
+	out.EnabledTools = mergeStringSlices(nil, src.EnabledTools)
+	out.DisabledTools = mergeStringSlices(nil, src.DisabledTools)
 	return out
 }
 

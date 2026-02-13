@@ -155,7 +155,7 @@ func mustHardlink(t *testing.T, oldname, newname string) {
 }
 
 func TestOpenNoFollowMissingPath(t *testing.T) {
-	if !supportsNoFollow() {
+	if runtime.GOOS == "windows" {
 		t.Skip("O_NOFOLLOW unsupported on this platform")
 	}
 	missing := filepath.Join(t.TempDir(), "missing.txt")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -643,6 +644,44 @@ func TestExecuteAcceptsAllValidEvents(t *testing.T) {
 		if err != nil {
 			t.Errorf("event %s should be valid: %v", et, err)
 		}
+	}
+}
+
+func TestNewShellCommandPrefersBinShOnUnix(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("windows does not use /bin/sh")
+	}
+	if info, err := os.Stat("/bin/sh"); err != nil || info.IsDir() {
+		t.Skip("/bin/sh unavailable in this environment")
+	}
+
+	cmd := newShellCommand(context.Background(), "echo hello")
+	if cmd.Path != "/bin/sh" {
+		t.Fatalf("expected /bin/sh for command snippets, got %q", cmd.Path)
+	}
+}
+
+func TestLooksLikeScriptPath(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		command string
+		want    bool
+	}{
+		{name: "absolute unix path", command: "/tmp/hook.sh", want: true},
+		{name: "relative path", command: "./hook.sh", want: true},
+		{name: "windows path", command: `C:\hooks\run.cmd`, want: true},
+		{name: "shell snippet", command: "echo hi", want: false},
+		{name: "pipeline", command: "cat a | cat", want: false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			if got := looksLikeScriptPath(tt.command); got != tt.want {
+				t.Fatalf("looksLikeScriptPath(%q)=%v want %v", tt.command, got, tt.want)
+			}
+		})
 	}
 }
 
