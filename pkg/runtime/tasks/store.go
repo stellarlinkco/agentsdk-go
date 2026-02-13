@@ -19,11 +19,14 @@ var (
 )
 
 // Store defines the task storage contract used by builtin task tools.
+// The interface enables dependency injection of external persistent store
+// implementations (e.g., database-backed) beyond the default in-memory store.
 type Store interface {
 	Create(subject, description, activeForm string) (*Task, error)
 	Get(id string) (*Task, error)
 	Update(id string, updates TaskUpdate) (*Task, error)
 	List() []*Task
+	Snapshot() []*Task
 	Delete(id string) error
 	AddDependency(taskID, blockedByID string) error
 	RemoveDependency(taskID, blockedByID string) error
@@ -62,7 +65,6 @@ func NewTaskStoreFromSnapshot(snapshot []*Task) *TaskStore {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.initLocked()
 
 	for _, task := range snapshot {
 		if task == nil {
@@ -83,7 +85,9 @@ func NewTaskStoreFromSnapshot(snapshot []*Task) *TaskStore {
 	return store
 }
 
-// Close releases persistence resources.
+// Close is a no-op for the in-memory implementation. It exists in the Store
+// interface so that persistent implementations can release resources (e.g.,
+// close database connections) on shutdown.
 func (s *TaskStore) Close() error {
 	return nil
 }
