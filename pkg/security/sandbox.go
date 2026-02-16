@@ -63,6 +63,14 @@ func (s *Sandbox) AllowShellMetachars(allow bool) {
 	}
 }
 
+// SetCommandLimits overrides the maximum command length and argument count.
+func (s *Sandbox) SetCommandLimits(maxBytes, maxArgs int) {
+	if s != nil && s.validator != nil {
+		s.validator.SetMaxCommandBytes(maxBytes)
+		s.validator.SetMaxArgs(maxArgs)
+	}
+}
+
 // Allow registers additional absolute prefixes that commands may touch.
 func (s *Sandbox) Allow(path string) {
 	normalized := normalizePath(path)

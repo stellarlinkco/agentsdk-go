@@ -261,6 +261,15 @@ func (b *BashTool) effectiveOutputThresholdBytes() int {
 	return b.outputThresholdBytes
 }
 
+// SetCommandLimits overrides the maximum command length (bytes) and argument count
+// enforced by the security validator. Use this for code-generation scenarios where
+// agents write files via bash heredocs or long cat commands.
+func (b *BashTool) SetCommandLimits(maxBytes, maxArgs int) {
+	if b != nil && b.sandbox != nil {
+		b.sandbox.SetCommandLimits(maxBytes, maxArgs)
+	}
+}
+
 // AllowShellMetachars enables shell pipes and metacharacters (CLI mode).
 func (b *BashTool) AllowShellMetachars(allow bool) {
 	if b != nil && b.sandbox != nil {

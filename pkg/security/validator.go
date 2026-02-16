@@ -62,10 +62,26 @@ func NewValidator() *Validator {
 			"rm *",
 			"rm /",
 		},
-		maxCommandBytes: 4096,
-		maxArgs:         64,
+		maxCommandBytes: 32768,
+		maxArgs:         512,
 		allowShellMeta:  false,
 	}
+}
+
+// SetMaxCommandBytes overrides the maximum allowed command length in bytes.
+// Zero or negative disables the check.
+func (v *Validator) SetMaxCommandBytes(n int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.maxCommandBytes = n
+}
+
+// SetMaxArgs overrides the maximum allowed argument count.
+// Zero or negative disables the check.
+func (v *Validator) SetMaxArgs(n int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.maxArgs = n
 }
 
 // AllowShellMetachars enables pipe and other shell features (CLI mode).
