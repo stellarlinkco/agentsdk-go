@@ -8,6 +8,7 @@ import (
 func TestTraceMiddlewareStages(t *testing.T) {
 	dir := t.TempDir()
 	mw := NewTraceMiddleware(dir)
+	t.Cleanup(mw.Close)
 	state := &State{Values: map[string]any{}, Iteration: 1}
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "sess")
 

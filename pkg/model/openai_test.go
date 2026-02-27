@@ -313,6 +313,18 @@ func TestConvertMessagesToOpenAI(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesToOpenAI_AssistantToolCallNilArgumentsUsesEmptyObject(t *testing.T) {
+	msgs := []Message{
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Name: "tool1"}}},
+	}
+
+	out := convertMessagesToOpenAI(msgs)
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].OfAssistant)
+	require.Len(t, out[0].OfAssistant.ToolCalls, 1)
+	assert.Equal(t, "{}", out[0].OfAssistant.ToolCalls[0].Function.Arguments)
+}
+
 func TestConvertMessagesToOpenAI_PreservesUserWhitespace(t *testing.T) {
 	msgs := []Message{
 		{Role: "user", Content: "  keep leading and trailing spaces  "},

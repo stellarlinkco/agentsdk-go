@@ -465,12 +465,17 @@ func buildOpenAIAssistantMessage(msg Message) openai.ChatCompletionMessageParamU
 				continue
 			}
 
-			argsJSON, _ := json.Marshal(call.Arguments) //nolint:errcheck
+			args := "{}"
+			if call.Arguments != nil {
+				if argsJSON, err := json.Marshal(call.Arguments); err == nil {
+					args = string(argsJSON)
+				}
+			}
 			toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallParam{
 				ID: id,
 				Function: openai.ChatCompletionMessageToolCallFunctionParam{
 					Name:      name,
-					Arguments: string(argsJSON),
+					Arguments: args,
 				},
 			})
 		}
