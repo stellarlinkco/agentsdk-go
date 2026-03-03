@@ -2,11 +2,9 @@ package acp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -215,16 +213,11 @@ func TestACPInprocLifecycleAndStreaming(t *testing.T) {
 func TestACPInprocLoadSessionReplayHistory(t *testing.T) {
 	root := t.TempDir()
 	sessionID := acpproto.SessionId("sess-replay")
-	path := historyFilePath(root, sessionID)
-	if err := writePersistedHistory(path, persistedHistorySnapshot{
-		Version:   1,
-		SessionID: string(sessionID),
-		Messages: []message.Message{
-			{Role: "user", Content: "hello"},
-			{Role: "assistant", Content: "world"},
-		},
+	if err := api.SavePersistedHistory(root, string(sessionID), []message.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "world"},
 	}); err != nil {
-		t.Fatalf("write persisted history: %v", err)
+		t.Fatalf("save persisted history: %v", err)
 	}
 
 	client := newE2EClient()
@@ -451,20 +444,6 @@ func TestACPInprocCapabilityBridgeReadWriteBash(t *testing.T) {
 	if runtime.GOOS == "windows" && !strings.EqualFold(creates[0].Command, "cmd") {
 		t.Fatalf("windows terminal command=%q, want cmd", creates[0].Command)
 	}
-}
-
-func writePersistedHistory(path string, payload persistedHistorySnapshot) error {
-	if strings.TrimSpace(path) == "" {
-		return fmt.Errorf("path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, raw, 0o600)
 }
 
 type toolPlanStep struct {

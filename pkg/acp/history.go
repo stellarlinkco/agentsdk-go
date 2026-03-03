@@ -1,88 +1,16 @@
 package acp
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/cexll/agentsdk-go/pkg/api"
 	"github.com/cexll/agentsdk-go/pkg/message"
 	acpproto "github.com/coder/acp-go-sdk"
 )
 
-type persistedHistorySnapshot struct {
-	Version   int               `json:"version"`
-	SessionID string            `json:"session_id,omitempty"`
-	UpdatedAt time.Time         `json:"updated_at,omitempty"`
-	Messages  []message.Message `json:"messages,omitempty"`
-}
-
 func loadPersistedHistory(projectRoot string, sessionID acpproto.SessionId) ([]message.Message, bool, error) {
-	path := historyFilePath(projectRoot, sessionID)
-	if path == "" {
-		return nil, false, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("read history: %w", err)
-	}
-
-	var wrapper persistedHistorySnapshot
-	if err := json.Unmarshal(data, &wrapper); err == nil {
-		if wrapper.Version != 0 || wrapper.SessionID != "" || !wrapper.UpdatedAt.IsZero() || wrapper.Messages != nil {
-			return message.CloneMessages(wrapper.Messages), true, nil
-		}
-	}
-
-	var msgs []message.Message
-	if err := json.Unmarshal(data, &msgs); err != nil {
-		return nil, false, fmt.Errorf("decode history: %w", err)
-	}
-	return message.CloneMessages(msgs), true, nil
-}
-
-func historyFilePath(projectRoot string, sessionID acpproto.SessionId) string {
-	projectRoot = strings.TrimSpace(projectRoot)
-	if projectRoot == "" {
-		return ""
-	}
-	name := sanitizePathComponent(string(sessionID))
-	if name == "" {
-		return ""
-	}
-	return filepath.Join(projectRoot, ".claude", "history", name+".json")
-}
-
-func sanitizePathComponent(value string) string {
-	const fallback = "default"
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return fallback
-	}
-	var b strings.Builder
-	b.Grow(len(trimmed))
-	for _, r := range trimmed {
-		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9',
-			r == '-', r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	sanitized := strings.Trim(b.String(), "-")
-	if sanitized == "" {
-		return fallback
-	}
-	return sanitized
+	return api.LoadPersistedHistory(projectRoot, string(sessionID))
 }
 
 func historyMessagesToSessionUpdates(msgs []message.Message) []acpproto.SessionUpdate {

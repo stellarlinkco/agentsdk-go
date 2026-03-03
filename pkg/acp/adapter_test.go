@@ -2,10 +2,7 @@ package acp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -273,27 +270,11 @@ func TestLoadSessionFromPersistedHistory(t *testing.T) {
 
 	root := t.TempDir()
 	sessionID := acpproto.SessionId("persisted-session")
-	historyPath := historyFilePath(root, sessionID)
-	if historyPath == "" {
-		t.Fatalf("history path should not be empty")
-	}
-	if err := os.MkdirAll(filepath.Dir(historyPath), 0o755); err != nil {
-		t.Fatalf("mkdir history dir: %v", err)
-	}
-	payload := persistedHistorySnapshot{
-		Version:   1,
-		SessionID: string(sessionID),
-		Messages: []message.Message{
-			{Role: "user", Content: "hello"},
-			{Role: "assistant", Content: "world"},
-		},
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-	if err := os.WriteFile(historyPath, raw, 0o600); err != nil {
-		t.Fatalf("write history file: %v", err)
+	if err := api.SavePersistedHistory(root, string(sessionID), []message.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "world"},
+	}); err != nil {
+		t.Fatalf("save persisted history: %v", err)
 	}
 
 	adapter := NewAdapter(testOptionsForRoot(t, root))
