@@ -13,6 +13,9 @@ type NaiveCounter struct{}
 // Count implements TokenCounter.
 func (NaiveCounter) Count(msg Message) int {
 	tokens := len(msg.Content)/4 + len(msg.Role)/10
+	// Include assistant reasoning/thinking content so compact decisions can
+	// account for providers that keep thinking blocks in context.
+	tokens += len(msg.ReasoningContent) / 4
 	for _, block := range msg.ContentBlocks {
 		switch block.Type {
 		case ContentBlockText:
@@ -29,6 +32,9 @@ func (NaiveCounter) Count(msg Message) int {
 	}
 	for _, call := range msg.ToolCalls {
 		tokens += len(call.Name)
+		// Tool results are often long and dominate context growth in tool-heavy
+		// sessions; include them in the estimate.
+		tokens += len(call.Result) / 4
 		for k, v := range call.Arguments {
 			tokens += len(k)
 			switch val := v.(type) {

@@ -86,6 +86,17 @@ func TestNaiveCounterEdgeCases(t *testing.T) {
 			want: 3, // len("x") + len("n") + default branch
 		},
 		{
+			name: "reasoning and tool result contribute",
+			msg: Message{
+				ToolCalls: []ToolCall{{
+					Name:   "bash",
+					Result: "12345678",
+				}},
+				ReasoningContent: "abcdefgh",
+			},
+			want: 8, // len("bash") + 8/4 (result) + 8/4 (reasoning)
+		},
+		{
 			name: "enforces minimum token",
 			msg:  Message{},
 			want: 1,
