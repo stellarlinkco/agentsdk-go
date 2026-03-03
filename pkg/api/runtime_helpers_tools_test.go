@@ -72,8 +72,8 @@ func TestRuntimeAvailableToolsForWhitelist(t *testing.T) {
 	root := newClaudeProject(t)
 	mdl := &stubModel{responses: []*model.Response{{Message: model.Message{Role: "assistant", Content: "ok"}}}}
 	rt, err := New(context.Background(), Options{
-		ProjectRoot: root,
-		Model:       mdl,
+		ProjectRoot:         root,
+		Model:               mdl,
 		EnabledBuiltinTools: []string{"task_create", "task_list", "bash"},
 	})
 	if err != nil {

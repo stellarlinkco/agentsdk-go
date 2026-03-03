@@ -396,10 +396,10 @@ func planEntriesFromTaskTool(toolName string, rawData any) []acpproto.PlanEntry 
 		return nil
 	}
 
-	dataMap, _ := rawData.(map[string]any)
+	dataMap, dataMapOK := rawData.(map[string]any)
 	switch kind {
 	case "taskcreate":
-		if dataMap == nil {
+		if !dataMapOK || dataMap == nil {
 			return nil
 		}
 		taskID := strings.TrimSpace(fmt.Sprint(dataMap["taskId"]))
@@ -414,12 +414,12 @@ func planEntriesFromTaskTool(toolName string, rawData any) []acpproto.PlanEntry 
 			},
 		}
 	case "tasklist":
-		if dataMap == nil {
+		if !dataMapOK || dataMap == nil {
 			return nil
 		}
 		return planEntriesFromTasks(dataMap["tasks"])
 	case "taskget", "taskupdate":
-		if dataMap == nil {
+		if !dataMapOK || dataMap == nil {
 			return nil
 		}
 		taskAny, ok := dataMap["task"]
