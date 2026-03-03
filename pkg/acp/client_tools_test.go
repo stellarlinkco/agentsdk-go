@@ -3,6 +3,7 @@ package acp
 import (
 	"testing"
 
+	"github.com/cexll/agentsdk-go/pkg/api"
 	acpproto "github.com/coder/acp-go-sdk"
 )
 
@@ -41,6 +42,32 @@ func TestBuildClientCapabilityTools(t *testing.T) {
 		if !containsString(disallowed, name) {
 			t.Fatalf("missing disallowed entry %q in %#v", name, disallowed)
 		}
+	}
+}
+
+func TestFilterEnabledBuiltinsForBridge(t *testing.T) {
+	t.Parallel()
+
+	opts := api.Options{
+		EntryPoint:          api.EntryPointCLI,
+		EnabledBuiltinTools: nil, // default built-ins
+	}
+	filtered := filterEnabledBuiltinsForBridge(opts, []string{"Read", "Write", "Bash"})
+	forbidden := map[string]struct{}{
+		"bash":       {},
+		"file_read":  {},
+		"file_write": {},
+	}
+	for _, builtin := range filtered {
+		if _, blocked := forbidden[canonicalBuiltinName(builtin)]; blocked {
+			t.Fatalf("filtered builtins still contains shadowed builtin %q", builtin)
+		}
+	}
+	if !containsString(filtered, "grep") {
+		t.Fatalf("expected non-shadowed builtins to be preserved")
+	}
+	if !containsString(filtered, "glob") {
+		t.Fatalf("expected non-shadowed builtins to be preserved")
 	}
 }
 

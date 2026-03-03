@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cexll/agentsdk-go/pkg/api"
 	"github.com/cexll/agentsdk-go/pkg/tool"
 	acpproto "github.com/coder/acp-go-sdk"
 )
@@ -31,6 +32,86 @@ func buildClientCapabilityTools(sessionID acpproto.SessionId, connFn func() *acp
 	}
 
 	return tools, disallowed
+}
+
+func filterEnabledBuiltinsForBridge(opts api.Options, shadowedToolNames []string) []string {
+	if len(shadowedToolNames) == 0 {
+		return opts.EnabledBuiltinTools
+	}
+
+	shadowedBuiltins := make(map[string]struct{}, len(shadowedToolNames))
+	for _, name := range shadowedToolNames {
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "read":
+			shadowedBuiltins["file_read"] = struct{}{}
+		case "write":
+			shadowedBuiltins["file_write"] = struct{}{}
+		case "bash":
+			shadowedBuiltins["bash"] = struct{}{}
+		}
+	}
+	if len(shadowedBuiltins) == 0 {
+		return opts.EnabledBuiltinTools
+	}
+
+	enabled := opts.EnabledBuiltinTools
+	if enabled == nil {
+		enabled = defaultBuiltinOrder(resolveEntryPoint(opts))
+	}
+
+	filtered := make([]string, 0, len(enabled))
+	for _, name := range enabled {
+		key := canonicalBuiltinName(name)
+		if _, blocked := shadowedBuiltins[key]; blocked {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	return filtered
+}
+
+func resolveEntryPoint(opts api.Options) api.EntryPoint {
+	entry := opts.EntryPoint
+	if entry == "" {
+		entry = opts.Mode.EntryPoint
+	}
+	if entry == "" {
+		entry = api.EntryPointCLI
+	}
+	return entry
+}
+
+func defaultBuiltinOrder(entry api.EntryPoint) []string {
+	order := []string{
+		"bash",
+		"file_read",
+		"file_write",
+		"file_edit",
+		"web_fetch",
+		"web_search",
+		"bash_output",
+		"bash_status",
+		"kill_task",
+		"task_create",
+		"task_list",
+		"task_get",
+		"task_update",
+		"ask_user_question",
+		"skill",
+		"slash_command",
+		"grep",
+		"glob",
+	}
+	if entry == api.EntryPointCLI || entry == api.EntryPointPlatform {
+		order = append(order, "task")
+	}
+	return order
+}
+
+func canonicalBuiltinName(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	key = strings.NewReplacer("-", "_", " ", "_").Replace(key)
+	return key
 }
 
 var acpReadSchema = &tool.JSONSchema{

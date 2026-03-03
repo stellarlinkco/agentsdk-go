@@ -339,10 +339,10 @@ func (a *Adapter) createSession(ctx context.Context, sessionID acpproto.SessionI
 		})
 	}
 	opts.MCPServers = mergedMCPSpecs
-	bridgeTools, disallowed := buildClientCapabilityTools(sessionID, a.connection, a.clientCapabilities())
+	bridgeTools, shadowed := buildClientCapabilityTools(sessionID, a.connection, a.clientCapabilities())
 	if len(bridgeTools) > 0 {
 		opts.CustomTools = append(opts.CustomTools, bridgeTools...)
-		opts.DisallowedTools = append(opts.DisallowedTools, disallowed...)
+		opts.EnabledBuiltinTools = filterEnabledBuiltinsForBridge(opts, shadowed)
 	}
 	basePermissionHandler := opts.PermissionRequestHandler
 	opts.PermissionRequestHandler = a.newPermissionBridge(state, basePermissionHandler)
