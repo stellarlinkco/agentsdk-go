@@ -106,10 +106,11 @@ func (a *Adapter) NewSession(ctx context.Context, params acpproto.NewSessionRequ
 	if err != nil {
 		return acpproto.NewSessionResponse{}, err
 	}
-	a.registerSession(state)
 	if err := a.emitAvailableCommandsUpdate(ctx, sessionID, state); err != nil {
+		closeSessionRuntime(state)
 		return acpproto.NewSessionResponse{}, err
 	}
+	a.registerSession(state)
 
 	return acpproto.NewSessionResponse{
 		SessionId:     sessionID,
@@ -161,16 +162,18 @@ func (a *Adapter) LoadSession(ctx context.Context, params acpproto.LoadSessionRe
 	if err != nil {
 		return acpproto.LoadSessionResponse{}, err
 	}
-	a.registerSession(state)
 
 	for _, update := range historyMessagesToSessionUpdates(history) {
 		if err := a.emitSessionUpdate(ctx, params.SessionId, update); err != nil {
+			closeSessionRuntime(state)
 			return acpproto.LoadSessionResponse{}, err
 		}
 	}
 	if err := a.emitAvailableCommandsUpdate(ctx, params.SessionId, state); err != nil {
+		closeSessionRuntime(state)
 		return acpproto.LoadSessionResponse{}, err
 	}
+	a.registerSession(state)
 
 	return acpproto.LoadSessionResponse{
 		Modes:         state.snapshotModes(),
@@ -564,4 +567,15 @@ func mergeToolsWithBridge(base []tool.Tool, bridge []tool.Tool) []tool.Tool {
 		out = append(out, impl)
 	}
 	return append(out, bridge...)
+}
+
+func closeSessionRuntime(state *sessionState) {
+	if state == nil {
+		return
+	}
+	rt := state.runtime()
+	if rt == nil {
+		return
+	}
+	_ = rt.Close()
 }

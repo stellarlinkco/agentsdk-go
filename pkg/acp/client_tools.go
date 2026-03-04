@@ -13,6 +13,8 @@ import (
 	acpproto "github.com/coder/acp-go-sdk"
 )
 
+const acpTerminalCleanupTimeout = 5 * time.Second
+
 func buildClientCapabilityTools(sessionID acpproto.SessionId, connFn func() *acpproto.AgentSideConnection, caps acpproto.ClientCapabilities) ([]tool.Tool, []string) {
 	tools := make([]tool.Tool, 0, 4)
 	shadowBuiltinKeys := make([]string, 0, 4)
@@ -334,7 +336,9 @@ func (t *acpBashTool) Execute(ctx context.Context, params map[string]interface{}
 		return nil, errors.New("acp create_terminal returned empty terminal id")
 	}
 	defer func() {
-		_, releaseErr := conn.ReleaseTerminal(context.Background(), acpproto.ReleaseTerminalRequest{
+		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), acpTerminalCleanupTimeout)
+		defer cancelRelease()
+		_, releaseErr := conn.ReleaseTerminal(releaseCtx, acpproto.ReleaseTerminalRequest{
 			SessionId:  t.sessionID,
 			TerminalId: terminalID,
 		})
@@ -363,7 +367,9 @@ func (t *acpBashTool) Execute(ctx context.Context, params map[string]interface{}
 	})
 	if waitErr != nil {
 		if errors.Is(waitErr, context.DeadlineExceeded) {
-			_, killErr := conn.KillTerminalCommand(context.Background(), acpproto.KillTerminalCommandRequest{
+			killCtx, cancelKill := context.WithTimeout(context.Background(), acpTerminalCleanupTimeout)
+			defer cancelKill()
+			_, killErr := conn.KillTerminalCommand(killCtx, acpproto.KillTerminalCommandRequest{
 				SessionId:  t.sessionID,
 				TerminalId: terminalID,
 			})

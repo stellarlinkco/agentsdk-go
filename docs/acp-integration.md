@@ -109,7 +109,7 @@ func main() {
 			Terminal: true,
 		},
 	})
-	sess, _ := clientConn.NewSession(ctx, acp.NewSessionRequest{Cwd: "D:/project", McpServers: []acp.McpServer{}})
+	sess, _ := clientConn.NewSession(ctx, acp.NewSessionRequest{Cwd: "/path/to/project", McpServers: []acp.McpServer{}})
 	_, _ = clientConn.Prompt(ctx, acp.PromptRequest{
 		SessionId: sess.SessionId,
 		Prompt:    []acp.ContentBlock{acp.TextBlock("hello")},

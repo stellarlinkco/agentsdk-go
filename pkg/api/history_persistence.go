@@ -37,9 +37,20 @@ func PersistedHistoryFilePath(projectRoot, sessionID string) string {
 // LoadPersistedHistory loads a session history from disk using the runtime's
 // canonical persistence format. The found flag is false when no persisted file exists.
 func LoadPersistedHistory(projectRoot, sessionID string) ([]message.Message, bool, error) {
-	path := PersistedHistoryFilePath(projectRoot, sessionID)
+	p := newDiskHistoryPersister(projectRoot)
+	if p == nil {
+		return nil, false, nil
+	}
+	path := p.filePath(sessionID)
 	if path == "" {
 		return nil, false, nil
+	}
+	msgs, err := p.Load(sessionID)
+	if err != nil {
+		return nil, false, err
+	}
+	if msgs != nil {
+		return msgs, true, nil
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -47,16 +58,7 @@ func LoadPersistedHistory(projectRoot, sessionID string) ([]message.Message, boo
 		}
 		return nil, false, fmt.Errorf("read history: %w", err)
 	}
-
-	p := newDiskHistoryPersister(projectRoot)
-	if p == nil {
-		return nil, false, nil
-	}
-	msgs, err := p.Load(sessionID)
-	if err != nil {
-		return nil, false, err
-	}
-	return msgs, true, nil
+	return nil, true, nil
 }
 
 // SavePersistedHistory stores a session history using the runtime's canonical

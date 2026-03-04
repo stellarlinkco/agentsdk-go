@@ -176,7 +176,7 @@ func TestACPInprocLifecycleAndStreaming(t *testing.T) {
 		t.Fatalf("expected streamed assistant chunk containing %q, got %q", "ok", chunkText.String())
 	}
 
-	if _, err := h.clientConn.SetSessionMode(context.Background(), acpproto.SetSessionModeRequest{
+	if _, err := h.clientConn.SetSessionMode(ctx, acpproto.SetSessionModeRequest{
 		SessionId: sess.SessionId,
 		ModeId:    modeCodeID,
 	}); err != nil {
@@ -193,7 +193,7 @@ func TestACPInprocLifecycleAndStreaming(t *testing.T) {
 	if selectedConfig == nil {
 		t.Fatalf("mode config option not found")
 	}
-	setConfigResp, err := h.clientConn.SetSessionConfigOption(context.Background(), acpproto.SetSessionConfigOptionRequest{
+	setConfigResp, err := h.clientConn.SetSessionConfigOption(ctx, acpproto.SetSessionConfigOptionRequest{
 		SessionId: sess.SessionId,
 		ConfigId:  configSessionModeID,
 		Value:     modeConfigValue(modeArchitectID),
@@ -669,11 +669,15 @@ func TestACPServeStdioEndToEnd(t *testing.T) {
 	if initResp.ProtocolVersion != acpproto.ProtocolVersionNumber {
 		t.Fatalf("protocolVersion=%d, want %d", initResp.ProtocolVersion, acpproto.ProtocolVersionNumber)
 	}
-	if _, err := conn.Authenticate(context.Background(), acpproto.AuthenticateRequest{MethodId: "none"}); err != nil {
+
+	rpcCtx, rpcCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer rpcCancel()
+
+	if _, err := conn.Authenticate(rpcCtx, acpproto.AuthenticateRequest{MethodId: "none"}); err != nil {
 		t.Fatalf("authenticate failed: %v", err)
 	}
 	sess := mustNewSession(t, conn, root, nil)
-	if _, err := conn.Prompt(context.Background(), acpproto.PromptRequest{
+	if _, err := conn.Prompt(rpcCtx, acpproto.PromptRequest{
 		SessionId: sess.SessionId,
 		Prompt:    []acpproto.ContentBlock{acpproto.TextBlock("hello")},
 	}); err != nil {
@@ -705,13 +709,15 @@ func TestACPInprocCancelAndConcurrentPrompt(t *testing.T) {
 	initializeACP(t, h.clientConn, acpproto.ClientCapabilities{})
 
 	sess := mustNewSession(t, h.clientConn, root, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	type promptResult struct {
 		resp acpproto.PromptResponse
 		err  error
 	}
 	firstPromptDone := make(chan promptResult, 1)
 	go func() {
-		resp, err := h.clientConn.Prompt(context.Background(), acpproto.PromptRequest{
+		resp, err := h.clientConn.Prompt(ctx, acpproto.PromptRequest{
 			SessionId: sess.SessionId,
 			Prompt:    []acpproto.ContentBlock{acpproto.TextBlock("first")},
 		})
@@ -724,7 +730,7 @@ func TestACPInprocCancelAndConcurrentPrompt(t *testing.T) {
 		t.Fatalf("timed out waiting for first prompt to start")
 	}
 
-	_, err := h.clientConn.Prompt(context.Background(), acpproto.PromptRequest{
+	_, err := h.clientConn.Prompt(ctx, acpproto.PromptRequest{
 		SessionId: sess.SessionId,
 		Prompt:    []acpproto.ContentBlock{acpproto.TextBlock("second")},
 	})
@@ -739,7 +745,7 @@ func TestACPInprocCancelAndConcurrentPrompt(t *testing.T) {
 		t.Fatalf("error code=%d, want -32600", reqErr.Code)
 	}
 
-	if err := h.clientConn.Cancel(context.Background(), acpproto.CancelNotification{
+	if err := h.clientConn.Cancel(ctx, acpproto.CancelNotification{
 		SessionId: sess.SessionId,
 	}); err != nil {
 		t.Fatalf("cancel failed: %v", err)
@@ -765,7 +771,9 @@ func TestACPInprocPermissionRoundTrip(t *testing.T) {
 	h := newE2EHarness(t, testOptionsForRootWithModel(t, root, stubModel{}), client)
 	initializeACP(t, h.clientConn, acpproto.ClientCapabilities{})
 
-	decision, handled, err := h.adapter.requestPermissionFromClient(context.Background(), acpproto.SessionId("sess-perm"), api.PermissionRequest{
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	decision, handled, err := h.adapter.requestPermissionFromClient(ctx, acpproto.SessionId("sess-perm"), api.PermissionRequest{
 		ToolName:   "Read",
 		ToolParams: map[string]any{"file_path": filepath.Join(root, "a.txt")},
 		Target:     filepath.Join(root, "a.txt"),
@@ -803,7 +811,9 @@ func TestACPInprocModePermissionPolicies(t *testing.T) {
 	}
 	bridge := h.adapter.newPermissionBridge(state, nil)
 
-	decision, err := bridge(context.Background(), api.PermissionRequest{ToolName: "Read"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	decision, err := bridge(ctx, api.PermissionRequest{ToolName: "Read"})
 	if err != nil {
 		t.Fatalf("ask mode permission bridge failed: %v", err)
 	}
@@ -814,13 +824,13 @@ func TestACPInprocModePermissionPolicies(t *testing.T) {
 		t.Fatalf("ask mode permission requests=%d, want 1", count)
 	}
 
-	if _, err := h.clientConn.SetSessionMode(context.Background(), acpproto.SetSessionModeRequest{
+	if _, err := h.clientConn.SetSessionMode(ctx, acpproto.SetSessionModeRequest{
 		SessionId: sess.SessionId,
 		ModeId:    modeCodeID,
 	}); err != nil {
 		t.Fatalf("set mode code failed: %v", err)
 	}
-	decision, err = bridge(context.Background(), api.PermissionRequest{ToolName: "Write"})
+	decision, err = bridge(ctx, api.PermissionRequest{ToolName: "Write"})
 	if err != nil {
 		t.Fatalf("code mode permission bridge failed: %v", err)
 	}
@@ -831,20 +841,20 @@ func TestACPInprocModePermissionPolicies(t *testing.T) {
 		t.Fatalf("code mode should not request client permission; got %d requests", count)
 	}
 
-	if _, err := h.clientConn.SetSessionMode(context.Background(), acpproto.SetSessionModeRequest{
+	if _, err := h.clientConn.SetSessionMode(ctx, acpproto.SetSessionModeRequest{
 		SessionId: sess.SessionId,
 		ModeId:    modeArchitectID,
 	}); err != nil {
 		t.Fatalf("set mode architect failed: %v", err)
 	}
-	decision, err = bridge(context.Background(), api.PermissionRequest{ToolName: "Write"})
+	decision, err = bridge(ctx, api.PermissionRequest{ToolName: "Write"})
 	if err != nil {
 		t.Fatalf("architect mode write check failed: %v", err)
 	}
 	if decision != "deny" {
 		t.Fatalf("architect mode write decision=%q, want deny", decision)
 	}
-	decision, err = bridge(context.Background(), api.PermissionRequest{ToolName: "Read"})
+	decision, err = bridge(ctx, api.PermissionRequest{ToolName: "Read"})
 	if err != nil {
 		t.Fatalf("architect mode read check failed: %v", err)
 	}
@@ -1151,7 +1161,11 @@ func TestACPInprocArchitectModeBlocksMutatingCapabilityTools(t *testing.T) {
 	h := newE2EHarness(t, testOptionsForRootWithModel(t, root, model), client)
 	initializeACP(t, h.clientConn, caps)
 	sess := mustNewSession(t, h.clientConn, root, nil)
-	if _, err := h.clientConn.SetSessionMode(context.Background(), acpproto.SetSessionModeRequest{
+
+	modeCtx, modeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer modeCancel()
+
+	if _, err := h.clientConn.SetSessionMode(modeCtx, acpproto.SetSessionModeRequest{
 		SessionId: sess.SessionId,
 		ModeId:    modeArchitectID,
 	}); err != nil {
