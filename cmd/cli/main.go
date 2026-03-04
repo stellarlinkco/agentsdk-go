@@ -12,9 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	acpserver "github.com/cexll/agentsdk-go/pkg/acp"
 	"github.com/cexll/agentsdk-go/pkg/api"
 	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
 )
+
+var serveACPStdio = acpserver.ServeStdio
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -36,6 +39,7 @@ func run(argv []string, stdout, stderr io.Writer) error {
 	promptFile := flags.String("prompt-file", "", "Read prompt from file (defaults to stdin/args)")
 	promptLiteral := flags.String("prompt", "", "Prompt literal (overrides stdin)")
 	stream := flags.Bool("stream", false, "Stream events instead of waiting for completion")
+	acpMode := flags.Bool("acp", false, "Run ACP server over stdio")
 
 	var mcpServers multiValue
 	flags.Var(&mcpServers, "mcp", "Register an MCP server (repeatable)")
@@ -45,13 +49,6 @@ func run(argv []string, stdout, stderr io.Writer) error {
 
 	if err := flags.Parse(argv); err != nil {
 		return err
-	}
-	prompt, err := resolvePrompt(*promptLiteral, *promptFile, flags.Args())
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(prompt) == "" {
-		return errors.New("prompt is empty")
 	}
 
 	provider := &modelpkg.AnthropicProvider{
@@ -69,6 +66,18 @@ func run(argv []string, stdout, stderr io.Writer) error {
 		ModelFactory: provider,
 		MCPServers:   mcpServers,
 	}
+	if *acpMode {
+		return serveACPStdio(context.Background(), options, os.Stdin, stdout)
+	}
+
+	prompt, err := resolvePrompt(*promptLiteral, *promptFile, flags.Args())
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return errors.New("prompt is empty")
+	}
+
 	runtime, err := api.New(context.Background(), options)
 	if err != nil {
 		return fmt.Errorf("create runtime: %w", err)

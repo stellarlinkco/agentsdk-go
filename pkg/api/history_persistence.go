@@ -24,6 +24,53 @@ type persistedHistory struct {
 	Messages  []message.Message `json:"messages,omitempty"`
 }
 
+// PersistedHistoryFilePath returns the canonical on-disk history path for a
+// project/session pair. Empty strings mean persistence is disabled or inputs are invalid.
+func PersistedHistoryFilePath(projectRoot, sessionID string) string {
+	p := newDiskHistoryPersister(projectRoot)
+	if p == nil {
+		return ""
+	}
+	return p.filePath(sessionID)
+}
+
+// LoadPersistedHistory loads a session history from disk using the runtime's
+// canonical persistence format. The found flag is false when no persisted file exists.
+func LoadPersistedHistory(projectRoot, sessionID string) ([]message.Message, bool, error) {
+	p := newDiskHistoryPersister(projectRoot)
+	if p == nil {
+		return nil, false, nil
+	}
+	path := p.filePath(sessionID)
+	if path == "" {
+		return nil, false, nil
+	}
+	msgs, err := p.Load(sessionID)
+	if err != nil {
+		return nil, false, err
+	}
+	if msgs != nil {
+		return msgs, true, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("read history: %w", err)
+	}
+	return nil, true, nil
+}
+
+// SavePersistedHistory stores a session history using the runtime's canonical
+// persistence format. Empty project roots are treated as disabled persistence.
+func SavePersistedHistory(projectRoot, sessionID string, msgs []message.Message) error {
+	p := newDiskHistoryPersister(projectRoot)
+	if p == nil {
+		return nil
+	}
+	return p.Save(sessionID, msgs)
+}
+
 func newDiskHistoryPersister(projectRoot string) *diskHistoryPersister {
 	projectRoot = strings.TrimSpace(projectRoot)
 	if projectRoot == "" {

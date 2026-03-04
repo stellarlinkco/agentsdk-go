@@ -199,3 +199,43 @@ func TestNewDiskHistoryPersisterEmptyRoot(t *testing.T) {
 		t.Fatalf("expected nil persister for empty root")
 	}
 }
+
+func TestPersistedHistoryHelpers(t *testing.T) {
+	root := t.TempDir()
+	sessionID := "sess-helper"
+
+	path := PersistedHistoryFilePath(root, sessionID)
+	if path == "" {
+		t.Fatalf("expected persisted history path")
+	}
+	if !strings.HasSuffix(path, sessionID+".json") {
+		t.Fatalf("unexpected path %q", path)
+	}
+
+	msgs, found, err := LoadPersistedHistory(root, "missing")
+	if err != nil {
+		t.Fatalf("load missing history failed: %v", err)
+	}
+	if found {
+		t.Fatalf("expected missing history to be not found")
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected no messages for missing history, got %d", len(msgs))
+	}
+
+	input := []message.Message{{Role: "user", Content: "hello"}}
+	if err := SavePersistedHistory(root, sessionID, input); err != nil {
+		t.Fatalf("save persisted history failed: %v", err)
+	}
+
+	loaded, found, err := LoadPersistedHistory(root, sessionID)
+	if err != nil {
+		t.Fatalf("load persisted history failed: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected persisted history to be found")
+	}
+	if len(loaded) != 1 || loaded[0].Content != "hello" {
+		t.Fatalf("loaded history mismatch %+v", loaded)
+	}
+}
