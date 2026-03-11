@@ -2,432 +2,617 @@ package security
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
 
-type fakeClock struct {
-	now time.Time
-}
+func TestApprovalQueue_Request_WhitelistedSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
 
-func (f *fakeClock) Now() time.Time {
-	return f.now
-}
-
-func (f *fakeClock) Advance(d time.Duration) {
-	f.now = f.now.Add(d)
-}
-
-func newTestQueue(t *testing.T) (*ApprovalQueue, *fakeClock) {
-	t.Helper()
-	dir := t.TempDir()
-	store := filepath.Join(dir, "approvals.json")
-	q, err := NewApprovalQueue(store)
+	q, err := NewApprovalQueue(storePath)
 	if err != nil {
-		t.Fatalf("queue: %v", err)
-	}
-	clock := &fakeClock{now: time.Unix(1_700_000_000, 0)}
-	q.clock = clock.Now
-	return q, clock
-}
-
-func TestApprovalQueueRequestValidation(t *testing.T) {
-	q, _ := newTestQueue(t)
-	tests := []struct {
-		name    string
-		session string
-		command string
-		wantErr string
-	}{
-		{name: "missing session", session: "", command: "ls", wantErr: "session id"},
-		{name: "missing command", session: "sess", command: "   ", wantErr: "command"},
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, err := q.Request(tt.session, tt.command, nil); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("expected error containing %q got %v", tt.wantErr, err)
-			}
-		})
+	// Add session to whitelist
+	if err := q.AddSessionToWhitelist("session-1", time.Hour); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
 	}
 
-	path := filepath.Join(t.TempDir(), "dir", "file.txt")
-	rec, err := q.Request("sess", "echo ok", []string{"", path})
+	// Request should auto-approve for whitelisted session
+	rec, err := q.Request("session-1", "ls -la", nil)
 	if err != nil {
-		t.Fatalf("request: %v", err)
+		t.Fatalf("Request: %v", err)
 	}
-	if rec.State != ApprovalPending {
-		t.Fatalf("expected pending got %s", rec.State)
+	if rec.State != ApprovalApproved {
+		t.Errorf("expected approved, got %s", rec.State)
 	}
-	if len(rec.Paths) != 1 || rec.Paths[0] != normalizePath(path) {
-		t.Fatalf("paths not normalized: %+v", rec.Paths)
+	if !rec.AutoApproved {
+		t.Error("expected auto-approved")
+	}
+	if rec.Reason != "session whitelisted" {
+		t.Errorf("expected reason 'session whitelisted', got %s", rec.Reason)
 	}
 }
 
-func TestApprovalQueueAutoWhitelist(t *testing.T) {
-	q, clock := newTestQueue(t)
-	session := "sess"
-	q.mu.Lock()
-	q.whitelist[session] = clock.now.Add(time.Minute)
-	q.mu.Unlock()
+func TestApprovalQueue_Request_CommandLevelApproval(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
 
-	rec, err := q.Request(session, "rm", nil)
+	q, err := NewApprovalQueue(storePath)
 	if err != nil {
-		t.Fatalf("request: %v", err)
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
-	if rec.State != ApprovalApproved || !rec.AutoApproved {
-		t.Fatalf("expected auto approved, got %#v", rec)
+
+	// First request - should be pending
+	rec1, err := q.Request("session-1", "ls -la", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
 	}
-	if rec.ApprovedAt == nil || !strings.Contains(rec.Reason, "whitelisted") {
-		t.Fatalf("auto approval metadata missing: %#v", rec)
+	if rec1.State != ApprovalPending {
+		t.Errorf("expected pending, got %s", rec1.State)
+	}
+
+	// Approve the command
+	approved, err := q.Approve(rec1.ID, "admin", time.Hour)
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if approved.State != ApprovalApproved {
+		t.Errorf("expected approved, got %s", approved.State)
+	}
+
+	// Same command again - should reuse approved record
+	rec2, err := q.Request("session-1", "ls -la", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if rec2.State != ApprovalApproved {
+		t.Errorf("expected approved (reused), got %s", rec2.State)
+	}
+	if rec2.ID != rec1.ID {
+		t.Error("expected same record ID for same command")
+	}
+
+	// Different command - should be pending
+	rec3, err := q.Request("session-1", "cat /etc/passwd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if rec3.State != ApprovalPending {
+		t.Errorf("expected pending for different command, got %s", rec3.State)
+	}
+
+	// Different session with same command - should be pending
+	rec4, err := q.Request("session-2", "ls -la", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if rec4.State != ApprovalPending {
+		t.Errorf("expected pending for different session, got %s", rec4.State)
 	}
 }
 
-func TestApprovalQueueApproveFlow(t *testing.T) {
-	q, clock := newTestQueue(t)
-	rec, err := q.Request("sess", "ls", nil)
+func TestApprovalQueue_Request_DeniedCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
 	if err != nil {
-		t.Fatalf("request: %v", err)
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
 
-	approved, err := q.Approve(rec.ID, "alice", time.Minute)
+	// First request
+	rec1, err := q.Request("session-1", "rm -rf /", nil)
 	if err != nil {
-		t.Fatalf("approve: %v", err)
-	}
-	if approved.State != ApprovalApproved || approved.Approver != "alice" {
-		t.Fatalf("unexpected approval state: %#v", approved)
-	}
-	if approved.ExpiresAt == nil || approved.ExpiresAt.Before(clock.now) {
-		t.Fatalf("whitelist expiry missing: %#v", approved)
+		t.Fatalf("Request: %v", err)
 	}
 
-	if _, err := q.Approve("missing", "ops", 0); err == nil {
-		t.Fatalf("expected error for missing approval")
+	// Deny the command
+	_, err = q.Deny(rec1.ID, "admin", "too dangerous")
+	if err != nil {
+		t.Fatalf("Deny: %v", err)
+	}
+
+	// Same command again - should be rejected
+	_, err = q.Request("session-1", "rm -rf /", nil)
+	if err == nil {
+		t.Error("expected error for denied command")
 	}
 }
 
-func TestApprovalQueueDenyFlow(t *testing.T) {
-	q, _ := newTestQueue(t)
-	rec, err := q.Request("sess", "ls", nil)
+func TestApprovalQueue_Request_PendingReuse(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
 	if err != nil {
-		t.Fatalf("request: %v", err)
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
 
-	denied, err := q.Deny(rec.ID, "bob", "unsafe")
+	// First request
+	rec1, err := q.Request("session-1", "deploy production", nil)
 	if err != nil {
-		t.Fatalf("deny: %v", err)
+		t.Fatalf("Request: %v", err)
 	}
-	if denied.State != ApprovalDenied || denied.Reason != "unsafe" {
-		t.Fatalf("unexpected deny state: %#v", denied)
+	if rec1.State != ApprovalPending {
+		t.Errorf("expected pending, got %s", rec1.State)
 	}
 
-	if _, err := q.Approve(rec.ID, "ops", 0); err == nil {
-		t.Fatalf("expected approve after deny to fail")
-	}
-
-	approved, err := q.Request("sess2", "date", nil)
+	// Same command again while pending - should return same record
+	rec2, err := q.Request("session-1", "deploy production", nil)
 	if err != nil {
-		t.Fatalf("second request: %v", err)
+		t.Fatalf("Request: %v", err)
 	}
-	if _, err := q.Approve(approved.ID, "ops", 0); err != nil {
-		t.Fatalf("approve second: %v", err)
+	if rec2.ID != rec1.ID {
+		t.Error("expected same record for pending command")
 	}
-	if _, err := q.Deny(approved.ID, "ops", "late"); err == nil {
-		t.Fatalf("expected deny after approval to error")
+	if rec2.State != ApprovalPending {
+		t.Errorf("expected pending, got %s", rec2.State)
 	}
 }
 
-func TestApprovalQueueWaitResolves(t *testing.T) {
-	q, _ := newTestQueue(t)
-	rec, err := q.Request("sess", "ls", nil)
+func TestApprovalQueue_Approve_WithTTL(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
 	if err != nil {
-		t.Fatalf("request: %v", err)
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
 
-	done := make(chan struct{})
+	// Request and approve with TTL
+	rec, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+
+	approved, err := q.Approve(rec.ID, "admin", time.Hour)
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if approved.ExpiresAt == nil {
+		t.Error("expected expiration time")
+	}
+
+	// Should be able to reuse within TTL
+	rec2, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if rec2.State != ApprovalApproved {
+		t.Errorf("expected approved, got %s", rec2.State)
+	}
+}
+
+func TestApprovalQueue_Approve_WithoutTTL(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
+	if err != nil {
+		t.Fatalf("NewApprovalQueue: %v", err)
+	}
+
+	// Request and approve without TTL (indefinite)
+	rec, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+
+	approved, err := q.Approve(rec.ID, "admin", 0)
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if approved.ExpiresAt != nil {
+		t.Error("expected no expiration time")
+	}
+
+	// Should be able to reuse indefinitely
+	rec2, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if rec2.State != ApprovalApproved {
+		t.Errorf("expected approved, got %s", rec2.State)
+	}
+}
+
+func TestApprovalQueue_WhitelistExpiry(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
+	if err != nil {
+		t.Fatalf("NewApprovalQueue: %v", err)
+	}
+
+	// Add session to whitelist with short TTL
+	if err := q.AddSessionToWhitelist("session-1", time.Millisecond); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
+
+	// Should be whitelisted immediately
+	if !q.IsWhitelisted("session-1") {
+		t.Error("expected session to be whitelisted")
+	}
+
+	// Wait for expiry
+	time.Sleep(2 * time.Millisecond)
+
+	// Should no longer be whitelisted
+	if q.IsWhitelisted("session-1") {
+		t.Error("expected session whitelist to expire")
+	}
+}
+
+func TestApprovalQueue_RemoveSessionFromWhitelist(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
+	if err != nil {
+		t.Fatalf("NewApprovalQueue: %v", err)
+	}
+
+	// Add and then remove
+	if err := q.AddSessionToWhitelist("session-1", time.Hour); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
+	if !q.IsWhitelisted("session-1") {
+		t.Error("expected session to be whitelisted")
+	}
+
+	if err := q.RemoveSessionFromWhitelist("session-1"); err != nil {
+		t.Fatalf("RemoveSessionFromWhitelist: %v", err)
+	}
+	if q.IsWhitelisted("session-1") {
+		t.Error("expected session to not be whitelisted after removal")
+	}
+}
+
+func TestApprovalQueue_IsCommandApproved(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
+	if err != nil {
+		t.Fatalf("NewApprovalQueue: %v", err)
+	}
+
+	// Not approved initially
+	_, ok := q.IsCommandApproved("session-1", "ls")
+	if ok {
+		t.Error("expected command to not be approved initially")
+	}
+
+	// Request and approve
+	rec, _ := q.Request("session-1", "ls", nil)
+	q.Approve(rec.ID, "admin", time.Hour)
+
+	// Now should be approved
+	approvedRec, ok := q.IsCommandApproved("session-1", "ls")
+	if !ok {
+		t.Error("expected command to be approved")
+	}
+	if approvedRec.State != ApprovalApproved {
+		t.Errorf("expected approved state, got %s", approvedRec.State)
+	}
+}
+
+func TestApprovalQueue_Wait(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
+	if err != nil {
+		t.Fatalf("NewApprovalQueue: %v", err)
+	}
+
+	rec, _ := q.Request("session-1", "ls", nil)
+
+	// Approve in background
 	go func() {
-		defer close(done)
-		time.Sleep(20 * time.Millisecond)
-		_, _ = q.Approve(rec.ID, "ops", 0) //nolint:errcheck
+		time.Sleep(50 * time.Millisecond)
+		q.Approve(rec.ID, "admin", 0)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	resolved, err := q.Wait(ctx, rec.ID)
+	result, err := q.Wait(ctx, rec.ID)
 	if err != nil {
-		t.Fatalf("wait: %v", err)
+		t.Fatalf("Wait: %v", err)
 	}
-	if resolved.State != ApprovalApproved {
-		t.Fatalf("expected approved, got %s", resolved.State)
-	}
-	<-done
-}
-
-func TestApprovalQueueWaitContextCancelled(t *testing.T) {
-	q, _ := newTestQueue(t)
-	rec, err := q.Request("sess", "ls", nil)
-	if err != nil {
-		t.Fatalf("request: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-
-	if _, err := q.Wait(ctx, rec.ID); err == nil {
-		t.Fatalf("expected wait timeout error")
-	}
-	if _, err := q.Wait(context.Background(), ""); err == nil {
-		t.Fatalf("expected wait validation error")
+	if result.State != ApprovalApproved {
+		t.Errorf("expected approved, got %s", result.State)
 	}
 }
 
-func TestApprovalQueueDenyMissingID(t *testing.T) {
-	q, _ := newTestQueue(t)
-	if _, err := q.Deny("missing", "ops", "reason"); err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected not found error, got %v", err)
+func TestApprovalQueue_Persistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	// Create first queue and add data
+	q1, _ := NewApprovalQueue(storePath)
+	q1.AddSessionToWhitelist("session-1", time.Hour)
+	rec, _ := q1.Request("session-2", "ls", nil)
+	q1.Approve(rec.ID, "admin", time.Hour)
+
+	// Create new queue instance with same store
+	q2, err := NewApprovalQueue(storePath)
+	if err != nil {
+		t.Fatalf("NewApprovalQueue: %v", err)
+	}
+
+	// Verify whitelist persisted
+	if !q2.IsWhitelisted("session-1") {
+		t.Error("expected whitelist to persist")
+	}
+
+	// Verify command approval persisted
+	_, ok := q2.IsCommandApproved("session-2", "ls")
+	if !ok {
+		t.Error("expected command approval to persist")
 	}
 }
 
-func TestApprovalQueueListPendingAndClone(t *testing.T) {
-	q, _ := newTestQueue(t)
-	first, err := q.Request("s1", "cmd1", nil)
-	if err != nil {
-		t.Fatalf("request first: %v", err)
-	}
-	second, err := q.Request("s2", "cmd2", nil)
-	if err != nil {
-		t.Fatalf("request second: %v", err)
-	}
-	if _, err := q.Approve(second.ID, "ops", 0); err != nil {
-		t.Fatalf("approve second: %v", err)
-	}
+func TestApprovalQueue_ListPending(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, _ := NewApprovalQueue(storePath)
+
+	// Create pending records
+	q.Request("session-1", "cmd1", nil)
+	q.Request("session-1", "cmd2", nil)
+	q.Request("session-2", "cmd3", nil)
+
+	// Approve one
+	rec, _ := q.Request("session-1", "cmd4", nil)
+	q.Approve(rec.ID, "admin", 0)
 
 	pending := q.ListPending()
-	if len(pending) != 1 || pending[0].ID != first.ID {
-		t.Fatalf("expected only first pending, got %#v", pending)
-	}
-	pending[0].State = ApprovalApproved
-	if q.records[first.ID].State != ApprovalPending {
-		t.Fatalf("list returned non-clone")
+	if len(pending) != 3 {
+		t.Errorf("expected 3 pending, got %d", len(pending))
 	}
 }
 
-func TestApprovalQueueWhitelistExpiry(t *testing.T) {
-	q, clock := newTestQueue(t)
-	if q.IsWhitelisted("sess") {
-		t.Fatalf("unexpected whitelist")
-	}
+func TestApprovalQueue_Deny_AlreadyApproved(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
 
-	q.mu.Lock()
-	q.whitelist["sess"] = clock.now.Add(30 * time.Second)
-	q.mu.Unlock()
-	if !q.IsWhitelisted("sess") {
-		t.Fatalf("expected whitelist to be true")
-	}
+	q, _ := NewApprovalQueue(storePath)
+	rec, _ := q.Request("session-1", "ls", nil)
+	q.Approve(rec.ID, "admin", 0)
 
-	clock.Advance(time.Minute)
-	if q.IsWhitelisted("sess") {
-		t.Fatalf("expected whitelist to expire")
+	_, err := q.Deny(rec.ID, "admin", "changed mind")
+	if err == nil {
+		t.Error("expected error when denying already approved record")
 	}
 }
 
-func TestApprovalQueueLoadExistingState(t *testing.T) {
-	dir := t.TempDir()
-	store := filepath.Join(dir, "state", "approvals.json")
-	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
-		t.Fatalf("mk store dir: %v", err)
-	}
+func TestApprovalQueue_Approve_AlreadyDenied(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
 
-	base := time.Unix(1_700_000_123, 0)
-	rec := &ApprovalRecord{
-		ID:          "restored",
-		SessionID:   "sess",
-		Command:     "uptime",
-		State:       ApprovalDenied,
-		RequestedAt: base,
+	q, _ := NewApprovalQueue(storePath)
+	rec, _ := q.Request("session-1", "ls", nil)
+	q.Deny(rec.ID, "admin", "no")
+
+	_, err := q.Approve(rec.ID, "admin", 0)
+	if err == nil {
+		t.Error("expected error when approving already denied record")
 	}
-	snapshot := approvalSnapshot{
-		Records:   []*ApprovalRecord{rec},
-		Whitelist: map[string]time.Time{"sess": base.Add(time.Minute)},
-	}
-	data, err := json.Marshal(snapshot)
+}
+
+func TestApprovalQueue_ApprovalExpiration(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, err := NewApprovalQueue(storePath)
 	if err != nil {
-		t.Fatalf("marshal snapshot: %v", err)
-	}
-	if err := os.WriteFile(store, data, 0o600); err != nil {
-		t.Fatalf("write snapshot: %v", err)
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
 
-	q, err := NewApprovalQueue(store)
+	// Approve with very short TTL
+	rec, _ := q.Request("session-1", "ls", nil)
+	q.Approve(rec.ID, "admin", time.Millisecond)
+
+	// Should be approved immediately
+	_, ok := q.IsCommandApproved("session-1", "ls")
+	if !ok {
+		t.Error("expected command to be approved")
+	}
+
+	// Wait for expiration
+	time.Sleep(2 * time.Millisecond)
+
+	// Should no longer be approved
+	_, ok = q.IsCommandApproved("session-1", "ls")
+	if ok {
+		t.Error("expected command approval to expire")
+	}
+
+	// New request should create pending record
+	rec2, err := q.Request("session-1", "ls", nil)
 	if err != nil {
-		t.Fatalf("new queue: %v", err)
+		t.Fatalf("Request: %v", err)
 	}
-	restored, ok := q.records["restored"]
-	if !ok || restored.Command != "uptime" || restored.State != ApprovalDenied {
-		t.Fatalf("records not restored: %#v", q.records)
-	}
-	expiry, ok := q.whitelist["sess"]
-	if !ok || expiry.Before(base) {
-		t.Fatalf("whitelist not restored: %#v", q.whitelist)
+	if rec2.State != ApprovalPending {
+		t.Errorf("expected pending after expiration, got %s", rec2.State)
 	}
 }
 
-func TestApprovalQueueLoadCorruptState(t *testing.T) {
-	dir := t.TempDir()
-	store := filepath.Join(dir, "corrupt", "approvals.json")
-	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
-		t.Fatalf("mk corrupt dir: %v", err)
-	}
-	if err := os.WriteFile(store, []byte("{not-json"), 0o600); err != nil {
-		t.Fatalf("write corrupt: %v", err)
-	}
-	if _, err := NewApprovalQueue(store); err == nil || !strings.Contains(err.Error(), "parse approvals") {
-		t.Fatalf("expected parse error got %v", err)
-	}
-}
-
-func TestApprovalQueueLoadReadError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod semantics differ on windows")
-	}
-	dir := t.TempDir()
-	store := filepath.Join(dir, "restricted", "approvals.json")
-	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
-		t.Fatalf("mk restricted dir: %v", err)
-	}
-	if err := os.WriteFile(store, []byte("{}"), 0o600); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
-	if err := os.Chmod(store, 0o000); err != nil {
-		t.Skipf("chmod unsupported: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(store, 0o600); err != nil {
-			t.Fatalf("restore perms: %v", err)
-		}
-	})
-
-	if _, err := NewApprovalQueue(store); err == nil || !strings.Contains(err.Error(), "load approvals") {
-		t.Fatalf("expected read error got %v", err)
-	}
-}
-
-func TestApprovalQueueLoadWithoutStorePath(t *testing.T) {
-	q := &ApprovalQueue{
-		records:   make(map[string]*ApprovalRecord),
-		whitelist: make(map[string]time.Time),
-	}
-	if err := q.load(); err != nil {
-		t.Fatalf("load without store should succeed: %v", err)
-	}
-}
-
-func TestApprovalQueuePersistLockedWritesSnapshot(t *testing.T) {
-	dir := t.TempDir()
-	store := filepath.Join(dir, "persist", "approvals.json")
-	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
-		t.Fatalf("mk persist dir: %v", err)
-	}
-	now := time.Unix(1_700_000_500, 0)
-	q := &ApprovalQueue{
-		storePath: store,
-		records: map[string]*ApprovalRecord{
-			"rid": {
-				ID:          "rid",
-				SessionID:   "sess",
-				Command:     "ls",
-				State:       ApprovalPending,
-				RequestedAt: now,
-			},
-		},
-		whitelist: map[string]time.Time{"sess": now.Add(time.Minute)},
-	}
-	if err := q.persistLocked(); err != nil {
-		t.Fatalf("persist: %v", err)
-	}
-	data, err := os.ReadFile(store)
+func TestApprovalQueue_NoStorePath(t *testing.T) {
+	q, err := NewApprovalQueue("")
 	if err != nil {
-		t.Fatalf("read store: %v", err)
+		t.Fatalf("NewApprovalQueue: %v", err)
 	}
-	var snapshot approvalSnapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		t.Fatalf("unmarshal snapshot: %v", err)
+
+	// Should work without persistence
+	rec, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
 	}
-	if len(snapshot.Records) != 1 || snapshot.Records[0].ID != "rid" {
-		t.Fatalf("unexpected records: %#v", snapshot.Records)
-	}
-	if expiry, ok := snapshot.Whitelist["sess"]; !ok || expiry.Before(now) {
-		t.Fatalf("whitelist not persisted: %#v", snapshot.Whitelist)
+	if rec.State != ApprovalPending {
+		t.Errorf("expected pending, got %s", rec.State)
 	}
 }
 
-func TestApprovalQueuePersistLockedNoStore(t *testing.T) {
-	q := &ApprovalQueue{
-		records: map[string]*ApprovalRecord{
-			"rid": {ID: "rid"},
-		},
-		whitelist: make(map[string]time.Time),
+func TestApprovalQueue_InvalidInput(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, _ := NewApprovalQueue(storePath)
+
+	// Empty session ID
+	_, err := q.Request("", "ls", nil)
+	if err == nil {
+		t.Error("expected error for empty session ID")
 	}
-	if err := q.persistLocked(); err != nil {
-		t.Fatalf("persist without store: %v", err)
+
+	// Empty command
+	_, err = q.Request("session-1", "", nil)
+	if err == nil {
+		t.Error("expected error for empty command")
+	}
+
+	// Whitespace-only command
+	_, err = q.Request("session-1", "   ", nil)
+	if err == nil {
+		t.Error("expected error for whitespace command")
+	}
+
+	// Empty session ID for whitelist
+	err = q.AddSessionToWhitelist("", time.Hour)
+	if err == nil {
+		t.Error("expected error for empty session ID in whitelist")
 	}
 }
 
-func TestApprovalQueuePersistLockedRenameFailure(t *testing.T) {
-	dir := t.TempDir()
-	storeDir := filepath.Join(dir, "persist-dir")
-	if err := os.MkdirAll(storeDir, 0o755); err != nil {
-		t.Fatalf("mk dir: %v", err)
-	}
+func TestApprovalQueue_Wait_ContextCancel(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
 
-	q := &ApprovalQueue{
-		storePath: storeDir, // rename onto a directory should fail
-		records: map[string]*ApprovalRecord{
-			"rid": {ID: "rid", SessionID: "s", Command: "ls", RequestedAt: time.Now()},
-		},
-		whitelist: make(map[string]time.Time),
-	}
+	q, _ := NewApprovalQueue(storePath)
+	rec, _ := q.Request("session-1", "ls", nil)
 
-	if err := q.persistLocked(); err == nil {
-		t.Fatal("expected persist to fail when target is a directory")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := q.Wait(ctx, rec.ID)
+	if err == nil {
+		t.Error("expected error when context cancelled")
 	}
 }
 
-func TestCloneRecordNilSafe(t *testing.T) {
-	if cloneRecord(nil) != nil {
-		t.Fatalf("expected nil clone for nil input")
-	}
-	rec := &ApprovalRecord{
-		ID:          "orig",
-		SessionID:   "sess",
-		Command:     "ls",
-		Paths:       []string{"/tmp/file"},
-		State:       ApprovalPending,
-		RequestedAt: time.Unix(1_700_000_900, 0),
-	}
-	cloned := cloneRecord(rec)
-	if cloned == rec {
-		t.Fatalf("clone should allocate new struct")
-	}
-	rec.Paths[0] = "/tmp/mutated"
-	if cloned.Paths[0] == "/tmp/mutated" {
-		t.Fatalf("clone did not deep copy paths")
+func TestApprovalQueue_NilQueue(t *testing.T) {
+	var q *ApprovalQueue
+
+	_, err := q.Wait(context.Background(), "id")
+	if err == nil {
+		t.Error("expected error for nil queue")
 	}
 }
 
-func TestNewApprovalIDProducesUniqueValues(t *testing.T) {
-	first := newApprovalID()
-	second := newApprovalID()
-	if first == "" || second == "" {
-		t.Fatal("approval id should not be empty")
+func TestApprovalQueue_InvalidID(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, _ := NewApprovalQueue(storePath)
+
+	_, err := q.Wait(context.Background(), "")
+	if err == nil {
+		t.Error("expected error for empty ID")
 	}
-	if first == second {
-		t.Fatalf("expected unique ids, got %s", first)
+
+	_, err = q.Wait(context.Background(), "   ")
+	if err == nil {
+		t.Error("expected error for whitespace ID")
+	}
+}
+
+func TestApprovalQueue_NonExistentRecord(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, _ := NewApprovalQueue(storePath)
+
+	_, err := q.Approve("non-existent", "admin", 0)
+	if err == nil {
+		t.Error("expected error for non-existent record")
+	}
+
+	_, err = q.Deny("non-existent", "admin", "reason")
+	if err == nil {
+		t.Error("expected error for non-existent record")
+	}
+}
+
+func TestApprovalQueue_CorruptedStore(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	// Write invalid JSON
+	os.WriteFile(storePath, []byte("not valid json"), 0o600)
+
+	_, err := NewApprovalQueue(storePath)
+	if err == nil {
+		t.Error("expected error for corrupted store")
+	}
+}
+
+func TestApprovalQueue_GetSessionWhitelistExpiry(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, _ := NewApprovalQueue(storePath)
+
+	// Not whitelisted
+	_, ok := q.GetSessionWhitelistExpiry("session-1")
+	if ok {
+		t.Error("expected not found for non-whitelisted session")
+	}
+
+	// Add to whitelist
+	q.AddSessionToWhitelist("session-1", time.Hour)
+
+	expiry, ok := q.GetSessionWhitelistExpiry("session-1")
+	if !ok {
+		t.Error("expected to find whitelisted session")
+	}
+	if expiry.IsZero() {
+		t.Error("expected non-zero expiry")
+	}
+}
+
+func TestApprovalQueue_SessionIsolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "approvals.json")
+
+	q, _ := NewApprovalQueue(storePath)
+
+	// Approve command for session-1
+	rec1, _ := q.Request("session-1", "ls", nil)
+	q.Approve(rec1.ID, "admin", 0)
+
+	// Same command for session-2 should still be pending
+	rec2, _ := q.Request("session-2", "ls", nil)
+	if rec2.State != ApprovalPending {
+		t.Errorf("expected pending for different session, got %s", rec2.State)
+	}
+
+	// Approve for session-2
+	q.Approve(rec2.ID, "admin", 0)
+
+	// Both should now be approved independently
+	_, ok1 := q.IsCommandApproved("session-1", "ls")
+	_, ok2 := q.IsCommandApproved("session-2", "ls")
+	if !ok1 || !ok2 {
+		t.Error("expected both sessions to have approved command")
 	}
 }

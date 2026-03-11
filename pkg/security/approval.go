@@ -37,6 +37,14 @@ type ApprovalRecord struct {
 	AutoApproved bool          `json:"auto_approved"`
 }
 
+// IsExpired checks if the approval record has expired
+func (r *ApprovalRecord) IsExpired(now time.Time) bool {
+	if r.ExpiresAt == nil {
+		return false
+	}
+	return r.ExpiresAt.Before(now)
+}
+
 // ApprovalQueue persists approvals and session-level whitelists.
 type ApprovalQueue struct {
 	mu        sync.Mutex
@@ -62,7 +70,15 @@ func NewApprovalQueue(storePath string) (*ApprovalQueue, error) {
 	return q, nil
 }
 
-// Request enqueues a command for approval. Whitelisted sessions auto-pass.
+// Request enqueues a command for approval.
+// Logic:
+// 1. If session is in whitelist (and not expired), auto-approve
+// 2. Check records for existing session_id + command combination
+//    - If found approved (and not expired), auto-approve
+//    - If found approved but expired, create new pending record
+//    - If found denied, return error
+//    - If found pending, return existing record
+// 3. Otherwise, create new pending record
 func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*ApprovalRecord, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("security: session id required")
@@ -84,6 +100,62 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 	q.ensureCondLocked()
 
 	now := q.clock()
+
+	// 1. Check if session is whitelisted
+	if expiry, ok := q.whitelist[sessionID]; ok {
+		if expiry.After(now) {
+			// Whitelist is valid, auto-approve
+			record := &ApprovalRecord{
+				ID:           newApprovalID(),
+				SessionID:    sessionID,
+				Command:      command,
+				Paths:        sanitized,
+				State:        ApprovalApproved,
+				RequestedAt:  now,
+				ApprovedAt:   &now,
+				AutoApproved: true,
+				Reason:       "session whitelisted",
+			}
+			q.records[record.ID] = record
+			if err := q.persistLocked(); err != nil {
+				return nil, err
+			}
+			return cloneRecord(record), nil
+		}
+		// Whitelist expired, clean it up
+		delete(q.whitelist, sessionID)
+		_ = q.persistLocked() // best-effort cleanup
+	}
+
+	// 2. Check records for existing session_id + command combination
+	for id, rec := range q.records {
+		if rec.SessionID == sessionID && rec.Command == command {
+			switch rec.State {
+			case ApprovalApproved:
+				// Check if approval is still valid (not expired)
+				if rec.ExpiresAt == nil || rec.ExpiresAt.After(now) {
+					// Return existing approved record
+					return cloneRecord(rec), nil
+				}
+				// Expired approval - delete old record and create new pending
+				delete(q.records, id)
+				_ = q.persistLocked() // best-effort cleanup
+				// Continue to create new pending record
+
+			case ApprovalDenied:
+				// Command was previously denied - check if we should allow retry
+				// Denied commands stay denied permanently
+				return nil, fmt.Errorf("security: command '%s' was previously denied for session %s", command, sessionID)
+
+			case ApprovalPending:
+				// Return existing pending record
+				return cloneRecord(rec), nil
+			}
+			break // Found matching record, exit loop
+		}
+	}
+
+	// 3. Create new pending record
 	record := &ApprovalRecord{
 		ID:          newApprovalID(),
 		SessionID:   sessionID,
@@ -93,14 +165,6 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 		RequestedAt: now,
 	}
 
-	if expiry, ok := q.whitelist[sessionID]; ok && expiry.After(now) {
-		record.State = ApprovalApproved
-		record.AutoApproved = true
-		when := now
-		record.ApprovedAt = &when
-		record.Reason = "session whitelisted"
-	}
-
 	q.records[record.ID] = record
 	if err := q.persistLocked(); err != nil {
 		return nil, err
@@ -108,8 +172,11 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 	return cloneRecord(record), nil
 }
 
-// Approve marks a pending record as approved and optionally whitelists the session.
-func (q *ApprovalQueue) Approve(id, approver string, whitelistTTL time.Duration) (*ApprovalRecord, error) {
+// Approve marks a pending record as approved.
+// Note: This only updates the record state, does NOT add session to whitelist.
+// Use AddSessionToWhitelist() to whitelist an entire session.
+// TTL parameter sets the expiration time for this specific command approval.
+func (q *ApprovalQueue) Approve(id, approver string, ttl time.Duration) (*ApprovalRecord, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.ensureCondLocked()
@@ -129,13 +196,12 @@ func (q *ApprovalQueue) Approve(id, approver string, whitelistTTL time.Duration)
 	rec.AutoApproved = false
 	rec.ApprovedAt = &now
 
-	if whitelistTTL > 0 {
-		expiry := now.Add(whitelistTTL)
-		q.whitelist[rec.SessionID] = expiry
+	// Set expiration for this specific command approval
+	if ttl > 0 {
+		expiry := now.Add(ttl)
 		rec.ExpiresAt = &expiry
 	} else {
-		delete(q.whitelist, rec.SessionID)
-		rec.ExpiresAt = nil
+		rec.ExpiresAt = nil // No expiration
 	}
 
 	if err := q.persistLocked(); err != nil {
@@ -163,6 +229,7 @@ func (q *ApprovalQueue) Deny(id, approver, reason string) (*ApprovalRecord, erro
 	rec.Approver = approver
 	rec.Reason = reason
 	rec.ApprovedAt = nil
+	rec.ExpiresAt = nil // Denied records don't expire
 
 	if err := q.persistLocked(); err != nil {
 		return nil, err
@@ -203,6 +270,76 @@ func (q *ApprovalQueue) IsWhitelisted(sessionID string) bool {
 		return false
 	}
 	return true
+}
+
+// AddSessionToWhitelist adds a session to the whitelist with optional TTL.
+// When TTL is 0, the session is whitelisted indefinitely.
+// Once whitelisted, all commands for this session will auto-approve.
+func (q *ApprovalQueue) AddSessionToWhitelist(sessionID string, ttl time.Duration) error {
+	if sessionID == "" {
+		return fmt.Errorf("security: session id required")
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.ensureCondLocked()
+
+	now := q.clock()
+	if ttl > 0 {
+		q.whitelist[sessionID] = now.Add(ttl)
+	} else {
+		// Use far future time for indefinite whitelist
+		q.whitelist[sessionID] = now.Add(365 * 24 * time.Hour * 100) // 100 years
+	}
+
+	return q.persistLocked()
+}
+
+// RemoveSessionFromWhitelist removes a session from the whitelist.
+func (q *ApprovalQueue) RemoveSessionFromWhitelist(sessionID string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.ensureCondLocked()
+
+	delete(q.whitelist, sessionID)
+	return q.persistLocked()
+}
+
+// GetSessionWhitelistExpiry returns the expiry time for a whitelisted session.
+// Returns zero time if session is not whitelisted or expired.
+func (q *ApprovalQueue) GetSessionWhitelistExpiry(sessionID string) (time.Time, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	expiry, ok := q.whitelist[sessionID]
+	if !ok {
+		return time.Time{}, false
+	}
+	if expiry.Before(q.clock()) {
+		return time.Time{}, false
+	}
+	return expiry, true
+}
+
+// IsCommandApproved checks if a specific command for a session has been approved.
+// Returns the approval record if found and still valid (not expired).
+func (q *ApprovalQueue) IsCommandApproved(sessionID, command string) (*ApprovalRecord, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	now := q.clock()
+	for _, rec := range q.records {
+		if rec.SessionID == sessionID && rec.Command == command {
+			if rec.State == ApprovalApproved {
+				// Check if approval is still valid
+				if rec.ExpiresAt == nil || rec.ExpiresAt.After(now) {
+					return cloneRecord(rec), true
+				}
+			}
+			return nil, false
+		}
+	}
+	return nil, false
 }
 
 // Wait blocks until the approval is resolved or the context is cancelled.
@@ -248,6 +385,38 @@ func (q *ApprovalQueue) Wait(ctx context.Context, id string) (*ApprovalRecord, e
 	}
 }
 
+// CleanupExpired removes expired whitelist entries and approved records.
+// This should be called periodically to prevent memory growth.
+func (q *ApprovalQueue) CleanupExpired() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.ensureCondLocked()
+
+	now := q.clock()
+	modified := false
+
+	// Clean up expired whitelist entries
+	for sessionID, expiry := range q.whitelist {
+		if expiry.Before(now) {
+			delete(q.whitelist, sessionID)
+			modified = true
+		}
+	}
+
+	// Clean up expired approved records
+	for id, rec := range q.records {
+		if rec.State == ApprovalApproved && rec.ExpiresAt != nil && rec.ExpiresAt.Before(now) {
+			delete(q.records, id)
+			modified = true
+		}
+	}
+
+	if modified {
+		return q.persistLocked()
+	}
+	return nil
+}
+
 func (q *ApprovalQueue) load() error {
 	if q.storePath == "" {
 		return nil
@@ -269,12 +438,24 @@ func (q *ApprovalQueue) load() error {
 		return fmt.Errorf("security: parse approvals: %w", err)
 	}
 
+	now := q.clock()
+
+	// Load records, filtering out expired approved records
 	for _, rec := range snapshot.Records {
+		// Skip expired approved records
+		if rec.State == ApprovalApproved && rec.ExpiresAt != nil && rec.ExpiresAt.Before(now) {
+			continue
+		}
 		q.records[rec.ID] = rec
 	}
+
+	// Load whitelist, filtering out expired entries
 	for session, expiry := range snapshot.Whitelist {
-		q.whitelist[session] = expiry
+		if expiry.After(now) {
+			q.whitelist[session] = expiry
+		}
 	}
+
 	return nil
 }
 
