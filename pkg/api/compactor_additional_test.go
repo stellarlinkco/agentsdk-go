@@ -299,3 +299,137 @@ func TestCompactor_CompleteSummaryContextCanceled(t *testing.T) {
 		t.Fatalf("expected context canceled error, got %v", err)
 	}
 }
+
+func TestCompactor_CompactMovesCutBeforeToolTransaction(t *testing.T) {
+	hist := message.NewHistory()
+	hist.Append(message.Message{Role: "user", Content: "setup"})
+	hist.Append(message.Message{Role: "assistant", Content: "working"})
+	hist.Append(message.Message{
+		Role: "assistant",
+		ToolCalls: []message.ToolCall{{
+			ID:   "call_1",
+			Name: "Bash",
+		}},
+	})
+	hist.Append(message.Message{
+		Role: "tool",
+		ToolCalls: []message.ToolCall{{
+			ID:     "call_1",
+			Name:   "Bash",
+			Result: "ok",
+		}},
+	})
+	hist.Append(message.Message{Role: "assistant", Content: "done"})
+
+	mdl := &summaryModel{content: "summary"}
+	comp := &compactor{cfg: CompactConfig{Enabled: true, PreserveCount: 2}.withDefaults(), model: mdl, limit: 10}
+
+	if _, err := comp.compact(context.Background(), hist, hist.All(), hist.TokenCount()); err != nil {
+		t.Fatalf("compact error: %v", err)
+	}
+	if len(mdl.calls) != 1 {
+		t.Fatalf("expected one summary call, got %d", len(mdl.calls))
+	}
+	if len(mdl.calls[0].Messages) != 2 {
+		t.Fatalf("expected only pre-tool messages summarized, got %+v", mdl.calls[0].Messages)
+	}
+	for _, msg := range mdl.calls[0].Messages {
+		if msg.Role == "tool" || len(msg.ToolCalls) > 0 {
+			t.Fatalf("summary request split tool transaction: %+v", mdl.calls[0].Messages)
+		}
+	}
+}
+
+func TestCompactor_PreserveInitialExpandsAcrossToolTransaction(t *testing.T) {
+	hist := message.NewHistory()
+	hist.Append(message.Message{
+		Role: "assistant",
+		ToolCalls: []message.ToolCall{{
+			ID:   "call_1",
+			Name: "Read",
+		}},
+	})
+	hist.Append(message.Message{
+		Role: "tool",
+		ToolCalls: []message.ToolCall{{
+			ID:     "call_1",
+			Name:   "Read",
+			Result: "content",
+		}},
+	})
+	hist.Append(message.Message{Role: "user", Content: "summarize this"})
+	hist.Append(message.Message{Role: "assistant", Content: "tail"})
+
+	mdl := &summaryModel{content: "summary"}
+	comp := &compactor{
+		cfg: CompactConfig{
+			Enabled:         true,
+			PreserveCount:   1,
+			PreserveInitial: true,
+			InitialCount:    1,
+		}.withDefaults(),
+		model: mdl,
+		limit: 10,
+	}
+
+	if _, err := comp.compact(context.Background(), hist, hist.All(), hist.TokenCount()); err != nil {
+		t.Fatalf("compact error: %v", err)
+	}
+	if len(mdl.calls) != 1 {
+		t.Fatalf("expected one summary call, got %d", len(mdl.calls))
+	}
+	if len(mdl.calls[0].Messages) != 1 || mdl.calls[0].Messages[0].Role != "user" {
+		t.Fatalf("expected only user message summarized, got %+v", mdl.calls[0].Messages)
+	}
+	msgs := hist.All()
+	if len(msgs) != 4 {
+		t.Fatalf("expected preserved transaction + summary + tail, got %+v", msgs)
+	}
+	if msgs[0].Role != "assistant" || len(msgs[0].ToolCalls) != 1 || msgs[0].ToolCalls[0].ID != "call_1" {
+		t.Fatalf("expected tool call message to remain intact, got %+v", msgs[0])
+	}
+	if msgs[1].Role != "tool" || len(msgs[1].ToolCalls) != 1 || msgs[1].ToolCalls[0].ID != "call_1" {
+		t.Fatalf("expected tool result message to remain intact, got %+v", msgs[1])
+	}
+}
+
+func TestCompactor_CompactAllowsCompleteToolTransactionInSummary(t *testing.T) {
+	hist := message.NewHistory()
+	hist.Append(message.Message{Role: "user", Content: "setup"})
+	hist.Append(message.Message{
+		Role: "assistant",
+		ToolCalls: []message.ToolCall{{
+			ID:   "call_1",
+			Name: "Read",
+		}},
+	})
+	hist.Append(message.Message{
+		Role: "tool",
+		ToolCalls: []message.ToolCall{{
+			ID:     "call_1",
+			Name:   "Read",
+			Result: "content",
+		}},
+	})
+	hist.Append(message.Message{Role: "assistant", Content: "done"})
+	hist.Append(message.Message{Role: "user", Content: "tail"})
+
+	mdl := &summaryModel{content: "summary"}
+	comp := &compactor{cfg: CompactConfig{Enabled: true, PreserveCount: 1}.withDefaults(), model: mdl, limit: 10}
+
+	if _, err := comp.compact(context.Background(), hist, hist.All(), hist.TokenCount()); err != nil {
+		t.Fatalf("compact error: %v", err)
+	}
+	if len(mdl.calls) != 1 {
+		t.Fatalf("expected one summary call, got %d", len(mdl.calls))
+	}
+	if len(mdl.calls[0].Messages) != 4 {
+		t.Fatalf("expected complete transaction to be summarized, got %+v", mdl.calls[0].Messages)
+	}
+	if mdl.calls[0].Messages[1].Role != "assistant" || len(mdl.calls[0].Messages[1].ToolCalls) != 1 {
+		t.Fatalf("expected tool call inside summary request, got %+v", mdl.calls[0].Messages)
+	}
+	if mdl.calls[0].Messages[2].Role != "tool" || len(mdl.calls[0].Messages[2].ToolCalls) != 1 {
+		t.Fatalf("expected tool result inside summary request, got %+v", mdl.calls[0].Messages)
+	}
+}
