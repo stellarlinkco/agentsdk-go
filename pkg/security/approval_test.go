@@ -230,8 +230,11 @@ func TestApprovalQueue_WhitelistExpiry(t *testing.T) {
 		t.Fatalf("NewApprovalQueue: %v", err)
 	}
 
+	clock := &testClock{now: time.Unix(1_700_000_000, 0)}
+	q.clock = clock.Now
+
 	// Add session to whitelist with short TTL
-	if err := q.AddSessionToWhitelist("session-1", time.Millisecond); err != nil {
+	if err := q.AddSessionToWhitelist("session-1", time.Second); err != nil {
 		t.Fatalf("AddSessionToWhitelist: %v", err)
 	}
 
@@ -240,8 +243,8 @@ func TestApprovalQueue_WhitelistExpiry(t *testing.T) {
 		t.Error("expected session to be whitelisted")
 	}
 
-	// Wait for expiry
-	time.Sleep(2 * time.Millisecond)
+	// Advance time past expiry.
+	clock.now = clock.now.Add(2 * time.Second)
 
 	// Should no longer be whitelisted
 	if q.IsWhitelisted("session-1") {
