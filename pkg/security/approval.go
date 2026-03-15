@@ -106,6 +106,7 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 	if expiry, ok := q.whitelist[sessionID]; ok {
 		if expiry.After(now) {
 			// Whitelist is valid, auto-approve
+			exp := expiry
 			record := &ApprovalRecord{
 				ID:           newApprovalID(),
 				SessionID:    sessionID,
@@ -114,6 +115,7 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 				State:        ApprovalApproved,
 				RequestedAt:  now,
 				ApprovedAt:   &now,
+				ExpiresAt:    &exp,
 				AutoApproved: true,
 				Reason:       "session whitelisted",
 			}
