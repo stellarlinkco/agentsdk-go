@@ -220,14 +220,22 @@ return executeCommand(command)
 ### Decisions
 
 ```go
-// Approve (with whitelist TTL)
-err := queue.Approve(requestID, approverID, 3600) // 1h whitelist
+// Approve (command TTL)
+// Note: Approve updates the record only; it does NOT whitelist the whole session.
+// (requires: import "time")
+_, err := queue.Approve(requestID, approverID, time.Hour)
+if err != nil {
+    return err
+}
+
+// Optional: whitelist the whole session (session TTL)
+err = queue.AddSessionToWhitelist(sessionID, time.Hour)
 if err != nil {
     return err
 }
 
 // Deny
-err = queue.Deny(requestID, approverID, "policy violation")
+_, err = queue.Deny(requestID, approverID, "policy violation")
 if err != nil {
     return err
 }

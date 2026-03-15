@@ -236,7 +236,9 @@ type Options struct {
 	ApprovalQueue *security.ApprovalQueue
 	// ApprovalApprover labels approvals/denials stored in ApprovalQueue.
 	ApprovalApprover string
-	// ApprovalWhitelistTTL controls session whitelist duration for approvals.
+	// ApprovalWhitelistTTL controls how long an approved permission decision is
+	// reused from the ApprovalQueue (command-level TTL). Session-wide whitelisting
+	// is explicit via ApprovalQueue.AddSessionToWhitelist.
 	ApprovalWhitelistTTL time.Duration
 	// ApprovalWait blocks tool execution until a pending approval is resolved.
 	ApprovalWait bool
