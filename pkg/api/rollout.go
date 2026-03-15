@@ -6,12 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 type RolloutWriter struct {
 	dir string
 }
+
+var rolloutCompactSeq uint64
 
 type CompactEvent struct {
 	SessionID             string    `json:"session_id"`
@@ -62,7 +65,8 @@ func (w *RolloutWriter) WriteCompactEvent(sessionID string, res compactResult) e
 	}
 	data = append(data, '\n')
 
-	filename := fmt.Sprintf("%s_%s_compact.json", safeRolloutName(sessionID), ts.Format("20060102T150405.000000000Z"))
+	seq := atomic.AddUint64(&rolloutCompactSeq, 1)
+	filename := fmt.Sprintf("%s_%s_%06d_compact.json", safeRolloutName(sessionID), ts.Format("20060102T150405.000000000Z"), seq)
 	path := filepath.Join(dir, filename)
 	if err := atomicWriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("api: write compact event: %w", err)

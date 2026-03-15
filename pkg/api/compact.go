@@ -236,55 +236,74 @@ func (c *compactor) compact(ctx context.Context, hist *message.History, snapshot
 		return compactResult{}, nil
 	}
 	cut := len(snapshot) - preserve
+	spans := toolTransactionSpans(snapshot)
+	for _, span := range spans {
+		if span.start < cut && cut < span.end {
+			cut = span.start
+			break
+		}
+	}
 	older := snapshot[:cut]
 	kept := snapshot[cut:]
 
-	preservedPrefix := make([]bool, len(older))
-
-	var initial []message.Message
+	preservedInitial := make([]bool, len(older))
+	preservedUserText := make([]bool, len(older))
 	if c.cfg.PreserveInitial && c.cfg.InitialCount > 0 {
 		n := c.cfg.InitialCount
 		if n > len(older) {
 			n = len(older)
 		}
-		initial = make([]message.Message, 0, n)
 		for i := 0; i < n; i++ {
-			preservedPrefix[i] = true
-			initial = append(initial, message.CloneMessage(older[i]))
+			preservedInitial[i] = true
 		}
 	}
 
-	var userText []message.Message
 	if c.cfg.PreserveUserText && c.cfg.UserTextTokens > 0 {
 		var counter message.NaiveCounter
 		total := 0
-		indices := make([]int, 0)
 		for i := len(older) - 1; i >= 0; i-- {
-			if preservedPrefix[i] {
+			if preservedInitial[i] {
 				continue
 			}
 			if older[i].Role != "user" || strings.TrimSpace(older[i].Content) == "" {
 				continue
 			}
-			cost := counter.Count(older[i])
-			total += cost
-			indices = append(indices, i)
-			preservedPrefix[i] = true
+			total += counter.Count(older[i])
+			preservedUserText[i] = true
 			if total >= c.cfg.UserTextTokens {
 				break
 			}
 		}
-		if len(indices) > 0 {
-			userText = make([]message.Message, 0, len(indices))
-			for j := len(indices) - 1; j >= 0; j-- {
-				userText = append(userText, message.CloneMessage(older[indices[j]]))
+	}
+	for _, span := range spans {
+		if span.end > len(older) {
+			break
+		}
+		keep := false
+		for i := span.start; i < span.end; i++ {
+			if preservedInitial[i] {
+				keep = true
+				break
 			}
+		}
+		if !keep {
+			continue
+		}
+		for i := span.start; i < span.end; i++ {
+			preservedInitial[i] = true
 		}
 	}
 
+	initial := make([]message.Message, 0, len(older))
+	userText := make([]message.Message, 0, len(older))
 	summarize := make([]message.Message, 0, len(older))
 	for i, msg := range older {
-		if preservedPrefix[i] {
+		if preservedInitial[i] {
+			initial = append(initial, message.CloneMessage(msg))
+			continue
+		}
+		if preservedUserText[i] {
+			userText = append(userText, message.CloneMessage(msg))
 			continue
 		}
 		summarize = append(summarize, msg)
@@ -309,12 +328,12 @@ func (c *compactor) compact(ctx context.Context, hist *message.History, snapshot
 	}
 
 	newMsgs := make([]message.Message, 0, len(initial)+1+len(userText)+len(kept))
-	newMsgs = append(newMsgs, message.CloneMessages(initial)...)
+	newMsgs = append(newMsgs, initial...)
 	newMsgs = append(newMsgs, message.Message{
 		Role:    "system",
 		Content: fmt.Sprintf("对话摘要：\n%s", summary),
 	})
-	newMsgs = append(newMsgs, message.CloneMessages(userText)...)
+	newMsgs = append(newMsgs, userText...)
 	newMsgs = append(newMsgs, message.CloneMessages(kept)...)
 	hist.Replace(newMsgs)
 
@@ -376,4 +395,62 @@ func (c *compactor) completeSummary(ctx context.Context, req model.Request) (*mo
 		}
 	}
 	return nil, lastErr
+}
+
+type toolTransactionSpan struct {
+	start int
+	end   int
+}
+
+func toolTransactionSpans(msgs []message.Message) []toolTransactionSpan {
+	pending := make(map[string]struct{})
+	spans := make([]toolTransactionSpan, 0)
+	start := -1
+	for i, msg := range msgs {
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		if start == -1 {
+			if role != "assistant" {
+				continue
+			}
+			ids := toolMessageIDs(msg)
+			if len(ids) == 0 {
+				continue
+			}
+			start = i
+			for _, id := range ids {
+				pending[id] = struct{}{}
+			}
+			continue
+		}
+
+		switch role {
+		case "assistant":
+			for _, id := range toolMessageIDs(msg) {
+				pending[id] = struct{}{}
+			}
+		case "tool":
+			for _, id := range toolMessageIDs(msg) {
+				delete(pending, id)
+			}
+		}
+		if len(pending) == 0 {
+			spans = append(spans, toolTransactionSpan{start: start, end: i + 1})
+			start = -1
+		}
+	}
+	return spans
+}
+
+func toolMessageIDs(msg message.Message) []string {
+	if len(msg.ToolCalls) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(msg.ToolCalls))
+	for _, call := range msg.ToolCalls {
+		if id := strings.TrimSpace(call.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
