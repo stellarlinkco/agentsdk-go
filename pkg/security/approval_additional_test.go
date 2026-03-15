@@ -53,7 +53,9 @@ func TestApprovalQueueApproveDoesNotClearWhitelist(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// Add session to whitelist first
-	q.AddSessionToWhitelist("sess", time.Hour)
+	if err := q.AddSessionToWhitelist("sess", time.Hour); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
 
 	rec, err := q.Request("sess", "ls", nil)
 	if err != nil {
@@ -87,20 +89,33 @@ func TestApprovalQueueCommandLevelVsSessionLevel(t *testing.T) {
 	q, _ := newTestQueue(t)
 
 	// Test 1: Command-level approval
-	rec1, _ := q.Request("session-1", "ls", nil)
-	q.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// Same session, different command - should be pending
-	rec2, _ := q.Request("session-1", "cat", nil)
+	rec2, err := q.Request("session-1", "cat", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
 	if rec2.State != ApprovalPending {
 		t.Errorf("expected pending for different command, got %s", rec2.State)
 	}
 
 	// Test 2: Session-level whitelist
-	q.AddSessionToWhitelist("session-2", time.Hour)
+	if err := q.AddSessionToWhitelist("session-2", time.Hour); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
 
 	// Any command for whitelisted session should auto-approve
-	rec3, _ := q.Request("session-2", "rm -rf /", nil)
+	rec3, err := q.Request("session-2", "rm -rf /", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
 	if rec3.State != ApprovalApproved {
 		t.Errorf("expected approved for whitelisted session, got %s", rec3.State)
 	}
@@ -113,14 +128,22 @@ func TestApprovalQueueCommandReuseAfterExpiry(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// Approve command with short TTL
-	rec1, _ := q.Request("session-1", "ls", nil)
-	q.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// Advance time past expiry
 	clock.now = clock.now.Add(2 * time.Hour)
 
 	// Same command should now create new pending record
-	rec2, _ := q.Request("session-1", "ls", nil)
+	rec2, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
 	if rec2.State != ApprovalPending {
 		t.Errorf("expected pending after expiry, got %s", rec2.State)
 	}
@@ -133,12 +156,23 @@ func TestApprovalQueueMultipleCommandsSameSession(t *testing.T) {
 	q, _ := newTestQueue(t)
 
 	// Create multiple pending commands
-	rec1, _ := q.Request("session-1", "cmd1", nil)
-	rec2, _ := q.Request("session-1", "cmd2", nil)
-	rec3, _ := q.Request("session-1", "cmd3", nil)
+	rec1, err := q.Request("session-1", "cmd1", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	rec2, err := q.Request("session-1", "cmd2", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	rec3, err := q.Request("session-1", "cmd3", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
 
 	// Approve only cmd2
-	q.Approve(rec2.ID, "admin", 0)
+	if _, err := q.Approve(rec2.ID, "admin", 0); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// Check states
 	if rec1.State != ApprovalPending {
@@ -146,8 +180,8 @@ func TestApprovalQueueMultipleCommandsSameSession(t *testing.T) {
 	}
 
 	// cmd2 should be approved
-	approved, _ := q.IsCommandApproved("session-1", "cmd2")
-	if approved == nil || approved.State != ApprovalApproved {
+	approved, ok := q.IsCommandApproved("session-1", "cmd2")
+	if !ok || approved == nil || approved.State != ApprovalApproved {
 		t.Error("cmd2 should be approved")
 	}
 
@@ -160,7 +194,9 @@ func TestApprovalQueueIndefiniteSessionWhitelist(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// Add session to whitelist without TTL (indefinite)
-	q.AddSessionToWhitelist("session-1", 0)
+	if err := q.AddSessionToWhitelist("session-1", 0); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
 
 	// Should be whitelisted
 	if !q.IsWhitelisted("session-1") {
@@ -179,26 +215,39 @@ func TestApprovalQueueIndefiniteSessionWhitelist(t *testing.T) {
 func TestApprovalQueueConcurrentAccess(t *testing.T) {
 	q, _ := newTestQueue(t)
 
-	// Simulate concurrent requests
-	done := make(chan bool, 3)
+	type result struct {
+		rec *ApprovalRecord
+		err error
+	}
+	results := make(chan result, 3)
 
 	// Request same command multiple times concurrently
 	for i := 0; i < 3; i++ {
 		go func() {
 			rec, err := q.Request("session-1", "concurrent-cmd", nil)
-			if err != nil {
-				t.Errorf("Request error: %v", err)
-			}
-			// All should get the same pending record
-			if rec.State != ApprovalPending {
-				t.Errorf("expected pending, got %s", rec.State)
-			}
-			done <- true
+			results <- result{rec: rec, err: err}
 		}()
 	}
 
 	// Wait for all goroutines
+	var firstID string
 	for i := 0; i < 3; i++ {
-		<-done
+		res := <-results
+		if res.err != nil {
+			t.Fatalf("Request: %v", res.err)
+		}
+		if res.rec == nil {
+			t.Fatalf("expected record")
+		}
+		if res.rec.State != ApprovalPending {
+			t.Fatalf("expected pending, got %s", res.rec.State)
+		}
+		if firstID == "" {
+			firstID = res.rec.ID
+			continue
+		}
+		if res.rec.ID != firstID {
+			t.Fatalf("expected same record id, got %q and %q", firstID, res.rec.ID)
+		}
 	}
 }

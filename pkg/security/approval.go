@@ -74,10 +74,11 @@ func NewApprovalQueue(storePath string) (*ApprovalQueue, error) {
 // Logic:
 // 1. If session is in whitelist (and not expired), auto-approve
 // 2. Check records for existing session_id + command combination
-//    - If found approved (and not expired), auto-approve
-//    - If found approved but expired, create new pending record
-//    - If found denied, return error
-//    - If found pending, return existing record
+//   - If found approved (and not expired), auto-approve
+//   - If found approved but expired, create new pending record
+//   - If found denied, return error
+//   - If found pending, return existing record
+//
 // 3. Otherwise, create new pending record
 func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*ApprovalRecord, error) {
 	if sessionID == "" {
@@ -122,9 +123,11 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 			}
 			return cloneRecord(record), nil
 		}
-		// Whitelist expired, clean it up
+		// Whitelist expired, clean it up (best-effort persist).
 		delete(q.whitelist, sessionID)
-		_ = q.persistLocked() // best-effort cleanup
+		if err := q.persistLocked(); err != nil {
+			_ = err
+		}
 	}
 
 	// 2. Check records for existing session_id + command combination
@@ -137,9 +140,11 @@ func (q *ApprovalQueue) Request(sessionID, command string, paths []string) (*App
 					// Return existing approved record
 					return cloneRecord(rec), nil
 				}
-				// Expired approval - delete old record and create new pending
+				// Expired approval - delete old record (best-effort persist) and create new pending.
 				delete(q.records, id)
-				_ = q.persistLocked() // best-effort cleanup
+				if err := q.persistLocked(); err != nil {
+					_ = err
+				}
 				// Continue to create new pending record
 
 			case ApprovalDenied:

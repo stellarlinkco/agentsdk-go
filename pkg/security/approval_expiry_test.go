@@ -32,11 +32,19 @@ func TestApprovedRecordExpiryInRequest(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// 创建并批准命令（短 TTL）
-	rec1, _ := q.Request("session-1", "ls", nil)
-	q.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// 验证已批准
-	rec2, _ := q.Request("session-1", "ls", nil)
+	rec2, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
 	if rec2.State != ApprovalApproved {
 		t.Errorf("expected approved, got %s", rec2.State)
 	}
@@ -71,24 +79,39 @@ func TestLoadFiltersExpiredData(t *testing.T) {
 	q1.clock = clock.Now
 
 	// 添加未过期 whitelist
-	q1.AddSessionToWhitelist("session-valid", time.Hour)
+	if err := q1.AddSessionToWhitelist("session-valid", time.Hour); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
 	// 添加已过期 whitelist（手动设置过去时间）
 	q1.whitelist["session-expired"] = clock.now.Add(-time.Hour)
 
 	// 创建未过期批准
-	rec1, _ := q1.Request("session-1", "valid-cmd", nil)
-	q1.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q1.Request("session-1", "valid-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q1.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// 创建已过期批准（手动设置过去时间）
-	rec2, _ := q1.Request("session-1", "expired-cmd", nil)
-	q1.Approve(rec2.ID, "admin", time.Hour)
+	rec2, err := q1.Request("session-1", "expired-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q1.Approve(rec2.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 	// 手动修改过期时间到过去
 	pastTime := clock.now.Add(-2 * time.Hour)
 	q1.records[rec2.ID].ExpiresAt = &pastTime
 
 	// 强制持久化
 	q1.mu.Lock()
-	q1.persistLocked()
+	if err := q1.persistLocked(); err != nil {
+		q1.mu.Unlock()
+		t.Fatalf("persistLocked: %v", err)
+	}
 	q1.mu.Unlock()
 
 	// 创建新队列实例加载数据
@@ -125,19 +148,41 @@ func TestCleanupExpired(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// 添加各种数据
-	q.AddSessionToWhitelist("session-expired", time.Hour)
-	q.AddSessionToWhitelist("session-valid", time.Hour*24)
+	if err := q.AddSessionToWhitelist("session-expired", time.Hour); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
+	if err := q.AddSessionToWhitelist("session-valid", time.Hour*24); err != nil {
+		t.Fatalf("AddSessionToWhitelist: %v", err)
+	}
 
-	rec1, _ := q.Request("session-1", "expired-cmd", nil)
-	q.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q.Request("session-1", "expired-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
-	rec2, _ := q.Request("session-1", "valid-cmd", nil)
-	q.Approve(rec2.ID, "admin", time.Hour*24)
+	rec2, err := q.Request("session-1", "valid-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec2.ID, "admin", time.Hour*24); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
-	rec3, _ := q.Request("session-1", "pending-cmd", nil)
+	rec3, err := q.Request("session-1", "pending-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
 
-	rec4, _ := q.Request("session-1", "denied-cmd", nil)
-	q.Deny(rec4.ID, "admin", "no")
+	rec4, err := q.Request("session-1", "denied-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Deny(rec4.ID, "admin", "no"); err != nil {
+		t.Fatalf("Deny: %v", err)
+	}
 
 	// 时间前进使部分数据过期
 	clock.now = clock.now.Add(2 * time.Hour)
@@ -182,8 +227,13 @@ func TestApprovedRecordExpiryEdgeCases(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// 测试无过期时间的批准（永久有效）
-	rec1, _ := q.Request("session-1", "forever-cmd", nil)
-	q.Approve(rec1.ID, "admin", 0) // TTL = 0，永久有效
+	rec1, err := q.Request("session-1", "forever-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", 0); err != nil { // TTL = 0，永久有效
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// 时间前进很远
 	clock.now = clock.now.Add(365 * 24 * time.Hour * 10) // 10年后
@@ -194,8 +244,13 @@ func TestApprovedRecordExpiryEdgeCases(t *testing.T) {
 	}
 
 	// 测试刚好在边界的情况
-	rec2, _ := q.Request("session-2", "boundary-cmd", nil)
-	q.Approve(rec2.ID, "admin", time.Hour)
+	rec2, err := q.Request("session-2", "boundary-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec2.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// 刚好在过期时间点
 	clock.now = clock.now.Add(time.Hour)
@@ -226,8 +281,13 @@ func TestIsCommandApprovedWithExpired(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// 创建并批准（短 TTL）
-	rec, _ := q.Request("session-1", "ls", nil)
-	q.Approve(rec.ID, "admin", time.Hour)
+	rec, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// 验证有效
 	_, ok := q.IsCommandApproved("session-1", "ls")
@@ -250,14 +310,29 @@ func TestMultipleCommandsWithDifferentExpiry(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// 创建多个命令，不同过期时间
-	rec1, _ := q.Request("session-1", "short-cmd", nil)
-	q.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q.Request("session-1", "short-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
-	rec2, _ := q.Request("session-1", "long-cmd", nil)
-	q.Approve(rec2.ID, "admin", time.Hour*24)
+	rec2, err := q.Request("session-1", "long-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec2.ID, "admin", time.Hour*24); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
-	rec3, _ := q.Request("session-1", "forever-cmd", nil)
-	q.Approve(rec3.ID, "admin", 0)
+	rec3, err := q.Request("session-1", "forever-cmd", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec3.ID, "admin", 0); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 
 	// 前进 2 小时
 	clock.now = clock.now.Add(2 * time.Hour)
@@ -285,8 +360,13 @@ func TestRequestCreatesNewAfterExpiry(t *testing.T) {
 	q, clock := newTestQueue(t)
 
 	// 创建并批准
-	rec1, _ := q.Request("session-1", "ls", nil)
-	q.Approve(rec1.ID, "admin", time.Hour)
+	rec1, err := q.Request("session-1", "ls", nil)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+	if _, err := q.Approve(rec1.ID, "admin", time.Hour); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
 	originalID := rec1.ID
 
 	// 过期

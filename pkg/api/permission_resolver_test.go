@@ -35,8 +35,8 @@ func TestBuildPermissionResolverHandlerAndApprovals(t *testing.T) {
 	if err != nil || decision.Action != security.PermissionAllow {
 		t.Fatalf("unexpected decision %+v err=%v", decision, err)
 	}
-	if !queue.IsWhitelisted("sess") {
-		t.Fatalf("expected session to be whitelisted")
+	if _, ok := queue.IsCommandApproved("sess", "Bash(target)"); !ok {
+		t.Fatalf("expected command approval to be persisted")
 	}
 
 	allowed, err := resolver(context.Background(), tool.Call{Name: "Bash"}, security.PermissionDecision{Action: security.PermissionAllow})

@@ -193,7 +193,7 @@ func TestRuntimePermissionAskAutoWhitelist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("approval queue: %v", err)
 	}
-	rec, err := queue.Request("sess-1", "echo", nil)
+	rec, err := queue.Request("sess-1", "echo(hi)", nil)
 	if err != nil {
 		t.Fatalf("queue request: %v", err)
 	}

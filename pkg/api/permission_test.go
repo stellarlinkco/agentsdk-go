@@ -53,8 +53,8 @@ func TestBuildPermissionResolverAllowDeny(t *testing.T) {
 	if allowed.Action != security.PermissionAllow {
 		t.Fatalf("expected allow action, got %v", allowed.Action)
 	}
-	if !queue.IsWhitelisted("sess") {
-		t.Fatalf("expected session whitelisted")
+	if _, ok := queue.IsCommandApproved("sess", "Bash(ls)"); !ok {
+		t.Fatalf("expected command approval persisted")
 	}
 
 	queue2, err := security.NewApprovalQueue(filepath.Join(dir, "approvals2.json"))
@@ -71,7 +71,7 @@ func TestBuildPermissionResolverAllowDeny(t *testing.T) {
 	if denied.Action != security.PermissionDeny {
 		t.Fatalf("expected deny action, got %v", denied.Action)
 	}
-	if queue2.IsWhitelisted("sess") {
-		t.Fatalf("expected session not whitelisted")
+	if _, ok := queue2.IsCommandApproved("sess", "Bash(ls)"); ok {
+		t.Fatalf("expected no command approval on deny")
 	}
 }

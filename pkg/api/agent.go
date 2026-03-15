@@ -1336,7 +1336,7 @@ func buildPermissionResolver(hooks *runtimeHookAdapter, handler PermissionReques
 			}
 			record = rec
 			req.Approval = rec
-			if rec != nil && rec.State == security.ApprovalApproved && rec.AutoApproved {
+			if rec != nil && rec.State == security.ApprovalApproved {
 				return decisionWithAction(decision, security.PermissionAllow), nil
 			}
 		}
