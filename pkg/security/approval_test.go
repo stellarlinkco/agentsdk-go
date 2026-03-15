@@ -574,8 +574,8 @@ func TestApprovalQueue_Wait_ContextCancel(t *testing.T) {
 		t.Fatalf("Request: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	_, err = q.Wait(ctx, rec.ID)
 	if err == nil {
