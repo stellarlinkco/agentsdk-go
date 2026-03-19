@@ -7,27 +7,23 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/cexll/agentsdk-go/pkg/gitignore"
-	"github.com/cexll/agentsdk-go/pkg/security"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/gitignore"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const (
 	grepResultLimit = 100
 	grepMaxDepth    = 8
 	grepMaxContext  = 5
-	grepToolDesc    = `A powerful search tool built on ripgrep.
+	grepToolDesc    = `Search file contents using ripgrep (rg).
 
-Usage:
-  - ALWAYS use Grep for search tasks. NEVER invoke 'grep' or 'rg' as a Bash command.
-  - Supports full regex syntax (e.g., "log.*Error", "function\s+\w+").
-  - Filter files with glob (e.g., "*.js", "**/*.tsx") or type (e.g., "js", "py", "rust", "go").
-  - Output modes: "files_with_matches" (default), "content", or "count" via output_mode.
-  - Context controls: legacy context_lines or -A/-B/-C for after/before/both sides; -n toggles line numbers (default true).
-  - Result shaping: head_limit caps results, offset skips initial matches.
-  - Multiline matching: set multiline: true for cross-line patterns like 'struct \{[\s\S]*?field'.
-  - Use Task tool for open-ended searches requiring multiple rounds.
-  - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use 'interface\{\}' to find 'interface{}' in Go code).`
+Notes:
+  - Prefer this tool over running rg/grep via bash.
+  - Supports regex patterns and file filtering via glob/type.
+  - output_mode: files_with_matches (default), content, count.
+  - Context: context_lines or -A/-B/-C; line numbers via -n (default true).
+  - Pattern syntax: ripgrep rules apply; escape literal braces (e.g. interface\{\}).`
 )
 
 var (
@@ -110,7 +106,7 @@ type GrepMatch struct {
 
 // GrepTool enables scoped code searches.
 type GrepTool struct {
-	sandbox          *security.Sandbox
+	policy           sandbox.FileSystemPolicy
 	root             string
 	maxResults       int
 	maxDepth         int
@@ -126,7 +122,7 @@ func NewGrepTool() *GrepTool { return NewGrepToolWithRoot("") }
 func NewGrepToolWithRoot(root string) *GrepTool {
 	resolved := resolveRoot(root)
 	return &GrepTool{
-		sandbox:          security.NewSandbox(resolved),
+		policy:           sandbox.NewFileSystemAllowList(resolved),
 		root:             resolved,
 		maxResults:       grepResultLimit,
 		maxDepth:         grepMaxDepth,
@@ -136,10 +132,10 @@ func NewGrepToolWithRoot(root string) *GrepTool {
 }
 
 // NewGrepToolWithSandbox builds a GrepTool using a custom sandbox.
-func NewGrepToolWithSandbox(root string, sandbox *security.Sandbox) *GrepTool {
+func NewGrepToolWithSandbox(root string, policy sandbox.FileSystemPolicy) *GrepTool {
 	resolved := resolveRoot(root)
 	return &GrepTool{
-		sandbox:          sandbox,
+		policy:           policy,
 		root:             resolved,
 		maxResults:       grepResultLimit,
 		maxDepth:         grepMaxDepth,
@@ -156,7 +152,7 @@ func (g *GrepTool) SetRespectGitignore(respect bool) {
 	}
 }
 
-func (g *GrepTool) Name() string { return "Grep" }
+func (g *GrepTool) Name() string { return "grep" }
 
 func (g *GrepTool) Description() string { return grepToolDesc }
 
@@ -166,7 +162,7 @@ func (g *GrepTool) Execute(ctx context.Context, params map[string]interface{}) (
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if g == nil || g.sandbox == nil {
+	if g == nil {
 		return nil, errors.New("grep tool is not initialised")
 	}
 

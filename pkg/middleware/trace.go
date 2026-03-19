@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
 )
 
 // TraceMiddleware records middleware activity per session and renders a
@@ -65,6 +65,10 @@ func WithSkillTracing(enabled bool) TraceOption {
 	}
 }
 
+var parseTraceTemplate = func() (*template.Template, error) {
+	return template.New("trace-viewer").Parse(traceHTMLTemplate)
+}
+
 // NewTraceMiddleware builds a TraceMiddleware that writes to outputDir
 // (defaults to .trace when empty).
 func NewTraceMiddleware(outputDir string, opts ...TraceOption) *TraceMiddleware {
@@ -76,7 +80,7 @@ func NewTraceMiddleware(outputDir string, opts ...TraceOption) *TraceMiddleware 
 		log.Printf("trace middleware: mkdir %s: %v", dir, err)
 	}
 
-	tmpl, err := template.New("trace-viewer").Parse(traceHTMLTemplate)
+	tmpl, err := parseTraceTemplate()
 	if err != nil {
 		log.Printf("trace middleware: template parse: %v", err)
 	}
@@ -100,16 +104,6 @@ func (m *TraceMiddleware) Name() string { return "trace" }
 func (m *TraceMiddleware) BeforeAgent(ctx context.Context, st *State) error {
 	m.traceSkillsSnapshot(ctx, st, true)
 	m.record(ctx, StageBeforeAgent, st)
-	return nil
-}
-
-func (m *TraceMiddleware) BeforeModel(ctx context.Context, st *State) error {
-	m.record(ctx, StageBeforeModel, st)
-	return nil
-}
-
-func (m *TraceMiddleware) AfterModel(ctx context.Context, st *State) error {
-	m.record(ctx, StageAfterModel, st)
 	return nil
 }
 
@@ -336,15 +330,34 @@ func (m *TraceMiddleware) renderHTML(sess *traceSession) error {
 }
 
 func writeAtomic(path string, data []byte) error {
+	return writeAtomicWith(path, data, os.MkdirAll, func(dir, pattern string) (tempFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}, os.Rename, os.Remove)
+}
+
+type tempFile interface {
+	Write([]byte) (int, error)
+	Close() error
+	Name() string
+}
+
+func writeAtomicWith(
+	path string,
+	data []byte,
+	mkdirAll func(string, os.FileMode) error,
+	createTemp func(string, string) (tempFile, error),
+	rename func(string, string) error,
+	remove func(string) error,
+) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := mkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "trace-*.html")
+	tmp, err := createTemp(dir, "trace-*.html")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	defer remove(tmp.Name())
 
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
@@ -353,7 +366,7 @@ func writeAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	return rename(tmp.Name(), path)
 }
 
 func (m *TraceMiddleware) resolveSessionID(ctx context.Context, st *State) string {
@@ -419,20 +432,16 @@ func stageIO(stage Stage, st *State) (any, any) {
 	}
 	switch stage {
 	case StageBeforeAgent:
-		return st.Agent, nil
-	case StageBeforeModel:
 		if st.ModelInput != nil {
 			return st.ModelInput, nil
 		}
 		return st.Agent, nil
-	case StageAfterModel:
-		return st.ModelInput, st.ModelOutput
 	case StageBeforeTool:
 		return st.ToolCall, nil
 	case StageAfterTool:
 		return st.ToolCall, st.ToolResult
 	case StageAfterAgent:
-		return st.Agent, st.ModelOutput
+		return st.ModelInput, st.ModelOutput
 	default:
 		return nil, nil
 	}
@@ -442,10 +451,6 @@ func stageName(stage Stage) string {
 	switch stage {
 	case StageBeforeAgent:
 		return "before_agent"
-	case StageBeforeModel:
-		return "before_model"
-	case StageAfterModel:
-		return "after_model"
 	case StageBeforeTool:
 		return "before_tool"
 	case StageAfterTool:

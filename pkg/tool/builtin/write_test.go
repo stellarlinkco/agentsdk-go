@@ -49,7 +49,7 @@ func TestWriteToolValidationErrors(t *testing.T) {
 		{"missing path", map[string]any{"content": "x"}, "file_path"},
 		{"missing content", map[string]any{"file_path": "file.txt"}, "content"},
 		{"content type", map[string]any{"file_path": "file.txt", "content": 123}, "content must be string"},
-		{"sandbox", map[string]any{"file_path": filepath.Join("..", "escape.txt"), "content": "x"}, "path not in sandbox"},
+		{"sandbox", map[string]any{"file_path": filepath.Join("..", "escape.txt"), "content": "x"}, "path denied"},
 	}
 
 	for _, tc := range testCases {
@@ -90,7 +90,7 @@ func TestWriteToolSizeLimitAndCancellation(t *testing.T) {
 
 func TestWriteToolMetadata(t *testing.T) {
 	tool := NewWriteTool()
-	if tool.Name() != "Write" {
+	if tool.Name() != "write" {
 		t.Fatalf("unexpected tool name %q", tool.Name())
 	}
 	if tool.Description() == "" || tool.Schema() == nil {

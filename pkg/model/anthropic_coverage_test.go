@@ -127,9 +127,9 @@ func TestConvertMessagesCoverage(t *testing.T) {
 		{Role: "tool", Content: "tool", ToolCalls: []ToolCall{{ID: "", Result: "err"}}},
 		{Role: "user", Content: ""},
 	}
-	system, params, err := convertMessages(msgs, true, "base")
-	if err != nil || len(system) == 0 || len(params) == 0 {
-		t.Fatalf("unexpected convert result %v %v", system, err)
+	system, params := convertMessages(msgs, true, "base")
+	if len(system) == 0 || len(params) == 0 {
+		t.Fatalf("unexpected convert result %v", system)
 	}
 }
 

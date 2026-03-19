@@ -20,16 +20,11 @@ func (h *HooksConfig) UnmarshalJSON(data []byte) error {
 	}{
 		{name: "PreToolUse", target: &h.PreToolUse},
 		{name: "PostToolUse", target: &h.PostToolUse},
-		{name: "PostToolUseFailure", target: &h.PostToolUseFailure},
-		{name: "PermissionRequest", target: &h.PermissionRequest},
 		{name: "SessionStart", target: &h.SessionStart},
 		{name: "SessionEnd", target: &h.SessionEnd},
 		{name: "SubagentStart", target: &h.SubagentStart},
 		{name: "SubagentStop", target: &h.SubagentStop},
 		{name: "Stop", target: &h.Stop},
-		{name: "Notification", target: &h.Notification},
-		{name: "UserPromptSubmit", target: &h.UserPromptSubmit},
-		{name: "PreCompact", target: &h.PreCompact},
 	}
 
 	for _, field := range fields {

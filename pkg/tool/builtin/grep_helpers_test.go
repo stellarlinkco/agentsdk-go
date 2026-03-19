@@ -17,6 +17,12 @@ func TestIntFromParamVariants(t *testing.T) {
 	if v, err := intFromParam(int8(2)); err != nil || v != 2 {
 		t.Fatalf("int8 failed: %v %d", err, v)
 	}
+	if v, err := intFromParam(int32(6)); err != nil || v != 6 {
+		t.Fatalf("int32 failed: %v %d", err, v)
+	}
+	if v, err := intFromParam(uint16(9)); err != nil || v != 9 {
+		t.Fatalf("uint16 failed: %v %d", err, v)
+	}
 	if v, err := intFromParam(uint32(7)); err != nil || v != 7 {
 		t.Fatalf("uint32 failed: %v %d", err, v)
 	}
@@ -34,6 +40,12 @@ func TestIntFromParamVariants(t *testing.T) {
 	}
 	if _, err := intFromParam(float64(1.5)); err == nil {
 		t.Fatalf("expected non-integer error")
+	}
+	if v, err := intFromParam(float64(2)); err != nil || v != 2 {
+		t.Fatalf("float64 int failed: %v %d", err, v)
+	}
+	if v, err := intFromParam(float32(3)); err != nil || v != 3 {
+		t.Fatalf("float32 int failed: %v %d", err, v)
 	}
 	if _, err := intFromParam(""); err == nil {
 		t.Fatalf("expected empty string error")

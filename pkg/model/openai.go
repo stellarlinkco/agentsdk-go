@@ -96,10 +96,7 @@ func (m *openaiModel) Complete(ctx context.Context, req Request) (*Response, err
 	recordModelRequest(ctx, req)
 	var resp *Response
 	err := m.doWithRetry(ctx, func(ctx context.Context) error {
-		params, err := m.buildParams(req)
-		if err != nil {
-			return err
-		}
+		params := m.buildParams(req)
 
 		completion, err := m.completions.New(ctx, params)
 		if err != nil {
@@ -122,10 +119,7 @@ func (m *openaiModel) CompleteStream(ctx context.Context, req Request, cb Stream
 	recordModelRequest(ctx, req)
 
 	return m.doWithRetry(ctx, func(ctx context.Context) error {
-		params, err := m.buildParams(req)
-		if err != nil {
-			return err
-		}
+		params := m.buildParams(req)
 
 		// Enable usage reporting in stream
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
@@ -268,7 +262,7 @@ func parseJSONArgs(raw string) map[string]any {
 	return args
 }
 
-func (m *openaiModel) buildParams(req Request) (openai.ChatCompletionNewParams, error) {
+func (m *openaiModel) buildParams(req Request) openai.ChatCompletionNewParams {
 	messages := convertMessagesToOpenAI(req.Messages, m.system, req.System)
 
 	maxTokens := req.MaxTokens
@@ -300,7 +294,7 @@ func (m *openaiModel) buildParams(req Request) (openai.ChatCompletionNewParams, 
 		params.User = openai.String(sessionID)
 	}
 
-	return params, nil
+	return params
 }
 
 func (m *openaiModel) doWithRetry(ctx context.Context, fn func(context.Context) error) error {

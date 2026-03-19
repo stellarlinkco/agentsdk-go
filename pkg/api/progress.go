@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/cexll/agentsdk-go/pkg/agent"
-	"github.com/cexll/agentsdk-go/pkg/middleware"
+	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 // streamEmitFunc is stored on context so tools can push incremental output
@@ -35,47 +36,53 @@ func (p *progressMiddleware) streamEmit() streamEmitFunc {
 	return p.emit
 }
 
-func (p *progressMiddleware) BeforeAgent(ctx context.Context, _ *middleware.State) error {
-	p.emit(context.Background(), StreamEvent{Type: EventAgentStart})
-	return nil
-}
-
-func (p *progressMiddleware) BeforeModel(ctx context.Context, st *middleware.State) error {
-	iter := st.Iteration
+func (p *progressMiddleware) BeforeAgent(ctx context.Context, st *middleware.State) error {
+	iter := 0
+	if st != nil {
+		iter = st.Iteration
+	}
+	if iter == 0 {
+		p.emit(context.Background(), StreamEvent{Type: EventAgentStart})
+	}
 	p.emit(ctx, StreamEvent{Type: EventIterationStart, Iteration: &iter})
 	p.emit(ctx, StreamEvent{Type: EventMessageStart, Message: &Message{Role: "assistant"}})
 	return nil
 }
 
-func (p *progressMiddleware) AfterModel(ctx context.Context, st *middleware.State) error {
-	out, ok := st.ModelOutput.(*agent.ModelOutput)
-	if !ok || out == nil {
+func (p *progressMiddleware) AfterAgent(ctx context.Context, st *middleware.State) error {
+	resp, ok := st.ModelOutput.(*model.Response)
+	if !ok || resp == nil {
 		return nil
 	}
 
 	idx := 0
-	text := out.Content
+	text := resp.Message.Content
 	p.textBlock(ctx, idx, text)
 	if text != "" {
 		idx++
 	}
 
-	for _, call := range out.ToolCalls {
+	for _, call := range resp.Message.ToolCalls {
 		p.toolBlock(ctx, idx, call)
 		idx++
 	}
 
 	reason := "end_turn"
-	if len(out.ToolCalls) > 0 {
+	if len(resp.Message.ToolCalls) > 0 {
 		reason = "tool_use"
 	}
 	p.emit(ctx, StreamEvent{Type: EventMessageDelta, Delta: &Delta{StopReason: reason}, Usage: &Usage{}})
 	p.emit(ctx, StreamEvent{Type: EventMessageStop})
+	iter := st.Iteration
+	p.emit(ctx, StreamEvent{Type: EventIterationStop, Iteration: &iter})
+	if len(resp.Message.ToolCalls) == 0 {
+		p.emit(ctx, StreamEvent{Type: EventAgentStop})
+	}
 	return nil
 }
 
 func (p *progressMiddleware) BeforeTool(ctx context.Context, st *middleware.State) error {
-	call, ok := st.ToolCall.(agent.ToolCall)
+	call, ok := st.ToolCall.(model.ToolCall)
 	if !ok {
 		return nil
 	}
@@ -85,34 +92,43 @@ func (p *progressMiddleware) BeforeTool(ctx context.Context, st *middleware.Stat
 }
 
 func (p *progressMiddleware) AfterTool(ctx context.Context, st *middleware.State) error {
-	call, ok := st.ToolCall.(agent.ToolCall)
+	call, ok := st.ToolCall.(model.ToolCall)
 	if !ok {
 		return nil
 	}
-	res, ok := st.ToolResult.(agent.ToolResult)
-	if !ok {
+	cr, ok := st.ToolResult.(*tool.CallResult)
+	if !ok || cr == nil {
 		return nil
 	}
 
-	if res.Output != "" {
-		p.emit(ctx, StreamEvent{Type: EventToolExecutionOutput, ToolUseID: call.ID, Name: call.Name, Output: res.Output})
+	output := ""
+	if cr.Result != nil {
+		output = cr.Result.Output
+	}
+	if output != "" {
+		p.emit(ctx, StreamEvent{Type: EventToolExecutionOutput, ToolUseID: call.ID, Name: call.Name, Output: output})
 	}
 
 	payload := map[string]any{}
-	if res.Output != "" {
-		payload["output"] = res.Output
+	if output != "" {
+		payload["output"] = output
 	}
-	if len(res.Metadata) > 0 {
-		payload["metadata"] = res.Metadata
+	meta := map[string]any{}
+	if cr.Err != nil {
+		meta["error"] = cr.Err.Error()
+	}
+	if cr.Result != nil {
+		if cr.Result.Data != nil {
+			meta["data"] = cr.Result.Data
+		}
+		if cr.Result.OutputRef != nil {
+			meta["output_ref"] = cr.Result.OutputRef
+		}
+	}
+	if len(meta) > 0 {
+		payload["metadata"] = meta
 	}
 	p.emit(ctx, StreamEvent{Type: EventToolExecutionResult, ToolUseID: call.ID, Name: call.Name, Output: payload})
-	return nil
-}
-
-func (p *progressMiddleware) AfterAgent(ctx context.Context, st *middleware.State) error {
-	iter := st.Iteration
-	p.emit(ctx, StreamEvent{Type: EventIterationStop, Iteration: &iter})
-	p.emit(ctx, StreamEvent{Type: EventAgentStop})
 	return nil
 }
 
@@ -127,9 +143,9 @@ func (p *progressMiddleware) textBlock(ctx context.Context, idx int, content str
 	p.emit(ctx, StreamEvent{Type: EventContentBlockStop, Index: &idx})
 }
 
-func (p *progressMiddleware) toolBlock(ctx context.Context, idx int, call agent.ToolCall) {
+func (p *progressMiddleware) toolBlock(ctx context.Context, idx int, call model.ToolCall) {
 	p.emit(ctx, StreamEvent{Type: EventContentBlockStart, Index: &idx, ContentBlock: &ContentBlock{Type: "tool_use", ID: call.ID, Name: call.Name}})
-	raw, err := json.Marshal(call.Input)
+	raw, err := json.Marshal(call.Arguments)
 	if err != nil {
 		raw = []byte("{}")
 	}

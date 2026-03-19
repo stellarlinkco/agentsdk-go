@@ -10,8 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/sandbox"
-	"github.com/cexll/agentsdk-go/pkg/security"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 type stubTool struct {
@@ -220,25 +219,8 @@ func TestCallResultDuration(t *testing.T) {
 	}
 }
 
-func TestExecutorWithPermissionResolverAndOutputPersister(t *testing.T) {
+func TestExecutorWithOutputPersister(t *testing.T) {
 	exec := NewExecutor(NewRegistry(), nil)
-	resolver := func(context.Context, Call, security.PermissionDecision) (security.PermissionDecision, error) {
-		return security.PermissionDecision{Action: security.PermissionAllow}, nil
-	}
-
-	clone := exec.WithPermissionResolver(resolver)
-	if clone == nil || clone.permCheck == nil {
-		t.Fatalf("expected resolver to be set")
-	}
-	if exec.permCheck != nil {
-		t.Fatalf("original executor should remain unchanged")
-	}
-
-	var nilExec *Executor
-	cloneNil := nilExec.WithPermissionResolver(resolver)
-	if cloneNil == nil || cloneNil.permCheck == nil {
-		t.Fatalf("expected resolver on new executor")
-	}
 
 	persister := &OutputPersister{BaseDir: t.TempDir(), DefaultThresholdBytes: 1}
 	cloneOut := exec.WithOutputPersister(persister)
@@ -246,6 +228,7 @@ func TestExecutorWithPermissionResolverAndOutputPersister(t *testing.T) {
 		t.Fatalf("expected persister to be set")
 	}
 
+	var nilExec *Executor
 	cloneOutNil := nilExec.WithOutputPersister(persister)
 	if cloneOutNil == nil || cloneOutNil.persister != persister {
 		t.Fatalf("expected persister on new executor")
@@ -447,149 +430,6 @@ func TestExecutorPersisterIsolatesDirectoriesPerToolName(t *testing.T) {
 	wantGrepPrefix := filepath.Join(base, "sess", "grep") + string(filepath.Separator)
 	if !strings.HasPrefix(grepRes.Result.OutputRef.Path, wantGrepPrefix) {
 		t.Fatalf("expected grep path under %q, got %q", wantGrepPrefix, grepRes.Result.OutputRef.Path)
-	}
-}
-
-func TestExecutorDeniesByPermissions(t *testing.T) {
-	root := canonicalTempDir(t)
-	claude := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claude, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	settings := `{"permissions":{"deny":["Bash(ls:*)"]}}`
-	if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(settings), 0o600); err != nil {
-		t.Fatalf("write settings: %v", err)
-	}
-
-	reg := NewRegistry()
-	tool := &stubTool{name: "Bash"}
-	if err := reg.Register(tool); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	exec := NewExecutor(reg, sandbox.NewManager(sandbox.NewFileSystemAllowList(root), nil, nil))
-	_, err := exec.Execute(context.Background(), Call{Name: "Bash", Params: map[string]any{"command": "ls -la"}, Path: root})
-	if err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Fatalf("expected deny error, got %v", err)
-	}
-	if atomic.LoadInt32(&tool.called) != 0 {
-		t.Fatalf("tool should not run when denied")
-	}
-}
-
-func TestExecutorAsksWhenConfigured(t *testing.T) {
-	root := canonicalTempDir(t)
-	claude := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claude, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	settings := `{"permissions":{"ask":["Bash(ls:*)"]}}`
-	if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(settings), 0o600); err != nil {
-		t.Fatalf("write settings: %v", err)
-	}
-
-	reg := NewRegistry()
-	tool := &stubTool{name: "Bash"}
-	if err := reg.Register(tool); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	exec := NewExecutor(reg, sandbox.NewManager(sandbox.NewFileSystemAllowList(root), nil, nil))
-	_, err := exec.Execute(context.Background(), Call{Name: "Bash", Params: map[string]any{"command": "ls -la"}, Path: root})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "requires approval") {
-		t.Fatalf("expected approval error, got %v", err)
-	}
-	if atomic.LoadInt32(&tool.called) != 0 {
-		t.Fatalf("tool should not run when approval needed")
-	}
-}
-
-func TestExecutorApprovalResolverAllows(t *testing.T) {
-	root := canonicalTempDir(t)
-	claude := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claude, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	settings := `{"permissions":{"ask":["Bash(ls:*)"]}}`
-	if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(settings), 0o600); err != nil {
-		t.Fatalf("write settings: %v", err)
-	}
-
-	reg := NewRegistry()
-	tool := &stubTool{name: "Bash"}
-	if err := reg.Register(tool); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	exec := NewExecutor(reg, sandbox.NewManager(sandbox.NewFileSystemAllowList(root), nil, nil)).
-		WithPermissionResolver(func(context.Context, Call, security.PermissionDecision) (security.PermissionDecision, error) {
-			return security.PermissionDecision{Action: security.PermissionAllow}, nil
-		})
-
-	_, err := exec.Execute(context.Background(), Call{Name: "Bash", Params: map[string]any{"command": "ls -la"}, Path: root})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if atomic.LoadInt32(&tool.called) != 1 {
-		t.Fatalf("tool should execute when approved, got %d", tool.called)
-	}
-}
-
-func TestExecutorApprovalResolverDenies(t *testing.T) {
-	root := canonicalTempDir(t)
-	claude := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claude, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	settings := `{"permissions":{"ask":["Bash(ls:*)"]}}`
-	if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(settings), 0o600); err != nil {
-		t.Fatalf("write settings: %v", err)
-	}
-
-	reg := NewRegistry()
-	tool := &stubTool{name: "Bash"}
-	if err := reg.Register(tool); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	exec := NewExecutor(reg, sandbox.NewManager(sandbox.NewFileSystemAllowList(root), nil, nil)).
-		WithPermissionResolver(func(context.Context, Call, security.PermissionDecision) (security.PermissionDecision, error) {
-			return security.PermissionDecision{Action: security.PermissionDeny}, nil
-		})
-
-	_, err := exec.Execute(context.Background(), Call{Name: "Bash", Params: map[string]any{"command": "ls -la"}, Path: root})
-	if err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Fatalf("expected deny error, got %v", err)
-	}
-	if atomic.LoadInt32(&tool.called) != 0 {
-		t.Fatalf("tool should not run when denied")
-	}
-}
-
-func TestExecutorAllowsWhenPermissionMatches(t *testing.T) {
-	root := canonicalTempDir(t)
-	claude := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claude, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	settings := `{"permissions":{"allow":["Bash(ls:*)"]}}`
-	if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(settings), 0o600); err != nil {
-		t.Fatalf("write settings: %v", err)
-	}
-
-	reg := NewRegistry()
-	tool := &stubTool{name: "Bash"}
-	if err := reg.Register(tool); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	exec := NewExecutor(reg, sandbox.NewManager(sandbox.NewFileSystemAllowList(root), nil, nil))
-	_, err := exec.Execute(context.Background(), Call{Name: "Bash", Params: map[string]any{"command": "ls"}, Path: root})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if atomic.LoadInt32(&tool.called) != 1 {
-		t.Fatalf("tool should execute when allowed, got %d", tool.called)
 	}
 }
 

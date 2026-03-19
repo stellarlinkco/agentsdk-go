@@ -5,30 +5,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
-	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	hooks "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
 )
 
-func newHookExecutor(opts Options, recorder HookRecorder, settings *config.Settings) *corehooks.Executor {
-	execOpts := []corehooks.ExecutorOption{
-		corehooks.WithMiddleware(opts.HookMiddleware...),
-		corehooks.WithTimeout(opts.HookTimeout),
+func newHookExecutor(opts Options, settings *config.Settings) *hooks.Executor {
+	execOpts := []hooks.ExecutorOption{
+		hooks.WithMiddleware(opts.HookMiddleware...),
+		hooks.WithTimeout(opts.HookTimeout),
 	}
 	if opts.ProjectRoot != "" {
-		execOpts = append(execOpts, corehooks.WithWorkDir(opts.ProjectRoot))
+		execOpts = append(execOpts, hooks.WithWorkDir(opts.ProjectRoot))
 	}
-	exec := corehooks.NewExecutor(execOpts...)
+	exec := hooks.NewExecutor(execOpts...)
 	if len(opts.TypedHooks) > 0 {
 		exec.Register(opts.TypedHooks...)
 	}
 	if !hooksDisabled(settings) {
-		hooks := buildSettingsHooks(settings, opts.ProjectRoot)
-		if len(hooks) > 0 {
-			exec.Register(hooks...)
+		settingsHooks := buildSettingsHooks(settings, opts.ProjectRoot)
+		if len(settingsHooks) > 0 {
+			exec.Register(settingsHooks...)
 		}
 	}
-	_ = recorder
 	return exec
 }
 
@@ -37,12 +35,12 @@ func hooksDisabled(settings *config.Settings) bool {
 }
 
 // buildSettingsHooks converts settings.Hooks config to ShellHook structs.
-func buildSettingsHooks(settings *config.Settings, projectRoot string) []corehooks.ShellHook {
+func buildSettingsHooks(settings *config.Settings, projectRoot string) []hooks.ShellHook {
 	if settings == nil || settings.Hooks == nil {
 		return nil
 	}
 
-	var hooks []corehooks.ShellHook
+	var out []hooks.ShellHook
 	env := map[string]string{}
 	for k, v := range settings.Env {
 		env[k] = v
@@ -51,10 +49,10 @@ func buildSettingsHooks(settings *config.Settings, projectRoot string) []corehoo
 		env["CLAUDE_PROJECT_DIR"] = projectRoot
 	}
 
-	addEntries := func(event coreevents.EventType, entries []config.HookMatcherEntry, prefix string) {
+	addEntries := func(event hooks.EventType, entries []config.HookMatcherEntry, prefix string) {
 		for _, entry := range entries {
 			normalizedMatcher := normalizeToolSelectorPattern(entry.Matcher)
-			sel, err := corehooks.NewSelector(normalizedMatcher, "")
+			sel, err := hooks.NewSelector(normalizedMatcher, "")
 			if err != nil {
 				continue
 			}
@@ -68,7 +66,7 @@ func buildSettingsHooks(settings *config.Settings, projectRoot string) []corehoo
 					if hookDef.Timeout > 0 {
 						timeout = time.Duration(hookDef.Timeout) * time.Second
 					}
-					hooks = append(hooks, corehooks.ShellHook{
+					out = append(out, hooks.ShellHook{
 						Event:         event,
 						Command:       hookDef.Command,
 						Selector:      sel,
@@ -86,20 +84,15 @@ func buildSettingsHooks(settings *config.Settings, projectRoot string) []corehoo
 		}
 	}
 
-	addEntries(coreevents.PreToolUse, settings.Hooks.PreToolUse, "pre")
-	addEntries(coreevents.PostToolUse, settings.Hooks.PostToolUse, "post")
-	addEntries(coreevents.PostToolUseFailure, settings.Hooks.PostToolUseFailure, "post_failure")
-	addEntries(coreevents.PermissionRequest, settings.Hooks.PermissionRequest, "permission")
-	addEntries(coreevents.SessionStart, settings.Hooks.SessionStart, "session_start")
-	addEntries(coreevents.SessionEnd, settings.Hooks.SessionEnd, "session_end")
-	addEntries(coreevents.SubagentStart, settings.Hooks.SubagentStart, "subagent_start")
-	addEntries(coreevents.SubagentStop, settings.Hooks.SubagentStop, "subagent_stop")
-	addEntries(coreevents.Stop, settings.Hooks.Stop, "stop")
-	addEntries(coreevents.Notification, settings.Hooks.Notification, "notification")
-	addEntries(coreevents.UserPromptSubmit, settings.Hooks.UserPromptSubmit, "user_prompt")
-	addEntries(coreevents.PreCompact, settings.Hooks.PreCompact, "pre_compact")
+	addEntries(hooks.PreToolUse, settings.Hooks.PreToolUse, "pre")
+	addEntries(hooks.PostToolUse, settings.Hooks.PostToolUse, "post")
+	addEntries(hooks.SessionStart, settings.Hooks.SessionStart, "session_start")
+	addEntries(hooks.SessionEnd, settings.Hooks.SessionEnd, "session_end")
+	addEntries(hooks.SubagentStart, settings.Hooks.SubagentStart, "subagent_start")
+	addEntries(hooks.SubagentStop, settings.Hooks.SubagentStop, "subagent_stop")
+	addEntries(hooks.Stop, settings.Hooks.Stop, "stop")
 
-	return hooks
+	return out
 }
 
 // normalizeToolSelectorPattern maps wildcard "*" to the selector wildcard (empty pattern).

@@ -283,9 +283,6 @@ func normalizeDefinition(def Definition) Definition {
 		MutexKey:              strings.ToLower(strings.TrimSpace(def.MutexKey)),
 		DisableAutoActivation: def.DisableAutoActivation,
 	}
-	if normalized.Name == "" {
-		normalized.Name = strings.TrimSpace(def.Name)
-	}
 	if normalized.Priority < 0 {
 		normalized.Priority = 0
 	}

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/mcp"
+	"github.com/stellarlinkco/agentsdk-go/pkg/mcp"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
@@ -44,6 +44,15 @@ func TestRemoteToolDescription(t *testing.T) {
 func TestRegisterMCPServerRejectsEmptyPath(t *testing.T) {
 	r := NewRegistry()
 	if err := r.RegisterMCPServer(context.Background(), "   ", ""); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("expected empty server path error, got %v", err)
+	}
+}
+
+func TestRegisterMCPServerWithOptionsRejectsEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	r := NewRegistry()
+	if err := r.RegisterMCPServerWithOptions(context.Background(), "   ", "svc", MCPServerOptions{}); err == nil || !strings.Contains(err.Error(), "server path is empty") {
 		t.Fatalf("expected empty server path error, got %v", err)
 	}
 }
@@ -496,7 +505,7 @@ func TestConnectMCPClientWithOptionsTransportError(t *testing.T) {
 	}
 }
 
-func TestMCPToolsChangedHandlerRefreshes(t *testing.T) {
+func TestMCPToolListChangedHandlerRefreshes(t *testing.T) {
 	server := &stubMCPServer{tools: []*mcp.Tool{{Name: "echo", Description: "remote", InputSchema: map[string]any{"type": "object"}}}}
 	restore := withStubMCPClient(t, sessionFactory(server))
 	defer restore()

@@ -88,6 +88,7 @@ func TestEditToolValidationErrors(t *testing.T) {
 		{"same strings", map[string]any{"file_path": path, "old_string": "x", "new_string": "x"}, "new_string"},
 		{"replace_all type", map[string]any{"file_path": path, "old_string": "x", "new_string": "y", "replace_all": []int{1}}, "replace_all"},
 		{"directory path", map[string]any{"file_path": dir, "old_string": "a", "new_string": "b"}, "directory"},
+		{"stat error", map[string]any{"file_path": filepath.Join(dir, "missing.txt"), "old_string": "a", "new_string": "b"}, "stat file"},
 	}
 
 	for _, tc := range testCases {
@@ -116,6 +117,28 @@ func TestEditToolRejectsBinaryFiles(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "binary file") {
 		t.Fatalf("expected binary file error, got %v", err)
+	}
+}
+
+func TestEditToolWriteFilePermissionError(t *testing.T) {
+	skipIfWindows(t)
+	dir := cleanTempDir(t)
+	path := filepath.Join(dir, "readonly.txt")
+	if err := os.WriteFile(path, []byte("hello world"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	tool := NewEditToolWithRoot(dir)
+	if _, err := tool.Execute(context.Background(), map[string]any{
+		"file_path":  path,
+		"old_string": "hello",
+		"new_string": "HELLO",
+	}); err == nil || !strings.Contains(err.Error(), "write file") {
+		t.Fatalf("expected write error, got %v", err)
 	}
 }
 
@@ -190,7 +213,7 @@ func TestEditToolSandboxAndContext(t *testing.T) {
 
 func TestEditToolMetadataAndBoolParser(t *testing.T) {
 	tool := NewEditTool()
-	if tool.Name() != "Edit" {
+	if tool.Name() != "edit" {
 		t.Fatalf("unexpected tool name %q", tool.Name())
 	}
 	if tool.Description() == "" || tool.Schema() == nil {
@@ -207,6 +230,7 @@ func TestEditToolMetadataAndBoolParser(t *testing.T) {
 		{"bool false", false, false, false},
 		{"string yes", "YES", true, false},
 		{"string no", "n", false, false},
+		{"string invalid", "maybe", false, true},
 		{"empty string", " ", false, true},
 		{"int", int(1), true, false},
 		{"uint zero", uint(0), false, false},

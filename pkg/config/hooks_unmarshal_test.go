@@ -211,31 +211,21 @@ func TestHooksConfig_UnmarshalJSON_SDKFormat(t *testing.T) {
 func TestHooksConfig_UnmarshalJSON_NewFields(t *testing.T) {
 	t.Parallel()
 	input := `{
-		"PermissionRequest": {"bash": "echo perm"},
 		"SessionStart": {"*": "echo start"},
 		"SessionEnd": {"*": "echo end"},
 		"SubagentStart": {"worker": "echo sa start"},
 		"SubagentStop": {"worker": "echo sa stop"},
-		"Stop": {"*": "echo stop"},
-		"Notification": {"*": "echo notify"},
-		"UserPromptSubmit": {"*": "echo prompt"},
-		"PreCompact": {"*": "echo compact"},
-		"PostToolUseFailure": {"bash": "echo failure"}
+		"Stop": {"*": "echo stop"}
 	}`
 
 	var got HooksConfig
 	err := json.Unmarshal([]byte(input), &got)
 	require.NoError(t, err)
-	require.Equal(t, mkEntries("bash", "echo perm"), got.PermissionRequest)
 	require.Equal(t, mkEntries("*", "echo start"), got.SessionStart)
 	require.Equal(t, mkEntries("*", "echo end"), got.SessionEnd)
 	require.Equal(t, mkEntries("worker", "echo sa start"), got.SubagentStart)
 	require.Equal(t, mkEntries("worker", "echo sa stop"), got.SubagentStop)
 	require.Equal(t, mkEntries("*", "echo stop"), got.Stop)
-	require.Equal(t, mkEntries("*", "echo notify"), got.Notification)
-	require.Equal(t, mkEntries("*", "echo prompt"), got.UserPromptSubmit)
-	require.Equal(t, mkEntries("*", "echo compact"), got.PreCompact)
-	require.Equal(t, mkEntries("bash", "echo failure"), got.PostToolUseFailure)
 }
 
 func TestHooksConfig_UnmarshalJSON_MixedFormat(t *testing.T) {
@@ -372,7 +362,7 @@ func TestHooksConfig_UnmarshalJSON_Errors(t *testing.T) {
 func TestHooksConfig_UnmarshalJSON_RealWorldExample(t *testing.T) {
 	t.Parallel()
 
-	// Real example from user's ~/.claude/settings.json
+	// Real example from user's ~/.agents/settings.json
 	input := `{
 		"PostToolUse": [
 			{

@@ -108,16 +108,11 @@ func mergeHooks(lower, higher *HooksConfig) *HooksConfig {
 	out := cloneHooks(lower)
 	out.PreToolUse = mergeHookEntries(lower.PreToolUse, higher.PreToolUse)
 	out.PostToolUse = mergeHookEntries(lower.PostToolUse, higher.PostToolUse)
-	out.PostToolUseFailure = mergeHookEntries(lower.PostToolUseFailure, higher.PostToolUseFailure)
-	out.PermissionRequest = mergeHookEntries(lower.PermissionRequest, higher.PermissionRequest)
 	out.SessionStart = mergeHookEntries(lower.SessionStart, higher.SessionStart)
 	out.SessionEnd = mergeHookEntries(lower.SessionEnd, higher.SessionEnd)
 	out.SubagentStart = mergeHookEntries(lower.SubagentStart, higher.SubagentStart)
 	out.SubagentStop = mergeHookEntries(lower.SubagentStop, higher.SubagentStop)
 	out.Stop = mergeHookEntries(lower.Stop, higher.Stop)
-	out.Notification = mergeHookEntries(lower.Notification, higher.Notification)
-	out.UserPromptSubmit = mergeHookEntries(lower.UserPromptSubmit, higher.UserPromptSubmit)
-	out.PreCompact = mergeHookEntries(lower.PreCompact, higher.PreCompact)
 	return out
 }
 
@@ -402,16 +397,11 @@ func cloneHooks(src *HooksConfig) *HooksConfig {
 	out := *src
 	out.PreToolUse = cloneHookEntries(src.PreToolUse)
 	out.PostToolUse = cloneHookEntries(src.PostToolUse)
-	out.PostToolUseFailure = cloneHookEntries(src.PostToolUseFailure)
-	out.PermissionRequest = cloneHookEntries(src.PermissionRequest)
 	out.SessionStart = cloneHookEntries(src.SessionStart)
 	out.SessionEnd = cloneHookEntries(src.SessionEnd)
 	out.SubagentStart = cloneHookEntries(src.SubagentStart)
 	out.SubagentStop = cloneHookEntries(src.SubagentStop)
 	out.Stop = cloneHookEntries(src.Stop)
-	out.Notification = cloneHookEntries(src.Notification)
-	out.UserPromptSubmit = cloneHookEntries(src.UserPromptSubmit)
-	out.PreCompact = cloneHookEntries(src.PreCompact)
 	return &out
 }
 

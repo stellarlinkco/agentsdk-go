@@ -74,7 +74,7 @@ func intFromParam(value interface{}) (int, error) {
 }
 
 func intFromInt64(v int64) (int, error) {
-	if v > maxIntValue || v < minIntValue {
+	if is32Bit && (v > maxIntValue || v < minIntValue) {
 		return 0, fmt.Errorf("value %d is out of range", v)
 	}
 	return int(v), nil

@@ -3,15 +3,13 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
-	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
+	hooks "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
 )
 
 func TestPreToolUseAllowsInputModification(t *testing.T) {
@@ -23,11 +21,11 @@ func TestPreToolUseAllowsInputModification(t *testing.T) {
 		"@echo {\"hookSpecificOutput\":{\"updatedInput\":{\"k\":\"v2\"}}}\r\n",
 	))
 
-	exec := corehooks.NewExecutor()
-	exec.Register(corehooks.ShellHook{Event: coreevents.PreToolUse, Command: script})
+	exec := hooks.NewExecutor()
+	exec.Register(hooks.ShellHook{Event: hooks.PreToolUse, Command: script})
 	adapter := &runtimeHookAdapter{executor: exec}
 
-	params, err := adapter.PreToolUse(context.Background(), coreevents.ToolUsePayload{
+	params, err := adapter.PreToolUse(context.Background(), hooks.ToolUsePayload{
 		Name:   "Echo",
 		Params: map[string]any{"k": "v1"},
 	})
@@ -48,11 +46,11 @@ func TestPreToolUseDeniesExecution(t *testing.T) {
 		"@echo {\"decision\":\"deny\",\"reason\":\"blocked\"}\r\n",
 	))
 
-	exec := corehooks.NewExecutor()
-	exec.Register(corehooks.ShellHook{Event: coreevents.PreToolUse, Command: script})
+	exec := hooks.NewExecutor()
+	exec.Register(hooks.ShellHook{Event: hooks.PreToolUse, Command: script})
 	adapter := &runtimeHookAdapter{executor: exec}
 
-	_, err := adapter.PreToolUse(context.Background(), coreevents.ToolUsePayload{
+	_, err := adapter.PreToolUse(context.Background(), hooks.ToolUsePayload{
 		Name:   "Echo",
 		Params: map[string]any{"k": "v"},
 	})
@@ -68,14 +66,14 @@ func TestPreToolUseBlockingError(t *testing.T) {
 	t.Parallel()
 
 	// Exit 2 = blocking error
-	exec := corehooks.NewExecutor()
-	exec.Register(corehooks.ShellHook{
-		Event:   coreevents.PreToolUse,
+	exec := hooks.NewExecutor()
+	exec.Register(hooks.ShellHook{
+		Event:   hooks.PreToolUse,
 		Command: shCmd("echo blocked >&2; exit 2", "echo blocked >&2 & exit /b 2"),
 	})
 	adapter := &runtimeHookAdapter{executor: exec}
 
-	_, err := adapter.PreToolUse(context.Background(), coreevents.ToolUsePayload{
+	_, err := adapter.PreToolUse(context.Background(), hooks.ToolUsePayload{
 		Name:   "Echo",
 		Params: map[string]any{"k": "v"},
 	})
@@ -84,94 +82,31 @@ func TestPreToolUseBlockingError(t *testing.T) {
 	}
 }
 
-func TestPreToolUseAsksForApproval(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	// Exit 0 with JSON hookSpecificOutput.permissionDecision=ask
-	script := writeScript(t, dir, "ask.sh", shScript(
-		"#!/bin/sh\nprintf '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}'\n",
-		"@echo {\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}\r\n",
-	))
-
-	exec := corehooks.NewExecutor()
-	exec.Register(corehooks.ShellHook{Event: coreevents.PreToolUse, Command: script})
-	adapter := &runtimeHookAdapter{executor: exec}
-
-	_, err := adapter.PreToolUse(context.Background(), coreevents.ToolUsePayload{
-		Name:   "Echo",
-		Params: map[string]any{"k": "v"},
-	})
-	if err == nil {
-		t.Fatalf("expected ask error")
-	}
-	if !errors.Is(err, ErrToolUseRequiresApproval) {
-		t.Fatalf("expected ErrToolUseRequiresApproval, got %v", err)
-	}
-}
-
-func TestPermissionRequestDecisionMapping(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name   string
-		output string
-		want   coreevents.PermissionDecisionType
-	}{
-		{name: "allow", output: `{"decision":"allow"}`, want: coreevents.PermissionAllow},
-		{name: "deny", output: `{"decision":"deny"}`, want: coreevents.PermissionDeny},
-		{name: "ask", output: `{"decision":"ask"}`, want: coreevents.PermissionAsk},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			dir := t.TempDir()
-			script := writeScript(t, dir, tc.name+".sh", shScript(
-				fmt.Sprintf("#!/bin/sh\nprintf '%s'\n", tc.output),
-				fmt.Sprintf("@echo %s\r\n", tc.output),
-			))
-			exec := corehooks.NewExecutor()
-			exec.Register(corehooks.ShellHook{
-				Event:   coreevents.PermissionRequest,
-				Command: script,
-			})
-			adapter := &runtimeHookAdapter{executor: exec}
-			got, err := adapter.PermissionRequest(context.Background(), coreevents.PermissionRequestPayload{ToolName: "Bash"})
-			if err != nil {
-				t.Fatalf("permission request: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("expected %s, got %s", tc.want, got)
-			}
-		})
-	}
-}
-
 func TestRuntimeHookAdapterNewEventsRecord(t *testing.T) {
 	t.Parallel()
 	rec := defaultHookRecorder()
-	exec := corehooks.NewExecutor()
+	exec := hooks.NewExecutor()
 	adapter := &runtimeHookAdapter{executor: exec, recorder: rec}
 
-	if err := adapter.SessionStart(context.Background(), coreevents.SessionPayload{SessionID: "s"}); err != nil {
+	if err := adapter.SessionStart(context.Background(), hooks.SessionStartPayload{SessionID: "s"}); err != nil {
 		t.Fatalf("session start: %v", err)
 	}
-	if err := adapter.SessionEnd(context.Background(), coreevents.SessionPayload{SessionID: "s"}); err != nil {
+	if err := adapter.SessionEnd(context.Background(), hooks.SessionEndPayload{SessionID: "s"}); err != nil {
 		t.Fatalf("session end: %v", err)
 	}
-	if err := adapter.SubagentStart(context.Background(), coreevents.SubagentStartPayload{Name: "sa", AgentID: "a1"}); err != nil {
+	if err := adapter.SubagentStart(context.Background(), hooks.SubagentStartPayload{Name: "sa", AgentID: "a1"}); err != nil {
 		t.Fatalf("subagent start: %v", err)
 	}
-	if err := adapter.SubagentStop(context.Background(), coreevents.SubagentStopPayload{Name: "sa", AgentID: "a1"}); err != nil {
+	if err := adapter.SubagentStop(context.Background(), hooks.SubagentStopPayload{Name: "sa", AgentID: "a1"}); err != nil {
 		t.Fatalf("subagent stop: %v", err)
 	}
 
 	drained := rec.Drain()
-	want := map[coreevents.EventType]bool{
-		coreevents.SessionStart:  false,
-		coreevents.SessionEnd:    false,
-		coreevents.SubagentStart: false,
-		coreevents.SubagentStop:  false,
+	want := map[hooks.EventType]bool{
+		hooks.SessionStart:  false,
+		hooks.SessionEnd:    false,
+		hooks.SubagentStart: false,
+		hooks.SubagentStop:  false,
 	}
 	for _, evt := range drained {
 		if _, ok := want[evt.Type]; ok {

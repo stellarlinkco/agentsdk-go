@@ -9,7 +9,7 @@ import (
 
 func TestRulesLoaderWatchChanges(t *testing.T) {
 	root := t.TempDir()
-	rulesDir := filepath.Join(root, ".claude", "rules")
+	rulesDir := filepath.Join(root, ".agents", "rules")
 	if err := os.MkdirAll(rulesDir, 0o700); err != nil {
 		t.Fatalf("mkdir rules: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestRulesLoaderWatchChanges(t *testing.T) {
 
 func TestRulesLoaderWatchChangesNonDir(t *testing.T) {
 	root := t.TempDir()
-	rulesDir := filepath.Join(root, ".claude", "rules")
+	rulesDir := filepath.Join(root, ".agents", "rules")
 	if err := os.MkdirAll(filepath.Dir(rulesDir), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 func makeRulesRoot(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
-	rulesDir := filepath.Join(root, ".claude", "rules")
+	rulesDir := filepath.Join(root, ".agents", "rules")
 	require.NoError(t, os.MkdirAll(rulesDir, 0o755))
 	return root, rulesDir
 }
@@ -162,7 +162,7 @@ func TestRulesLoader_ConcurrentAccess(t *testing.T) {
 
 func TestRulesLoader_RulesDirFallback(t *testing.T) {
 	loader := NewRulesLoader("  ")
-	require.Equal(t, filepath.Join(".", ".claude", "rules"), loader.rulesDir())
+	require.Equal(t, filepath.Join(".", ".agents", "rules"), loader.rulesDir())
 }
 
 func TestRulesLoader_WatchChangesMissingDirNoop(t *testing.T) {
@@ -189,9 +189,9 @@ func TestRulesLoader_WatchChangesIdempotent(t *testing.T) {
 
 func TestRulesLoader_WatchChangesNonDirNoop(t *testing.T) {
 	root := t.TempDir()
-	claudeDir := filepath.Join(root, ".claude")
-	require.NoError(t, os.MkdirAll(claudeDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "rules"), []byte("not a dir"), 0o600))
+	agentsDir := filepath.Join(root, ".agents")
+	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "rules"), []byte("not a dir"), 0o600))
 
 	loader := NewRulesLoader(root)
 	require.NoError(t, loader.WatchChanges(nil))
@@ -216,9 +216,9 @@ func TestPriorityFromBase_OverflowReturnsMax(t *testing.T) {
 
 func TestRulesLoader_LoadRulesReadDirError(t *testing.T) {
 	root := t.TempDir()
-	claudeDir := filepath.Join(root, ".claude")
-	require.NoError(t, os.MkdirAll(claudeDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, "rules"), []byte("not a dir"), 0o600))
+	agentsDir := filepath.Join(root, ".agents")
+	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "rules"), []byte("not a dir"), 0o600))
 
 	loader := NewRulesLoader(root)
 	_, err := loader.LoadRules()

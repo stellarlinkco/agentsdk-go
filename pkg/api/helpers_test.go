@@ -8,14 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
-	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/sandbox"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	hooks "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 type namedTool struct{ name string }
@@ -25,18 +23,6 @@ func (n *namedTool) Description() string      { return "named" }
 func (n *namedTool) Schema() *tool.JSONSchema { return &tool.JSONSchema{Type: "object"} }
 func (n *namedTool) Execute(ctx context.Context, params map[string]interface{}) (*tool.ToolResult, error) {
 	return &tool.ToolResult{Output: n.name}, nil
-}
-
-func TestRemoveCommandLines(t *testing.T) {
-	prompt := "/tag foo=bar\ncontent"
-	inv, err := commands.Parse(prompt)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	clean := removeCommandLines(prompt, inv)
-	if clean != "content" {
-		t.Fatalf("unexpected clean prompt: %s", clean)
-	}
 }
 
 func TestApplyPromptMetadata(t *testing.T) {
@@ -204,14 +190,11 @@ func TestProjectConfigFromSettings(t *testing.T) {
 func TestRegisterToolsUsesDefaultImplementations(t *testing.T) {
 	registry := tool.NewRegistry()
 	opts := Options{ProjectRoot: t.TempDir()}
-	if taskTool, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
-		_ = taskTool
-	} else if taskTool == nil {
-		t.Fatal("expected task tool to be registered")
 	}
 	tools := registry.List()
-	expected := []string{"Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch", "BashOutput", "BashStatus", "KillTask", "TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "AskUserQuestion", "Skill", "SlashCommand", "Grep", "Glob", "Task"}
+	expected := []string{"bash", "read", "write", "edit", "glob", "grep", "skill"}
 	if len(tools) != len(expected) {
 		t.Fatalf("expected %d default tools, got %d", len(expected), len(tools))
 	}
@@ -220,7 +203,7 @@ func TestRegisterToolsUsesDefaultImplementations(t *testing.T) {
 		if strings.TrimSpace(impl.Name()) == "" {
 			t.Fatalf("tool missing name: %+v", impl)
 		}
-		seen[impl.Name()] = struct{}{}
+		seen[canonicalToolName(impl.Name())] = struct{}{}
 	}
 	for _, name := range expected {
 		if _, ok := seen[name]; !ok {
@@ -233,10 +216,8 @@ func TestRegisterToolsRespectsEnabledWhitelist(t *testing.T) {
 	registry := tool.NewRegistry()
 	root := t.TempDir()
 	opts := Options{ProjectRoot: root, EnabledBuiltinTools: []string{"bash", "grep"}}
-	if taskTool, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
-	} else if taskTool != nil {
-		t.Fatalf("task tool should not be auto-registered when not whitelisted")
 	}
 	tools := registry.List()
 	if len(tools) != 2 {
@@ -257,7 +238,7 @@ func TestRegisterToolsDisablesAllBuiltinsWhenEmptyWhitelist(t *testing.T) {
 	registry := tool.NewRegistry()
 	root := t.TempDir()
 	opts := Options{ProjectRoot: root, EnabledBuiltinTools: []string{}}
-	if _, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
 	if got := len(registry.List()); got != 0 {
@@ -270,7 +251,7 @@ func TestRegisterToolsSkipsDuplicateNames(t *testing.T) {
 	root := t.TempDir()
 	dup := &namedTool{name: "Bash"}
 	opts := Options{ProjectRoot: root, CustomTools: []tool.Tool{dup}}
-	if _, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
 	tools := registry.List()
@@ -285,8 +266,8 @@ func TestRegisterToolsSkipsDuplicateNames(t *testing.T) {
 
 func TestRegisterToolsWhitelistCaseInsensitive(t *testing.T) {
 	registry := tool.NewRegistry()
-	opts := Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{"BASH", "GrEp", "FILE_READ"}}
-	if _, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	opts := Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{"BASH", "GrEp", "READ"}}
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
 	seen := map[string]struct{}{}
@@ -306,7 +287,7 @@ func TestRegisterToolsWhitelistCaseInsensitive(t *testing.T) {
 func TestRegisterToolsIgnoresUnknownWhitelistEntries(t *testing.T) {
 	registry := tool.NewRegistry()
 	opts := Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{"missing"}}
-	if _, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
 	if got := len(registry.List()); got != 0 {
@@ -318,7 +299,7 @@ func TestRegisterToolsAppendsCustomTools(t *testing.T) {
 	registry := tool.NewRegistry()
 	custom := &namedTool{name: "custom"}
 	opts := Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{}, CustomTools: []tool.Tool{nil, custom}}
-	if _, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
 	tools := registry.List()
@@ -336,10 +317,8 @@ func TestRegisterToolsLegacyToolsOverride(t *testing.T) {
 		EnabledBuiltinTools: []string{"bash"},
 		CustomTools:         []tool.Tool{&namedTool{name: "custom"}},
 	}
-	if taskTool, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
-	} else if taskTool != nil {
-		t.Fatalf("task tool should not be auto-wired when legacy Tools provided")
 	}
 	tools := registry.List()
 	if len(tools) != 1 || tools[0].Name() != "legacy" {
@@ -347,34 +326,11 @@ func TestRegisterToolsLegacyToolsOverride(t *testing.T) {
 	}
 }
 
-func TestRegisterToolsTaskNotAddedForCI(t *testing.T) {
-	registry := tool.NewRegistry()
-	opts := Options{ProjectRoot: t.TempDir(), EntryPoint: EntryPointCI}
-	if taskTool, err := registerTools(registry, opts, nil, nil, nil); err != nil {
-		t.Fatalf("register tools: %v", err)
-	} else if taskTool != nil {
-		t.Fatalf("task tool should not be attached in CI entrypoint")
-	}
-	seen := map[string]struct{}{}
-	for _, impl := range registry.List() {
-		seen[impl.Name()] = struct{}{}
-	}
-	if _, ok := seen["Task"]; ok {
-		t.Fatal("Task tool should be absent in CI mode")
-	}
-	if len(seen) != 18 { // all built-ins except Task
-		t.Fatalf("expected 18 built-ins without Task, got %d", len(seen))
-	}
-}
-
 func TestRegisterToolsSkipsNilEntries(t *testing.T) {
 	registry := tool.NewRegistry()
 	opts := Options{ProjectRoot: t.TempDir(), Tools: []tool.Tool{nil, &namedTool{name: "echo"}}}
-	if taskTool, err := registerTools(registry, opts, nil, nil, nil); err != nil {
+	if err := registerTools(registry, opts, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
-		_ = taskTool
-	} else if taskTool != nil {
-		t.Fatalf("task tool should not be auto-wired when custom tools provided")
 	}
 	tools := registry.List()
 	if len(tools) != 1 || tools[0].Name() != "echo" {
@@ -523,17 +479,14 @@ func TestModelFactoryFuncNil(t *testing.T) {
 
 func TestRuntimeHookAdapterRecordsEvents(t *testing.T) {
 	rec := defaultHookRecorder()
-	exec := newHookExecutor(Options{}, rec, nil)
+	exec := newHookExecutor(Options{}, nil)
 	adapter := &runtimeHookAdapter{executor: exec, recorder: rec}
 
-	if _, err := adapter.PreToolUse(context.Background(), coreevents.ToolUsePayload{Name: "t"}); err != nil {
+	if _, err := adapter.PreToolUse(context.Background(), hooks.ToolUsePayload{Name: "t"}); err != nil {
 		t.Fatalf("pre: %v", err)
 	}
-	if err := adapter.PostToolUse(context.Background(), coreevents.ToolResultPayload{Name: "t"}); err != nil {
+	if err := adapter.PostToolUse(context.Background(), hooks.ToolResultPayload{Name: "t"}); err != nil {
 		t.Fatalf("post: %v", err)
-	}
-	if err := adapter.UserPrompt(context.Background(), "p"); err != nil {
-		t.Fatalf("prompt: %v", err)
 	}
 	if err := adapter.Stop(context.Background(), "reason"); err != nil {
 		t.Fatalf("stop: %v", err)
@@ -545,7 +498,7 @@ func TestRuntimeHookAdapterRecordsEvents(t *testing.T) {
 	}
 	foundStop := false
 	for _, e := range events {
-		if e.Type == coreevents.Stop {
+		if e.Type == hooks.Stop {
 			foundStop = true
 			break
 		}
@@ -560,13 +513,13 @@ func TestRuntimeHookAdapterRecordsEvents(t *testing.T) {
 
 func TestNewHookExecutorRegistersTypedHooks(t *testing.T) {
 	// Create a ShellHook that runs a simple command
-	hook := corehooks.ShellHook{
-		Event:   coreevents.PreToolUse,
+	hook := hooks.ShellHook{
+		Event:   hooks.PreToolUse,
 		Command: "true", // Always succeeds
 		Name:    "test-hook",
 	}
-	exec := newHookExecutor(Options{TypedHooks: []corehooks.ShellHook{hook}}, defaultHookRecorder(), nil)
-	evt := coreevents.Event{Type: coreevents.PreToolUse, Payload: coreevents.ToolUsePayload{Name: "echo"}}
+	exec := newHookExecutor(Options{TypedHooks: []hooks.ShellHook{hook}}, nil)
+	evt := hooks.Event{Type: hooks.PreToolUse, Payload: hooks.ToolUsePayload{Name: "echo"}}
 	if err := exec.Publish(evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}

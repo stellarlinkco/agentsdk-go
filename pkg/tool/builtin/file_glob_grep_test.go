@@ -68,7 +68,7 @@ func TestGlobToolRejectsEscapePatterns(t *testing.T) {
 	skipIfWindows(t)
 	dir := cleanTempDir(t)
 	tool := NewGlobToolWithRoot(dir)
-	if _, err := tool.Execute(context.Background(), map[string]any{"pattern": "../*.txt"}); err == nil || !strings.Contains(err.Error(), "path not in sandbox") {
+	if _, err := tool.Execute(context.Background(), map[string]any{"pattern": "../*.txt"}); err == nil || !strings.Contains(err.Error(), "path denied") {
 		t.Fatalf("expected sandbox error, got %v", err)
 	}
 }

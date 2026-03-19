@@ -140,7 +140,7 @@ func validateToolName(name string) error {
 }
 
 // validateToolPattern accepts literal tool names, wildcard "*", and arbitrary regex patterns.
-// Selector in pkg/core/hooks compiles the provided string, so we enforce regex validity here
+// Selector in pkg/hooks compiles the provided string, so we enforce regex validity here
 // while still allowing the catch-all wildcard used in configs.
 func validateToolPattern(pattern string) error {
 	pattern = strings.TrimSpace(pattern)
@@ -163,16 +163,11 @@ func validateHooksConfig(h *HooksConfig) []error {
 	var errs []error
 	errs = append(errs, validateHookEntries("hooks.PreToolUse", h.PreToolUse)...)
 	errs = append(errs, validateHookEntries("hooks.PostToolUse", h.PostToolUse)...)
-	errs = append(errs, validateHookEntries("hooks.PostToolUseFailure", h.PostToolUseFailure)...)
-	errs = append(errs, validateHookEntries("hooks.PermissionRequest", h.PermissionRequest)...)
 	errs = append(errs, validateHookEntries("hooks.SessionStart", h.SessionStart)...)
 	errs = append(errs, validateHookEntries("hooks.SessionEnd", h.SessionEnd)...)
 	errs = append(errs, validateHookEntries("hooks.SubagentStart", h.SubagentStart)...)
 	errs = append(errs, validateHookEntries("hooks.SubagentStop", h.SubagentStop)...)
 	errs = append(errs, validateHookEntries("hooks.Stop", h.Stop)...)
-	errs = append(errs, validateHookEntries("hooks.Notification", h.Notification)...)
-	errs = append(errs, validateHookEntries("hooks.UserPromptSubmit", h.UserPromptSubmit)...)
-	errs = append(errs, validateHookEntries("hooks.PreCompact", h.PreCompact)...)
 	return errs
 }
 

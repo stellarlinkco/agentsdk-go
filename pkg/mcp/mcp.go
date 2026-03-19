@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -41,6 +40,8 @@ type (
 	ListToolsResult             = mcpsdk.ListToolsResult
 	Content                     = mcpsdk.Content
 	TextContent                 = mcpsdk.TextContent
+	ImageContent                = mcpsdk.ImageContent
+	AudioContent                = mcpsdk.AudioContent
 	InitializeParams            = mcpsdk.InitializeParams
 	InitializeResult            = mcpsdk.InitializeResult
 	ServerCapabilities          = mcpsdk.ServerCapabilities
@@ -63,21 +64,9 @@ const (
 )
 
 type connectConfig struct {
-	bus *coreevents.Bus
 }
 
 type ConnectOption func(*connectConfig)
-
-// WithEventBus publishes MCPToolsChanged events to the provided bus when the
-// connected MCP server sends notifications/tools/list_changed.
-func WithEventBus(bus *coreevents.Bus) ConnectOption {
-	return func(cfg *connectConfig) {
-		if cfg == nil {
-			return
-		}
-		cfg.bus = bus
-	}
-}
 
 // SpecClient is a backward-compatible client that dials an MCP server from a
 // spec string (e.g., "stdio://cmd" or "https://server") and exposes a pared
@@ -95,10 +84,29 @@ type SpecClient interface {
 //
 // Deprecated: prefer using the full go-sdk ClientSession directly.
 func NewSpecClient(spec string) (SpecClient, error) {
-	connectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	return newSpecClientWith(spec, 10*time.Second, ConnectSession, EnsureSessionInitialized)
+}
+
+type specClientConnectFunc func(ctx context.Context, spec string) (*ClientSession, error)
+
+type specClientEnsureInitializedFunc func(ctx context.Context, session *ClientSession) error
+
+func newSpecClientWith(spec string, timeout time.Duration, connect specClientConnectFunc, ensureInitialized specClientEnsureInitializedFunc) (SpecClient, error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, fmt.Errorf("connect MCP client: empty spec")
+	}
+
+	if connect == nil {
+		return nil, fmt.Errorf("connect MCP client: connect func is nil")
+	}
+	if ensureInitialized == nil {
+		return nil, fmt.Errorf("connect MCP client: ensureInitialized func is nil")
+	}
+
+	connectCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	session, err := ConnectSession(connectCtx, spec)
+	session, err := connect(connectCtx, spec)
 	if err != nil {
 		if ctxErr := connectCtx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("connect MCP client: %w", ctxErr)
@@ -116,7 +124,7 @@ func NewSpecClient(spec string) (SpecClient, error) {
 		}
 	}()
 
-	if err := EnsureSessionInitialized(connectCtx, session); err != nil {
+	if err := ensureInitialized(connectCtx, session); err != nil {
 		return nil, fmt.Errorf("initialize MCP client: %w", err)
 	}
 	if err := connectCtx.Err(); err != nil {
@@ -150,17 +158,10 @@ func ConnectSessionWithOptions(ctx context.Context, spec string, opts ...Connect
 		}
 	}
 
-	serverID := strings.TrimSpace(spec)
 	client := NewClient(&Implementation{
 		Name:    mcpClientName,
 		Version: mcpClientVersion,
 	}, &ClientOptions{
-		ToolListChangedHandler: func(ctx context.Context, req *mcpsdk.ToolListChangedRequest) {
-			if req == nil || req.Session == nil {
-				return
-			}
-			publishToolsChanged(ctx, cfg.bus, serverID, req.Session)
-		},
 	})
 
 	dialCtx, cancel := context.WithCancel(context.Background())
@@ -180,57 +181,6 @@ func ConnectSessionWithOptions(ctx context.Context, spec string, opts ...Connect
 		return nil, err
 	}
 	return session, nil
-}
-
-func publishToolsChanged(ctx context.Context, bus *coreevents.Bus, serverID string, session *ClientSession) {
-	tools, err := snapshotTools(ctx, session)
-
-	payload := coreevents.MCPToolsChangedPayload{
-		Server:    serverID,
-		SessionID: "",
-		Tools:     tools,
-	}
-	if session != nil {
-		payload.SessionID = session.ID()
-	}
-	if err != nil {
-		payload.Error = err.Error()
-	}
-
-	if bus == nil {
-		return
-	}
-	if err := bus.Publish(coreevents.Event{
-		Type:    coreevents.MCPToolsChanged,
-		Payload: payload,
-	}); err != nil {
-		return
-	}
-}
-
-func snapshotTools(ctx context.Context, session *ClientSession) ([]coreevents.MCPToolDescriptor, error) {
-	if session == nil {
-		return nil, fmt.Errorf("mcp session is nil")
-	}
-	ctx = nonNilContext(ctx)
-
-	var tools []coreevents.MCPToolDescriptor
-	for tool, err := range session.Tools(ctx, nil) {
-		if err != nil {
-			return tools, err
-		}
-		if tool == nil {
-			continue
-		}
-		tools = append(tools, coreevents.MCPToolDescriptor{
-			Name:         tool.Name,
-			Description:  tool.Description,
-			InputSchema:  tool.InputSchema,
-			OutputSchema: tool.OutputSchema,
-			Title:        tool.Title,
-		})
-	}
-	return tools, nil
 }
 
 // EnsureSessionInitialized validates that the session completed MCP

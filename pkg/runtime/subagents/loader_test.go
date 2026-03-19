@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 )
 
 func TestLoadFromFS_Basic(t *testing.T) {
@@ -20,7 +20,7 @@ func TestLoadFromFS_Basic(t *testing.T) {
 		"---",
 		"System prompt body",
 	}, "\n")
-	mustWrite(t, root, ".claude/agents/helper.md", content)
+	mustWrite(t, root, ".agents/agents/helper.md", content)
 
 	regs, errs := LoadFromFS(LoaderOptions{ProjectRoot: root})
 	if len(errs) != 0 {
@@ -47,14 +47,14 @@ func TestLoadFromFS_IgnoresUserDir(t *testing.T) {
 	projectRoot := t.TempDir()
 	userHome := t.TempDir()
 
-	mustWrite(t, userHome, ".claude/agents/user-only.md", strings.Join([]string{
+	mustWrite(t, userHome, ".agents/agents/user-only.md", strings.Join([]string{
 		"---",
 		"name: user-only",
 		"description: only user",
 		"---",
 		"user only prompt",
 	}, "\n"))
-	mustWrite(t, projectRoot, ".claude/agents/shared.md", strings.Join([]string{
+	mustWrite(t, projectRoot, ".agents/agents/shared.md", strings.Join([]string{
 		"---",
 		"name: shared",
 		"description: project def",
@@ -86,7 +86,7 @@ func TestLoadFromFS_NoProjectDir(t *testing.T) {
 	projectRoot := t.TempDir()
 	userHome := t.TempDir()
 
-	mustWrite(t, userHome, ".claude/agents/user-only.md", strings.Join([]string{
+	mustWrite(t, userHome, ".agents/agents/user-only.md", strings.Join([]string{
 		"---",
 		"name: user-only",
 		"description: only user",
@@ -116,7 +116,7 @@ func TestLoadFromFS_YAML(t *testing.T) {
 		"---",
 		"## prompt body",
 	}, "\n")
-	path := mustWrite(t, root, ".claude/agents/ignored.md", body)
+	path := mustWrite(t, root, ".agents/agents/ignored.md", body)
 
 	regs, errs := LoadFromFS(LoaderOptions{ProjectRoot: root})
 	if len(errs) != 0 {
@@ -174,7 +174,7 @@ func TestLoadFromFS_MetadataParsing(t *testing.T) {
 		"---",
 		"list body",
 	}, "\n")
-	mustWrite(t, root, ".claude/agents/worker.md", body)
+	mustWrite(t, root, ".agents/agents/worker.md", body)
 
 	regs, errs := LoadFromFS(LoaderOptions{ProjectRoot: root})
 	if len(errs) != 0 {
@@ -204,14 +204,14 @@ func TestLoadFromFS_MetadataParsing(t *testing.T) {
 
 func TestLoadFromFS_Errors(t *testing.T) {
 	root := t.TempDir()
-	mustWrite(t, root, ".claude/agents/bad name.md", strings.Join([]string{
+	mustWrite(t, root, ".agents/agents/bad name.md", strings.Join([]string{
 		"---",
 		"description: missing name uses fallback",
 		"---",
 		"body",
 	}, "\n"))
-	mustWrite(t, root, ".claude/agents/broken.md", "---\nname: ok\n")
-	mustWrite(t, root, ".claude/agents/good.md", strings.Join([]string{
+	mustWrite(t, root, ".agents/agents/broken.md", "---\nname: ok\n")
+	mustWrite(t, root, ".agents/agents/good.md", strings.Join([]string{
 		"---",
 		"name: good",
 		"description: ok",
@@ -236,7 +236,7 @@ func TestLoadFromFS_Errors(t *testing.T) {
 
 func TestLoadFromFS_ModelValidationError(t *testing.T) {
 	root := t.TempDir()
-	mustWrite(t, root, ".claude/agents/invalid-model.md", strings.Join([]string{
+	mustWrite(t, root, ".agents/agents/invalid-model.md", strings.Join([]string{
 		"---",
 		"name: invalid-model",
 		"description: bad model",
@@ -267,11 +267,11 @@ func TestValidateMetadataRejectsInvalidFields(t *testing.T) {
 }
 
 func TestNormalizeModelBoundaries(t *testing.T) {
-	if model, err := normalizeModel("inherit"); err != nil || model != "" {
-		t.Fatalf("inherit should return empty, got %q err=%v", model, err)
+	if model := normalizeModel("inherit"); model != "" {
+		t.Fatalf("inherit should return empty, got %q", model)
 	}
-	if _, err := normalizeModel("unknown"); err == nil {
-		t.Fatal("expected error for unknown model")
+	if model := normalizeModel("unknown"); model != "" {
+		t.Fatalf("unknown should normalize to empty, got %q", model)
 	}
 }
 

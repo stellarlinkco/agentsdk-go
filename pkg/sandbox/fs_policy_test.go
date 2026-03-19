@@ -185,3 +185,88 @@ func canonicalTempDir(t *testing.T) string {
 	}
 	return dir
 }
+
+func TestFileSystemAllowListAllowNilAndDedup(t *testing.T) {
+	var nilPolicy *FileSystemAllowList
+	nilPolicy.Allow("/tmp") // should be nil-safe
+
+	root := canonicalTempDir(t)
+	policy := NewFileSystemAllowList(root, root)
+	policy.Allow(root)
+	policy.Allow("   ")
+	if got := len(policy.Roots()); got != 1 {
+		t.Fatalf("expected deduped roots, got %d", got)
+	}
+}
+
+func TestFileSystemAllowListRootsNil(t *testing.T) {
+	var nilPolicy *FileSystemAllowList
+	if roots := nilPolicy.Roots(); roots != nil {
+		t.Fatalf("expected nil roots for nil policy, got %#v", roots)
+	}
+}
+
+func TestFileSystemAllowListValidateWithNilResolver(t *testing.T) {
+	root := canonicalTempDir(t)
+	policy := &FileSystemAllowList{
+		allow: []string{normalize(root)},
+	}
+	if err := policy.Validate(root); err != nil {
+		t.Fatalf("expected root to validate with nil resolver, got %v", err)
+	}
+}
+
+func TestNormalizeAbsFailureFallsBackToClean(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("cwd permission semantics differ on windows")
+	}
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	sealed := t.TempDir()
+	if err := os.Chdir(sealed); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	if err := os.Chmod(sealed, 0o000); err != nil {
+		_ = os.Chdir(oldwd)
+		t.Skipf("chmod unsupported: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldwd)
+		_ = os.Chmod(sealed, 0o700)
+	})
+
+	in := filepath.Join("relative", "path")
+	if got := normalize(in); got != filepath.Clean(in) {
+		t.Fatalf("normalize(%q) = %q, want %q", in, got, filepath.Clean(in))
+	}
+}
+
+func TestWithinEmptyRoot(t *testing.T) {
+	if within("any", "") {
+		t.Fatalf("expected within to reject empty root")
+	}
+}
+
+func TestFileSystemAllowListValidateNonSymlinkResolverError(t *testing.T) {
+	root := canonicalTempDir(t)
+	policy := NewFileSystemAllowList(root)
+
+	deep := root
+	for i := 0; i < 130; i++ { // default resolver maxDepth=128
+		deep = filepath.Join(deep, "d")
+	}
+
+	err := policy.Validate(deep)
+	if err == nil {
+		t.Fatalf("expected deep path to be rejected")
+	}
+	if !errors.Is(err, ErrPathDenied) {
+		t.Fatalf("expected ErrPathDenied, got %v", err)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "max depth") {
+		t.Fatalf("expected max depth error to propagate, got %v", err)
+	}
+}

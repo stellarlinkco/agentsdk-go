@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -168,8 +168,8 @@ func LoadFromFS(opts LoaderOptions) ([]SkillRegistration, []error) {
 
 	ops := resolveFileOps(opts.FS)
 
-	projectDir := filepath.Join(opts.ProjectRoot, ".claude", "skills")
-	files, loadErrs := loadSkillDir(projectDir, fsLayer)
+	agentsDir := filepath.Join(opts.ProjectRoot, ".agents", "skills")
+	files, loadErrs := loadSkillDirFn(agentsDir, fsLayer)
 	errs = append(errs, loadErrs...)
 	allFiles = append(allFiles, files...)
 
@@ -206,6 +206,8 @@ func LoadFromFS(opts LoaderOptions) ([]SkillRegistration, []error) {
 
 	return registrations, errs
 }
+
+var loadSkillDirFn = loadSkillDir
 
 func loadSkillDir(root string, fsLayer *config.FS) ([]SkillFile, []error) {
 	var (
@@ -525,10 +527,6 @@ func loadSkillContent(file SkillFile) (Result, error) {
 			count += len(files)
 		}
 		meta["support-file-count"] = count
-	}
-
-	if len(meta) == 0 {
-		meta = nil
 	}
 
 	return Result{

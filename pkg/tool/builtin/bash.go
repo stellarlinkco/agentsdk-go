@@ -13,12 +13,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"unicode"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/middleware"
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/security"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const (
@@ -26,158 +28,23 @@ const (
 	maxBashTimeout     = 60 * time.Minute
 	maxBashOutputLen   = 30000
 	bashDescript       = `
-	# Bash Tool Documentation
+	Execute a command via bash with an optional timeout.
 
-	Executes bash commands in a persistent shell session with optional timeout, ensuring proper handling and security measures.
-
-	**IMPORTANT**: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use specialized tools instead.
-
-	## Pre-Execution Steps
-
-	### 1. Directory Verification
-	- If creating new directories/files, first use 'ls' to verify the parent directory exists
-	- Example: Before 'mkdir foo/bar', run 'ls foo' to check "foo" exists
-
-	### 2. Command Execution
-	- Always quote file paths with spaces using double quotes
-	- Examples:
-	- ✅ 'cd "/Users/name/My Documents"'
-	- ❌ 'cd /Users/name/My Documents'
-	- ✅ 'python "/path/with spaces/script.py"'
-	- ❌ 'python /path/with spaces/script.py'
-
-	## Usage Notes
-
-	- **Required**: command argument
-	- **Optional**: timeout in milliseconds (max 600000ms/10 min, default 120000ms/2 min)
-	- **Description**: Write clear 5-10 word description of command purpose
-	- **Output limit**: Saved to disk if exceeds 30000 characters
-	- **Async execution**: Set 'async=true' for long-running tasks (dev servers, log tailing). Use BashStatus with task_id to poll status (no output consumption), BashOutput with task_id to poll output, and KillTask to stop.
-
-	## Command Preferences
-
-	Avoid using Bash for these operations - use dedicated tools instead:
-	- File search → Use **Glob** (NOT find/ls)
-	- Content search → Use **Grep** (NOT grep/rg)
-	- Read files → Use **Read** (NOT cat/head/tail)
-	- Edit files → Use **Edit** (NOT sed/awk)
-	- Write files → Use **Write** (NOT echo >/cat <<EOF)
-	- Communication → Output text directly (NOT echo/printf)
-
-	## Multiple Commands
-
-	- **Parallel (independent)**: Make multiple Bash tool calls in single message
-	- **Sequential (dependent)**: Chain with '&&' (e.g., 'git add . && git commit -m "message" && git push')
-	- **Sequential (ignore failures)**: Use ';'
-	- **DO NOT**: Use newlines to separate commands (except in quoted strings)
-
-	## Working Directory
-
-	Maintain current directory by using absolute paths and avoiding 'cd':
-	- ✅ 'pytest /foo/bar/tests'
-	- ❌ 'cd /foo/bar && pytest tests'
-
-	---
-
-	## Git Commit Protocol
-
-	**Only create commits when explicitly requested by user.**
-
-	### Git Safety Rules
-	- ❌ NEVER update git config
-	- ❌ NEVER run destructive commands (push --force, hard reset) unless explicitly requested
-	- ❌ NEVER skip hooks (--no-verify, --no-gpg-sign) unless explicitly requested
-	- ❌ NEVER force push to main/master (warn user if requested)
-	- ⚠️ Avoid 'git commit --amend' (only use when: user explicitly requests OR adding pre-commit hook edits)
-	- ✅ Before amending: ALWAYS check authorship ('git log -1 --format='%an %ae'')
-	- ⚠️ NEVER commit unless explicitly asked
-
-	### Commit Steps
-
-	**1. Gather information (parallel)**
-	'''bash
-	git status
-	git diff
-	git log
-	'''
-
-	**2. Analyze and draft**
-	- Summarize change nature (feature/enhancement/fix/refactor/test/docs)
-	- Don't commit secret files (.env, credentials.json) - warn user
-	- Draft concise 1-2 sentence message focusing on "why" not "what"
-
-	**3. Execute commit (sequential where needed)**
-	'''bash
-	git add [files]
-	git commit -m "$(cat <<'EOF'
-	Commit message here.
-	EOF
-	)"
-	git status  # Verify success
-	'''
-
-	**4. Handle pre-commit hook failures**
-	- Retry ONCE if commit fails
-	- If files modified by hook, verify safe to amend:
-	- Check authorship: 'git log -1 --format='%an %ae''
-	- Check not pushed: 'git status' shows "Your branch is ahead"
-	- If both true → amend; otherwise → create NEW commit
-
-	### Important Notes
-	- ❌ NEVER run additional code exploration commands
-	- ❌ NEVER use TaskCreate or Task tools
-	- ❌ DO NOT push unless explicitly asked
-	- ❌ NEVER use '-i' flag (interactive not supported)
-	- ⚠️ Don't create empty commits if no changes
-	- ✅ ALWAYS use HEREDOC for commit messages
-
-	---
-
-	## Pull Request Protocol
-
-	Use 'gh' command via Bash tool for ALL GitHub tasks (issues, PRs, checks, releases).
-
-	### PR Creation Steps
-
-	**1. Understand branch state (parallel)**
-	'''bash
-	git status
-	git diff
-	git log
-	git diff [base-branch]...HEAD
-	'''
-	Check if branch tracks remote and is up to date.
-
-	**2. Analyze and draft**
-	Review ALL commits (not just latest) that will be included in PR.
-
-	**3. Create PR (parallel where possible)**
-	'''bash
-	# Create branch if needed
-	# Push with -u flag if needed
-	gh pr create --title "the pr title" --body "$(cat <<'EOF'
-	## Summary
-	<1-3 bullet points>
-
-	## Test plan
-	[Bulleted markdown checklist of TODOs for testing the pull request...]
-	EOF
-	)"
-	'''
-
-	### Important Notes
-	- ❌ DO NOT use TaskCreate or Task tools
-	- ✅ Return PR URL when done
-
-	---
-
-	## Other Common Operations
-
-	**View PR comments:**
-	'''bash
-	gh api repos/foo/bar/pulls/123/comments
-	'''
+	Notes:
+	- Prefer dedicated tools for file operations: read/write/edit/glob/grep.
+	- Do not use shell metacharacters by default (pipes/redirects). CLI mode may enable them.
+	- Avoid multiline command strings; use '&&' for dependent steps.
 	`
+)
+
+var (
+	bashGetwd       = os.Getwd
+	bashFilepathAbs = filepath.Abs
+
+	bashFileClose = func(f *os.File) error { return f.Close() }
+	bashFileSeek  = func(f *os.File, offset int64, whence int) (int64, error) { return f.Seek(offset, whence) }
+
+	bashRandRead = rand.Read
 )
 
 var bashSchema = &tool.JSONSchema{
@@ -195,25 +62,20 @@ var bashSchema = &tool.JSONSchema{
 			"type":        "string",
 			"description": "Optional working directory relative to the sandbox root.",
 		},
-		"async": map[string]interface{}{
-			"type":        "boolean",
-			"description": "Run command asynchronously and return a task_id immediately.",
-		},
-		"task_id": map[string]interface{}{
-			"type":        "string",
-			"description": "Optional async task id to use when async=true.",
-		},
 	},
 	Required: []string{"command"},
 }
 
 // BashTool executes validated commands using bash within a sandbox.
 type BashTool struct {
-	sandbox *security.Sandbox
+	policy    sandbox.FileSystemPolicy
+	validator *bashCommandValidator
+
 	root    string
 	timeout time.Duration
 
 	outputThresholdBytes int
+	openPipes            func(*exec.Cmd) (io.ReadCloser, io.ReadCloser, error)
 }
 
 // NewBashTool builds a BashTool rooted at the current directory.
@@ -225,7 +87,9 @@ func NewBashTool() *BashTool {
 func NewBashToolWithRoot(root string) *BashTool {
 	resolved := resolveRoot(root)
 	return &BashTool{
-		sandbox: security.NewSandbox(resolved),
+		policy:    sandbox.NewFileSystemAllowList(resolved),
+		validator: newBashCommandValidator(),
+
 		root:    resolved,
 		timeout: defaultBashTimeout,
 
@@ -235,10 +99,12 @@ func NewBashToolWithRoot(root string) *BashTool {
 
 // NewBashToolWithSandbox builds a BashTool with a custom sandbox.
 // Used when sandbox needs to be pre-configured (e.g., disabled mode).
-func NewBashToolWithSandbox(root string, sandbox *security.Sandbox) *BashTool {
+func NewBashToolWithSandbox(root string, policy sandbox.FileSystemPolicy) *BashTool {
 	resolved := resolveRoot(root)
 	return &BashTool{
-		sandbox: sandbox,
+		policy:    policy,
+		validator: newBashCommandValidator(),
+
 		root:    resolved,
 		timeout: defaultBashTimeout,
 
@@ -265,19 +131,20 @@ func (b *BashTool) effectiveOutputThresholdBytes() int {
 // enforced by the security validator. Use this for code-generation scenarios where
 // agents write files via bash heredocs or long cat commands.
 func (b *BashTool) SetCommandLimits(maxBytes, maxArgs int) {
-	if b != nil && b.sandbox != nil {
-		b.sandbox.SetCommandLimits(maxBytes, maxArgs)
+	if b != nil && b.validator != nil {
+		b.validator.SetMaxCommandBytes(maxBytes)
+		b.validator.SetMaxArgs(maxArgs)
 	}
 }
 
 // AllowShellMetachars enables shell pipes and metacharacters (CLI mode).
 func (b *BashTool) AllowShellMetachars(allow bool) {
-	if b != nil && b.sandbox != nil {
-		b.sandbox.AllowShellMetachars(allow)
+	if b != nil && b.validator != nil {
+		b.validator.AllowShellMetachars(allow)
 	}
 }
 
-func (b *BashTool) Name() string { return "Bash" }
+func (b *BashTool) Name() string { return "bash" }
 
 func (b *BashTool) Description() string {
 	return bashDescript
@@ -289,18 +156,14 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if b == nil || b.sandbox == nil {
+	if b == nil || b.validator == nil {
 		return nil, errors.New("bash tool is not initialised")
-	}
-	async, err := parseAsyncFlag(params)
-	if err != nil {
-		return nil, err
 	}
 	command, err := extractCommand(params)
 	if err != nil {
 		return nil, err
 	}
-	if err := b.sandbox.ValidateCommand(command); err != nil {
+	if err := b.validator.Validate(command); err != nil {
 		return nil, err
 	}
 	workdir, err := b.resolveWorkdir(params)
@@ -310,28 +173,6 @@ func (b *BashTool) Execute(ctx context.Context, params map[string]interface{}) (
 	timeout, err := b.resolveTimeout(params)
 	if err != nil {
 		return nil, err
-	}
-
-	if async {
-		id, err := optionalAsyncTaskID(params)
-		if err != nil {
-			return nil, err
-		}
-		if id == "" {
-			id = generateAsyncTaskID()
-		}
-		if err := DefaultAsyncTaskManager().startWithContext(ctx, id, command, workdir, timeout); err != nil {
-			return nil, err
-		}
-		payload := map[string]interface{}{
-			"task_id": id,
-			"status":  "running",
-		}
-		out, err := json.Marshal(payload)
-		if err != nil {
-			return nil, fmt.Errorf("marshal async result: %w", err)
-		}
-		return &tool.ToolResult{Success: true, Output: string(out), Data: payload}, nil
 	}
 
 	execCtx := ctx
@@ -402,8 +243,10 @@ func (b *BashTool) resolveWorkdir(params map[string]interface{}) (string, error)
 }
 
 func (b *BashTool) ensureDirectory(path string) (string, error) {
-	if err := b.sandbox.ValidatePath(path); err != nil {
-		return "", err
+	if b.policy != nil {
+		if err := b.policy.Validate(path); err != nil {
+			return "", err
+		}
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -544,69 +387,16 @@ func combineOutput(stdout, stderr string) string {
 func resolveRoot(dir string) string {
 	trimmed := strings.TrimSpace(dir)
 	if trimmed == "" {
-		if cwd, err := os.Getwd(); err == nil {
+		if cwd, err := bashGetwd(); err == nil {
 			trimmed = cwd
 		} else {
 			trimmed = "."
 		}
 	}
-	if abs, err := filepath.Abs(trimmed); err == nil {
+	if abs, err := bashFilepathAbs(trimmed); err == nil {
 		return abs
 	}
 	return filepath.Clean(trimmed)
-}
-
-func parseAsyncFlag(params map[string]interface{}) (bool, error) {
-	if params == nil {
-		return false, nil
-	}
-	raw, ok := params["async"]
-	if !ok || raw == nil {
-		return false, nil
-	}
-	switch v := raw.(type) {
-	case bool:
-		return v, nil
-	case string:
-		val := strings.TrimSpace(v)
-		if val == "" {
-			return false, nil
-		}
-		b, err := strconv.ParseBool(val)
-		if err != nil {
-			return false, fmt.Errorf("async must be boolean: %w", err)
-		}
-		return b, nil
-	default:
-		return false, fmt.Errorf("async must be boolean got %T", raw)
-	}
-}
-
-func optionalAsyncTaskID(params map[string]interface{}) (string, error) {
-	if params == nil {
-		return "", nil
-	}
-	raw, ok := params["task_id"]
-	if !ok || raw == nil {
-		return "", nil
-	}
-	value, err := coerceString(raw)
-	if err != nil {
-		return "", fmt.Errorf("task_id must be string: %w", err)
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", errors.New("task_id cannot be empty")
-	}
-	return value, nil
-}
-
-func generateAsyncTaskID() string {
-	var buf [4]byte
-	if _, err := io.ReadFull(rand.Reader, buf[:]); err == nil {
-		return "task-" + hex.EncodeToString(buf[:])
-	}
-	return fmt.Sprintf("task-%d", time.Now().UnixNano())
 }
 
 type bashOutputSpool struct {
@@ -702,10 +492,10 @@ func (s *bashOutputSpool) Finalize() (string, string, error) {
 			return combined, "", errors.Join(closeErr, err)
 		}
 		if err := writeCombinedOutput(out, s.stdout.String(), stderrPath, s.stderr.String()); err != nil {
-			_ = out.Close()
+			_ = bashFileClose(out)
 			return "", "", errors.Join(closeErr, err)
 		}
-		if err := out.Close(); err != nil {
+		if err := bashFileClose(out); err != nil {
 			return "", "", errors.Join(closeErr, err)
 		}
 		return formatBashOutputReference(s.outputPath), s.outputPath, closeErr
@@ -717,14 +507,14 @@ func (s *bashOutputSpool) Finalize() (string, string, error) {
 	}
 	stdoutLen, err := trimRightNewlinesInFile(out)
 	if err != nil {
-		_ = out.Close()
+		_ = bashFileClose(out)
 		return "", "", errors.Join(closeErr, err)
 	}
 	if err := appendStderr(out, stdoutLen, stderrPath, s.stderr.String()); err != nil {
-		_ = out.Close()
+		_ = bashFileClose(out)
 		return "", "", errors.Join(closeErr, err)
 	}
-	if err := out.Close(); err != nil {
+	if err := bashFileClose(out); err != nil {
 		return "", "", errors.Join(closeErr, err)
 	}
 	return formatBashOutputReference(s.outputPath), s.outputPath, closeErr
@@ -752,13 +542,13 @@ func appendStderr(out *os.File, stdoutLen int64, stderrPath, stderrText string) 
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = bashFileClose(f) }()
 		size, err := trimmedFileSize(f)
 		if err != nil {
 			return err
 		}
 		stderrLen = size
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
+		if _, err := bashFileSeek(f, 0, io.SeekStart); err != nil {
 			return err
 		}
 		if stdoutLen > 0 && stderrLen > 0 {
@@ -848,7 +638,7 @@ func sanitizePathComponent(value string) string {
 func bashOutputFilename() string {
 	var randBuf [4]byte
 	ts := time.Now().UnixNano()
-	if _, err := rand.Read(randBuf[:]); err == nil {
+	if _, err := bashRandRead(randBuf[:]); err == nil {
 		return fmt.Sprintf("%d-%s.txt", ts, hex.EncodeToString(randBuf[:]))
 	}
 	return fmt.Sprintf("%d.txt", ts)
@@ -916,9 +706,6 @@ func trimmedFileSize(f *os.File) (int64, error) {
 		}
 		offset -= readSize
 	}
-	if trimmed < 0 {
-		return 0, nil
-	}
 	return trimmed, nil
 }
 
@@ -933,8 +720,165 @@ func trimRightNewlinesInFile(f *os.File) (int64, error) {
 	if err := f.Truncate(trimmed); err != nil {
 		return 0, err
 	}
-	if _, err := f.Seek(trimmed, io.SeekStart); err != nil {
+	if _, err := bashFileSeek(f, trimmed, io.SeekStart); err != nil {
 		return 0, err
 	}
 	return trimmed, nil
+}
+
+type bashCommandValidator struct {
+	mu sync.RWMutex
+
+	maxCommandBytes int
+	maxArgs         int
+	allowShellMeta  bool
+}
+
+func newBashCommandValidator() *bashCommandValidator {
+	return &bashCommandValidator{
+		maxCommandBytes: 32768,
+		maxArgs:         512,
+		allowShellMeta:  false,
+	}
+}
+
+func (v *bashCommandValidator) SetMaxCommandBytes(n int) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	v.maxCommandBytes = n
+	v.mu.Unlock()
+}
+
+func (v *bashCommandValidator) SetMaxArgs(n int) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	v.maxArgs = n
+	v.mu.Unlock()
+}
+
+func (v *bashCommandValidator) AllowShellMetachars(allow bool) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	v.allowShellMeta = allow
+	v.mu.Unlock()
+}
+
+func (v *bashCommandValidator) Validate(input string) error {
+	if v == nil {
+		return errors.New("bash: validator is nil")
+	}
+	cmd := strings.TrimSpace(input)
+	if cmd == "" {
+		return errors.New("bash: empty command")
+	}
+
+	v.mu.RLock()
+	maxBytes := v.maxCommandBytes
+	maxArgs := v.maxArgs
+	allowMeta := v.allowShellMeta
+	v.mu.RUnlock()
+
+	if maxBytes > 0 && len(cmd) > maxBytes {
+		return fmt.Errorf("bash: command too long (%d bytes)", len(cmd))
+	}
+
+	if strings.ContainsAny(cmd, "\n\r") {
+		return errors.New("bash: multiline command is not allowed")
+	}
+
+	if containsControlNonWhitespace(cmd) {
+		return errors.New("bash: control characters detected")
+	}
+
+	if !allowMeta && strings.ContainsAny(cmd, "|;&><`$") {
+		return errors.New("bash: pipe or shell metacharacters are blocked")
+	}
+
+	args, err := splitCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("bash: parse failed: %w", err)
+	}
+	if len(args) == 0 {
+		return errors.New("bash: empty command")
+	}
+	if maxArgs > 0 && len(args) > maxArgs {
+		return fmt.Errorf("bash: too many arguments (%d)", len(args))
+	}
+
+	return nil
+}
+
+func containsControlNonWhitespace(s string) bool {
+	for _, r := range s {
+		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
+			return true
+		}
+	}
+	return false
+}
+
+func splitCommand(input string) ([]string, error) {
+	var (
+		args               []string
+		current            strings.Builder
+		inSingle, inDouble bool
+		escape             bool
+	)
+
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		args = append(args, current.String())
+		current.Reset()
+	}
+
+	for _, r := range input {
+		switch {
+		case escape:
+			current.WriteRune(r)
+			escape = false
+		case r == '\\':
+			if inSingle {
+				current.WriteRune(r)
+				continue
+			}
+			escape = true
+		case r == '\'':
+			if inDouble {
+				current.WriteRune(r)
+				continue
+			}
+			inSingle = !inSingle
+		case r == '"':
+			if inSingle {
+				current.WriteRune(r)
+				continue
+			}
+			inDouble = !inDouble
+		case unicode.IsSpace(r):
+			if inSingle || inDouble {
+				current.WriteRune(r)
+				continue
+			}
+			flush()
+		default:
+			current.WriteRune(r)
+		}
+	}
+
+	if escape {
+		return nil, errors.New("unterminated escape")
+	}
+	if inSingle || inDouble {
+		return nil, errors.New("unterminated quote")
+	}
+	flush()
+	return args, nil
 }

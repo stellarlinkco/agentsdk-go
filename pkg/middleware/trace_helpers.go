@@ -6,12 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 const (
 	traceAgentStartKey = "trace.agent.start"
-	traceModelStartKey = "trace.model.start"
 	traceToolStartKey  = "trace.tool.start"
 )
 
@@ -28,12 +27,8 @@ func (m *TraceMiddleware) trackDuration(stage Stage, st *State, now time.Time) i
 	switch stage {
 	case StageBeforeAgent:
 		st.Values[traceAgentStartKey] = now
-	case StageBeforeModel:
-		st.Values[traceModelStartKey] = now
 	case StageBeforeTool:
 		st.Values[traceToolStartKey] = now
-	case StageAfterModel:
-		return durationSince(st.Values, traceModelStartKey, now)
 	case StageAfterTool:
 		return durationSince(st.Values, traceToolStartKey, now)
 	case StageAfterAgent:

@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/security"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const editDescription = `Performs exact string replacements in files.
@@ -62,11 +62,11 @@ func NewEditToolWithRoot(root string) *EditTool {
 }
 
 // NewEditToolWithSandbox builds an EditTool using a custom sandbox.
-func NewEditToolWithSandbox(root string, sandbox *security.Sandbox) *EditTool {
-	return &EditTool{base: newFileSandboxWithSandbox(root, sandbox)}
+func NewEditToolWithSandbox(root string, policy sandbox.FileSystemPolicy) *EditTool {
+	return &EditTool{base: newFileSandboxWithSandbox(root, policy)}
 }
 
-func (e *EditTool) Name() string { return "Edit" }
+func (e *EditTool) Name() string { return "edit" }
 
 func (e *EditTool) Description() string { return editDescription }
 
@@ -76,7 +76,7 @@ func (e *EditTool) Execute(ctx context.Context, params map[string]interface{}) (
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if e == nil || e.base == nil || e.base.sandbox == nil {
+	if e == nil || e.base == nil {
 		return nil, errors.New("edit tool is not initialised")
 	}
 	path, err := e.resolveFilePath(params)
@@ -137,9 +137,6 @@ func (e *EditTool) Execute(ctx context.Context, params map[string]interface{}) (
 
 	if e.base.maxBytes > 0 && int64(len(updated)) > e.base.maxBytes {
 		return nil, fmt.Errorf("edited content exceeds %d bytes limit", e.base.maxBytes)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
 	}
 	if err := os.WriteFile(path, []byte(updated), info.Mode()); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)

@@ -296,8 +296,10 @@ func (g *GrepTool) resolveSearchPath(params map[string]interface{}) (string, fs.
 		candidate = filepath.Join(g.root, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	if err := g.sandbox.ValidatePath(candidate); err != nil {
-		return "", nil, err
+	if g.policy != nil {
+		if err := g.policy.Validate(candidate); err != nil {
+			return "", nil, err
+		}
 	}
 	info, err := os.Stat(candidate)
 	if err != nil {

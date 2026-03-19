@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/security"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 func TestFileSandboxResolveReadWrite(t *testing.T) {
@@ -16,26 +16,26 @@ func TestFileSandboxResolveReadWrite(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = resolved
 	}
-	sandbox := newFileSandboxWithSandbox(root, security.NewSandbox(root))
-	if _, err := sandbox.resolvePath(nil); err == nil {
+	fs := newFileSandboxWithSandbox(root, sandbox.NewFileSystemAllowList(root))
+	if _, err := fs.resolvePath(nil); err == nil {
 		t.Fatalf("expected nil path error")
 	}
-	if _, err := sandbox.resolvePath(1); err == nil {
+	if _, err := fs.resolvePath(1); err == nil {
 		t.Fatalf("expected non-string error")
 	}
-	if _, err := sandbox.resolvePath(" "); err == nil {
+	if _, err := fs.resolvePath(" "); err == nil {
 		t.Fatalf("expected empty path error")
 	}
 
-	path, err := sandbox.resolvePath("file.txt")
+	path, err := fs.resolvePath("file.txt")
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
 
-	if err := sandbox.writeFile(path, "hello"); err != nil {
+	if err := fs.writeFile(path, "hello"); err != nil {
 		t.Fatalf("write failed: %v", err)
 	}
-	read, err := sandbox.readFile(path)
+	read, err := fs.readFile(path)
 	if err != nil || read != "hello" {
 		t.Fatalf("read failed: %v content=%q", err, read)
 	}
@@ -48,14 +48,14 @@ func TestFileSandboxReadLimits(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = resolved
 	}
-	sandbox := newFileSandboxWithSandbox(root, security.NewSandbox(root))
-	sandbox.maxBytes = 3
+	fs := newFileSandboxWithSandbox(root, sandbox.NewFileSystemAllowList(root))
+	fs.maxBytes = 3
 
 	path := filepath.Join(root, "big.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	if _, err := sandbox.readFile(path); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	if _, err := fs.readFile(path); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("expected size error, got %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestFileSandboxReadLimits(t *testing.T) {
 	if err := os.WriteFile(bin, []byte{'a', 0, 'b'}, 0o600); err != nil {
 		t.Fatalf("write bin: %v", err)
 	}
-	if _, err := sandbox.readFile(bin); err == nil || !strings.Contains(err.Error(), "binary") {
+	if _, err := fs.readFile(bin); err == nil || !strings.Contains(err.Error(), "binary") {
 		t.Fatalf("expected binary error, got %v", err)
 	}
 }
@@ -75,11 +75,11 @@ func TestFileSandboxWriteLimits(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = resolved
 	}
-	sandbox := newFileSandboxWithSandbox(root, security.NewSandbox(root))
-	sandbox.maxBytes = 3
+	fs := newFileSandboxWithSandbox(root, sandbox.NewFileSystemAllowList(root))
+	fs.maxBytes = 3
 
 	path := filepath.Join(root, "tiny.txt")
-	if err := sandbox.writeFile(path, "toolong"); err == nil {
+	if err := fs.writeFile(path, "toolong"); err == nil {
 		t.Fatalf("expected size error")
 	}
 }
@@ -96,12 +96,12 @@ func TestFileSandboxNilAndDirErrors(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	sandbox := newFileSandboxWithSandbox(root, security.NewSandbox(root))
+	fs := newFileSandboxWithSandbox(root, sandbox.NewFileSystemAllowList(root))
 	dirPath := filepath.Join(root, "dir")
 	if err := os.MkdirAll(dirPath, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if _, err := sandbox.readFile(dirPath); err == nil || !strings.Contains(err.Error(), "directory") {
+	if _, err := fs.readFile(dirPath); err == nil || !strings.Contains(err.Error(), "directory") {
 		t.Fatalf("expected directory error, got %v", err)
 	}
 }

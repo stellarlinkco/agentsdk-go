@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
 )
 
 func taskDispatchCtx() context.Context {
-	return WithTaskDispatch(context.Background())
+	return context.Background()
 }
 
 func TestManagerRegisterAndDispatchTarget(t *testing.T) {
@@ -39,22 +39,6 @@ func TestManagerRegisterAndDispatchTarget(t *testing.T) {
 	}
 	if res.Subagent != "code" || res.Output != "child" || tools[0] != "bash" {
 		t.Fatalf("unexpected result: %+v", res)
-	}
-}
-
-func TestManagerDispatchRequiresTaskToolSource(t *testing.T) {
-	m := NewManager()
-	if err := m.Register(Definition{Name: "code"}, HandlerFunc(func(context.Context, Context, Request) (Result, error) {
-		return Result{Output: "ok"}, nil
-	})); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	if _, err := m.Dispatch(context.Background(), Request{Target: "code", Instruction: "run"}); !errors.Is(err, ErrDispatchUnauthorized) {
-		t.Fatalf("expected unauthorized error, got %v", err)
-	}
-	if _, err := m.Dispatch(taskDispatchCtx(), Request{Target: "code", Instruction: "run"}); err != nil {
-		t.Fatalf("authorized dispatch failed: %v", err)
 	}
 }
 
@@ -216,7 +200,7 @@ func TestManagerDispatchBuiltinTypeContext(t *testing.T) {
 		{
 			name:    TypePlan,
 			model:   ModelSonnet,
-			allowed: []string{"task_create", "web_fetch"},
+			allowed: []string{"bash", "write"},
 		},
 	}
 
@@ -344,7 +328,7 @@ func TestDispatchHandlerErrorSetsResultAndDefaults(t *testing.T) {
 		t.Fatalf("register err handler: %v", err)
 	}
 
-	ctx := WithDispatchSource(context.TODO(), DispatchSourceTaskTool)
+	ctx := context.Background()
 	res, err := m.Dispatch(ctx, Request{
 		Target:      "err",
 		Instruction: "do work",
@@ -407,30 +391,6 @@ func TestContextHelpersAndFromContext(t *testing.T) {
 	}
 }
 
-func TestDispatchSourceHelpers(t *testing.T) {
-	if dispatchSource(context.TODO()) != "" {
-		t.Fatalf("nil context should return empty source")
-	}
-	ctx := WithDispatchSource(context.Background(), "")
-	if dispatchSource(ctx) != "" {
-		t.Fatalf("empty source should not be stored")
-	}
-	ctx = WithDispatchSource(context.TODO(), " task_tool ")
-	if dispatchSource(ctx) != DispatchSourceTaskTool {
-		t.Fatalf("task source should be normalized")
-	}
-	ctx = context.WithValue(context.Background(), dispatchSourceKey{}, 123)
-	if dispatchSource(ctx) != "" {
-		t.Fatalf("non-string source should be ignored")
-	}
-	if _, ok := BuiltinDefinition("missing"); ok {
-		t.Fatalf("unknown builtin should report false")
-	}
-	if err := (Definition{}).Validate(); err == nil {
-		t.Fatalf("blank name should fail validation")
-	}
-}
-
 func TestManagerDispatchConcurrent(t *testing.T) {
 	m := NewManager()
 	var counter int32
@@ -441,7 +401,7 @@ func TestManagerDispatchConcurrent(t *testing.T) {
 		t.Fatalf("register worker: %v", err)
 	}
 
-	dispatchCtx := WithTaskDispatch(context.Background())
+	dispatchCtx := context.Background()
 	const workers = 16
 	var wg sync.WaitGroup
 	wg.Add(workers)

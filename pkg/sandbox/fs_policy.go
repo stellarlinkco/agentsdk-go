@@ -5,20 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/cexll/agentsdk-go/pkg/security"
 )
 
 // FileSystemAllowList enforces path boundaries using PathResolver to block traversal and symlinks.
 type FileSystemAllowList struct {
 	mu       sync.RWMutex
 	allow    []string
-	resolver *security.PathResolver
+	resolver *PathResolver
 }
 
 // NewFileSystemAllowList initialises a policy rooted at root with optional extra allowed prefixes.
 func NewFileSystemAllowList(root string, allow ...string) *FileSystemAllowList {
-	resolver := security.NewPathResolver()
+	resolver := NewPathResolver()
 	p := &FileSystemAllowList{
 		resolver: resolver,
 	}
@@ -72,7 +70,7 @@ func (p *FileSystemAllowList) Validate(path string) error {
 	}
 	resolver := p.resolver
 	if resolver == nil {
-		resolver = security.NewPathResolver()
+		resolver = NewPathResolver()
 	}
 
 	resolved, err := resolver.Resolve(trimmed)

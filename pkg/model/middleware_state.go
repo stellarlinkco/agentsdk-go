@@ -8,7 +8,7 @@ import (
 type middlewareContextKey string
 
 const (
-	middlewareStateKey middlewareContextKey = "github.com/cexll/agentsdk-go/middleware-state"
+	middlewareStateKey middlewareContextKey = "github.com/stellarlinkco/agentsdk-go/middleware-state"
 	// MiddlewareStateKey exposes the context key so other packages can attach middleware state.
 	MiddlewareStateKey = middlewareStateKey
 )

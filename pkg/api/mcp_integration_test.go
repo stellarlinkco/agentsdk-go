@@ -7,14 +7,14 @@ import (
 	"time"
 	_ "unsafe"
 
-	"github.com/cexll/agentsdk-go/pkg/mcp"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/mcp"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
-//go:linkname patchedNewMCPClient github.com/cexll/agentsdk-go/pkg/tool.newMCPClient
+//go:linkname patchedNewMCPClient github.com/stellarlinkco/agentsdk-go/pkg/tool.newMCPClient
 var patchedNewMCPClient func(ctx context.Context, spec string, handler func(context.Context, *mcp.ClientSession)) (*mcp.ClientSession, error)
 
-//go:linkname patchedNewMCPClientWithOptions github.com/cexll/agentsdk-go/pkg/tool.newMCPClientWithOptions
+//go:linkname patchedNewMCPClientWithOptions github.com/stellarlinkco/agentsdk-go/pkg/tool.newMCPClientWithOptions
 var patchedNewMCPClientWithOptions func(ctx context.Context, spec string, opts tool.MCPServerOptions, handler func(context.Context, *mcp.ClientSession)) (*mcp.ClientSession, error)
 
 type mcpCallCounter struct {
@@ -47,7 +47,7 @@ func TestRegisterMCPServersNotBlockedByBuiltinWhitelist(t *testing.T) {
 
 	reg := tool.NewRegistry()
 	// Builtins disabled; MCP should still attempt registration.
-	if _, err := registerTools(reg, Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{}}, nil, nil, nil); err != nil {
+	if err := registerTools(reg, Options{ProjectRoot: t.TempDir(), EnabledBuiltinTools: []string{}}, nil, nil); err != nil {
 		t.Fatalf("register tools: %v", err)
 	}
 

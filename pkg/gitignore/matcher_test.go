@@ -3,6 +3,8 @@ package gitignore
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -506,6 +508,37 @@ func TestMatchDoublestarEdgeCases(t *testing.T) {
 	}
 }
 
+func TestMatchDoublestarWholePatternMatchesAnything(t *testing.T) {
+	if !matchGlob("**", "anything/here") {
+		t.Fatalf("expected ** to match any path")
+	}
+}
+
+func TestMatchDoublestarMultipleSegmentsReturnsFalse(t *testing.T) {
+	if matchGlob("foo/**/bar/**/baz", "foo/x/bar/y/baz") {
+		t.Fatalf("expected multi-** pattern to be rejected by matchDoublestar")
+	}
+}
+
+func TestMatchDoublestarPrefixAndSuffix(t *testing.T) {
+	pattern := "src/**/main.go"
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"src/main.go", true},
+		{"src/pkg/main.go", true},
+		{"other/main.go", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchGlob(pattern, tt.name); got != tt.want {
+				t.Fatalf("matchGlob(%q, %q) = %v, want %v", pattern, tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewMatcherReadError(t *testing.T) {
 	// Create a directory where .gitignore is also a directory (causes read error)
 	tmpDir := t.TempDir()
@@ -517,6 +550,36 @@ func TestNewMatcherReadError(t *testing.T) {
 	_, err := NewMatcher(tmpDir)
 	if err == nil {
 		t.Error("Expected error when .gitignore is a directory")
+	}
+}
+
+func TestNewMatcherOpenPermissionError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod semantics differ on windows")
+	}
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, ".gitignore")
+	if err := os.WriteFile(path, []byte("*.log\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Skipf("chmod unsupported: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	if _, err := NewMatcher(tmpDir); err == nil {
+		t.Fatalf("expected open permission error")
+	}
+}
+
+func TestNewMatcherScannerErrorTooLong(t *testing.T) {
+	tmpDir := t.TempDir()
+	longLine := strings.Repeat("a", 70*1024) + "\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(longLine), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewMatcher(tmpDir); err == nil {
+		t.Fatalf("expected scanner error for long gitignore line")
 	}
 }
 

@@ -14,14 +14,14 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Rule represents a single project rule loaded from .claude/rules.
+// Rule represents a single project rule loaded from .agents/rules.
 type Rule struct {
 	Name     string // 文件名（不含扩展名）
 	Content  string // 规则内容
 	Priority int    // 优先级（从文件名前缀解析，如 01-xxx.md -> 1）
 }
 
-// RulesLoader loads markdown rules under .claude/rules and watches for changes.
+// RulesLoader loads markdown rules under .agents/rules and watches for changes.
 type RulesLoader struct {
 	projectRoot string
 	rules       []Rule
@@ -40,12 +40,20 @@ func (l *RulesLoader) rulesDir() string {
 	if root == "" {
 		root = "."
 	}
-	return filepath.Join(root, ".claude", "rules")
+	return filepath.Join(root, ".agents", "rules")
 }
 
 func (l *RulesLoader) LoadRules() ([]Rule, error) {
+	return l.loadRulesWith(os.Stat, os.ReadDir, os.ReadFile)
+}
+
+func (l *RulesLoader) loadRulesWith(
+	statFn func(string) (os.FileInfo, error),
+	readDirFn func(string) ([]os.DirEntry, error),
+	readFileFn func(string) ([]byte, error),
+) ([]Rule, error) {
 	dir := l.rulesDir()
-	info, err := os.Stat(dir)
+	info, err := statFn(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			l.mu.Lock()
@@ -59,7 +67,7 @@ func (l *RulesLoader) LoadRules() ([]Rule, error) {
 		return nil, fs.ErrInvalid
 	}
 
-	entries, err := os.ReadDir(dir)
+	entries, err := readDirFn(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			l.mu.Lock()
@@ -80,7 +88,7 @@ func (l *RulesLoader) LoadRules() ([]Rule, error) {
 			continue
 		}
 		path := filepath.Join(dir, filename)
-		data, err := os.ReadFile(path)
+		data, err := readFileFn(path)
 		if err != nil {
 			return nil, err
 		}
@@ -127,8 +135,19 @@ func priorityFromBase(base string) int {
 // WatchChanges starts watching the rules directory and reloads on changes.
 // If the rules directory doesn't exist, this is a no-op.
 func (l *RulesLoader) WatchChanges(callback func([]Rule)) error {
+	return l.watchChangesWith(callback, os.Stat, fsnotify.NewWatcher, func(w *fsnotify.Watcher, dir string) error {
+		return w.Add(dir)
+	})
+}
+
+func (l *RulesLoader) watchChangesWith(
+	callback func([]Rule),
+	statFn func(string) (os.FileInfo, error),
+	newWatcherFn func() (*fsnotify.Watcher, error),
+	addFn func(*fsnotify.Watcher, string) error,
+) error {
 	dir := l.rulesDir()
-	info, err := os.Stat(dir)
+	info, err := statFn(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -144,7 +163,7 @@ func (l *RulesLoader) WatchChanges(callback func([]Rule)) error {
 		l.mu.Unlock()
 		return nil
 	}
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := newWatcherFn()
 	if err != nil {
 		l.mu.Unlock()
 		return err
@@ -152,7 +171,7 @@ func (l *RulesLoader) WatchChanges(callback func([]Rule)) error {
 	l.watcher = watcher
 	l.mu.Unlock()
 
-	if err := watcher.Add(dir); err != nil {
+	if err := addFn(watcher, dir); err != nil {
 		_ = watcher.Close()
 		l.mu.Lock()
 		l.watcher = nil

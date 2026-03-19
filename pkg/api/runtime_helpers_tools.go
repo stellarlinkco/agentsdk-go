@@ -1,6 +1,6 @@
 package api
 
-import "github.com/cexll/agentsdk-go/pkg/model"
+import "github.com/stellarlinkco/agentsdk-go/pkg/model"
 
 // EnabledBuiltinToolKeys returns the built-in registration keys selected by
 // Options.EnabledBuiltinTools for the effective entrypoint.

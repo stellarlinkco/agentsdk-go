@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/mcp"
-	"github.com/cexll/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/mcp"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 func TestExtractStringSlice(t *testing.T) {

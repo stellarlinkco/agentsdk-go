@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Settings models the full contents of .claude/settings.json.
+// Settings models the full contents of .agents/settings.json.
 // All optional booleans use *bool so nil means "unset" and caller defaults apply.
 type Settings struct {
 	APIKeyHelper         string             `json:"apiKeyHelper,omitempty"`         // /bin/sh script that returns an API key for outbound model calls.
@@ -65,23 +65,18 @@ type HookMatcherEntry struct {
 
 // HooksConfig maps event types to matcher entries. For tool-related events the
 // matcher is applied to the tool name; for session events it matches source/reason;
-// for notification it matches type; for subagent events it matches agent type.
+// for subagent events it matches agent type. Stop has no matcher.
 //
 // Supports both Claude Code official format (array of HookMatcherEntry) and
 // SDK simplified format (map[string]string) via custom UnmarshalJSON.
 type HooksConfig struct {
-	PreToolUse         []HookMatcherEntry `json:"PreToolUse,omitempty"`
-	PostToolUse        []HookMatcherEntry `json:"PostToolUse,omitempty"`
-	PostToolUseFailure []HookMatcherEntry `json:"PostToolUseFailure,omitempty"`
-	PermissionRequest  []HookMatcherEntry `json:"PermissionRequest,omitempty"`
-	SessionStart       []HookMatcherEntry `json:"SessionStart,omitempty"`
-	SessionEnd         []HookMatcherEntry `json:"SessionEnd,omitempty"`
-	SubagentStart      []HookMatcherEntry `json:"SubagentStart,omitempty"`
-	SubagentStop       []HookMatcherEntry `json:"SubagentStop,omitempty"`
-	Stop               []HookMatcherEntry `json:"Stop,omitempty"`
-	Notification       []HookMatcherEntry `json:"Notification,omitempty"`
-	UserPromptSubmit   []HookMatcherEntry `json:"UserPromptSubmit,omitempty"`
-	PreCompact         []HookMatcherEntry `json:"PreCompact,omitempty"`
+	PreToolUse    []HookMatcherEntry `json:"PreToolUse,omitempty"`
+	PostToolUse   []HookMatcherEntry `json:"PostToolUse,omitempty"`
+	SessionStart  []HookMatcherEntry `json:"SessionStart,omitempty"`
+	SessionEnd    []HookMatcherEntry `json:"SessionEnd,omitempty"`
+	Stop          []HookMatcherEntry `json:"Stop,omitempty"`
+	SubagentStart []HookMatcherEntry `json:"SubagentStart,omitempty"`
+	SubagentStop  []HookMatcherEntry `json:"SubagentStop,omitempty"`
 }
 
 // SandboxConfig controls bash sandboxing.

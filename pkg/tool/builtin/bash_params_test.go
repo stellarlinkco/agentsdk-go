@@ -6,18 +6,7 @@ import (
 )
 
 func TestParseAsyncFlagAndTaskID(t *testing.T) {
-	if _, err := parseAsyncFlag(map[string]any{"async": "nope"}); err == nil {
-		t.Fatalf("expected async parse error")
-	}
-	if v, err := parseAsyncFlag(map[string]any{"async": "true"}); err != nil || !v {
-		t.Fatalf("expected true async, got %v err=%v", v, err)
-	}
-	if _, err := optionalAsyncTaskID(map[string]any{"task_id": 1}); err == nil {
-		t.Fatalf("expected task_id type error")
-	}
-	if _, err := optionalAsyncTaskID(map[string]any{"task_id": ""}); err == nil {
-		t.Fatalf("expected empty task_id error")
-	}
+	t.Skip("async/task_id parameters removed from bash tool")
 }
 
 func TestDurationFromParamVariants(t *testing.T) {

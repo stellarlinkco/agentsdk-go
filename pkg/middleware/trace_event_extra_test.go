@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 func TestModelRequestPayloadVariants(t *testing.T) {
@@ -135,13 +135,13 @@ func TestCaptureTraceErrorPriority(t *testing.T) {
 	}
 
 	st.Values["trace.error"] = errors.New("trace-level")
-	if msg := captureTraceError(StageAfterModel, st, nil); msg != "trace-level" {
+	if msg := captureTraceError(StageAfterAgent, st, nil); msg != "trace-level" {
 		t.Fatalf("trace error not surfaced: %s", msg)
 	}
 
 	st.Values = map[string]any{}
 	st.ModelOutput = struct{ Err error }{Err: errors.New("model failed")}
-	if msg := captureTraceError(StageAfterModel, st, nil); msg != "model failed" {
+	if msg := captureTraceError(StageAfterAgent, st, nil); msg != "model failed" {
 		t.Fatalf("model output error missed: %s", msg)
 	}
 

@@ -15,7 +15,7 @@ import (
 
 func TestHandlerLazyLoadsOnFirstExecute(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "lazy")
+	dir := filepath.Join(root, ".agents", "skills", "lazy")
 
 	writeSkill(t, filepath.Join(dir, "SKILL.md"), "lazy", "lazy body")
 	mustWrite(t, filepath.Join(dir, "scripts", "setup.sh"), "echo hi")
@@ -53,7 +53,7 @@ func TestHandlerLazyLoadsOnFirstExecute(t *testing.T) {
 
 func TestHandlerCachesLoadResult(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "cache")
+	dir := filepath.Join(root, ".agents", "skills", "cache")
 	writeSkill(t, filepath.Join(dir, "SKILL.md"), "cache", "cache body")
 
 	regs, _ := LoadFromFS(LoaderOptions{ProjectRoot: root})
@@ -80,7 +80,7 @@ func TestHandlerCachesLoadResult(t *testing.T) {
 
 func TestHandlerConcurrentExecuteSingleLoad(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "concurrent")
+	dir := filepath.Join(root, ".agents", "skills", "concurrent")
 	writeSkill(t, filepath.Join(dir, "SKILL.md"), "concurrent", "body")
 
 	regs, _ := LoadFromFS(LoaderOptions{ProjectRoot: root})
@@ -108,7 +108,7 @@ func TestHandlerConcurrentExecuteSingleLoad(t *testing.T) {
 
 func TestHandlerHotReloadOnFileChange(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "hotreload")
+	dir := filepath.Join(root, ".agents", "skills", "hotreload")
 	skillPath := filepath.Join(dir, "SKILL.md")
 	writeSkill(t, skillPath, "hotreload", "original body")
 
@@ -146,7 +146,7 @@ func TestHandlerHotReloadOnFileChange(t *testing.T) {
 
 func TestHandlerBodyLengthProbe(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "probe")
+	dir := filepath.Join(root, ".agents", "skills", "probe")
 	body := "probe body"
 	writeSkill(t, filepath.Join(dir, "SKILL.md"), "probe", body)
 
@@ -174,7 +174,7 @@ func TestHandlerBodyLengthProbe(t *testing.T) {
 
 func TestHandlerStatError(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "staterr")
+	dir := filepath.Join(root, ".agents", "skills", "staterr")
 	skillPath := filepath.Join(dir, "SKILL.md")
 	writeSkill(t, skillPath, "staterr", "body")
 

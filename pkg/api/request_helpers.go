@@ -5,32 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
 )
-
-func removeCommandLines(prompt string, invs []commands.Invocation) string {
-	if len(invs) == 0 {
-		return prompt
-	}
-	mask := map[int]struct{}{}
-	for _, inv := range invs {
-		pos := inv.Position - 1
-		if pos >= 0 {
-			mask[pos] = struct{}{}
-		}
-	}
-	lines := strings.Split(prompt, "\n")
-	kept := make([]string, 0, len(lines))
-	for idx, line := range lines {
-		if _, drop := mask[idx]; drop {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.TrimSpace(strings.Join(kept, "\n"))
-}
 
 func applyPromptMetadata(prompt string, meta map[string]any) string {
 	if len(meta) == 0 {
@@ -104,21 +81,6 @@ func buildSubagentContext(req Request, def subagents.Definition, matched bool) (
 	}
 	if session := strings.TrimSpace(req.SessionID); session != "" {
 		subCtx.SessionID = session
-	}
-	if desc := metadataString(req.Metadata, "task.description"); desc != "" {
-		if subCtx.Metadata == nil {
-			subCtx.Metadata = map[string]any{}
-		}
-		subCtx.Metadata["task.description"] = desc
-	}
-	if model := strings.ToLower(metadataString(req.Metadata, "task.model")); model != "" {
-		if subCtx.Metadata == nil {
-			subCtx.Metadata = map[string]any{}
-		}
-		subCtx.Metadata["task.model"] = model
-		if strings.TrimSpace(subCtx.Model) == "" {
-			subCtx.Model = model
-		}
 	}
 	if subCtx.SessionID == "" && len(subCtx.Metadata) == 0 && len(subCtx.ToolWhitelist) == 0 && strings.TrimSpace(subCtx.Model) == "" {
 		return subagents.Context{}, false

@@ -1,20 +1,13 @@
 package toolbuiltin
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	"crypto/rand"
 )
-
-type errReader struct{}
-
-func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
 func TestEnsureBashOutputDirEmpty(t *testing.T) {
 	if err := ensureBashOutputDir(" "); err == nil {
@@ -76,17 +69,6 @@ func TestAppendStderrBranches(t *testing.T) {
 	data, _ := io.ReadAll(out2)
 	if !strings.Contains(string(data), "stderr") {
 		t.Fatalf("expected stderr content")
-	}
-}
-
-func TestGenerateAsyncTaskIDFallback(t *testing.T) {
-	orig := rand.Reader
-	rand.Reader = errReader{}
-	t.Cleanup(func() { rand.Reader = orig })
-
-	id := generateAsyncTaskID()
-	if !strings.HasPrefix(id, "task-") {
-		t.Fatalf("unexpected id %q", id)
 	}
 }
 

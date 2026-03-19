@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/cexll/agentsdk-go/pkg/security"
 )
 
 func TestGrepToolExecuteContent(t *testing.T) {
@@ -19,7 +17,7 @@ func TestGrepToolExecuteContent(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	tool := NewGrepToolWithSandbox(root, security.NewDisabledSandbox())
+	tool := NewGrepToolWithSandbox(root, nil)
 	tool.SetRespectGitignore(false)
 
 	res, err := tool.Execute(context.Background(), map[string]interface{}{

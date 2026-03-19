@@ -5,22 +5,22 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 func TestEnabledBuiltinToolKeys(t *testing.T) {
 	t.Parallel()
 
 	defaults := EnabledBuiltinToolKeys(Options{})
-	for _, want := range []string{"bash", "file_read", "file_write"} {
+	for _, want := range []string{"bash", "read", "write", "edit", "glob", "grep", "skill"} {
 		if !slices.Contains(defaults, want) {
 			t.Fatalf("default builtins missing %q in %v", want, defaults)
 		}
 	}
 
-	filtered := EnabledBuiltinToolKeys(Options{EnabledBuiltinTools: []string{"FILE_WRITE", "bash"}})
-	if len(filtered) != 2 || filtered[0] != "bash" || filtered[1] != "file_write" {
-		t.Fatalf("filtered builtins=%v, want [bash file_write]", filtered)
+	filtered := EnabledBuiltinToolKeys(Options{EnabledBuiltinTools: []string{"WRITE", "bash"}})
+	if len(filtered) != 2 || filtered[0] != "bash" || filtered[1] != "write" {
+		t.Fatalf("filtered builtins=%v, want [bash write]", filtered)
 	}
 
 	disabled := EnabledBuiltinToolKeys(Options{EnabledBuiltinTools: []string{}})
@@ -38,10 +38,8 @@ func TestRuntimeAvailableToolsFromRegistry(t *testing.T) {
 		ProjectRoot: root,
 		Model:       mdl,
 		EnabledBuiltinTools: []string{
-			"task_create",
-			"task_list",
-			"task_get",
-			"task_update",
+			"read",
+			"write",
 			"bash",
 		},
 	})
@@ -57,9 +55,9 @@ func TestRuntimeAvailableToolsFromRegistry(t *testing.T) {
 
 	seen := map[string]struct{}{}
 	for _, def := range defs {
-		seen[def.Name] = struct{}{}
+		seen[canonicalToolName(def.Name)] = struct{}{}
 	}
-	for _, want := range []string{"TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "Bash"} {
+	for _, want := range []string{"read", "write", "bash"} {
 		if _, ok := seen[want]; !ok {
 			t.Fatalf("missing tool %q in %+v", want, defs)
 		}
@@ -74,15 +72,15 @@ func TestRuntimeAvailableToolsForWhitelist(t *testing.T) {
 	rt, err := New(context.Background(), Options{
 		ProjectRoot:         root,
 		Model:               mdl,
-		EnabledBuiltinTools: []string{"task_create", "task_list", "bash"},
+		EnabledBuiltinTools: []string{"read", "write", "bash"},
 	})
 	if err != nil {
 		t.Fatalf("runtime: %v", err)
 	}
 	t.Cleanup(func() { _ = rt.Close() })
 
-	defs := rt.AvailableToolsForWhitelist([]string{"TaskCreate"})
-	if len(defs) != 1 || defs[0].Name != "TaskCreate" {
+	defs := rt.AvailableToolsForWhitelist([]string{"READ"})
+	if len(defs) != 1 || canonicalToolName(defs[0].Name) != "read" {
 		t.Fatalf("unexpected whitelisted defs: %+v", defs)
 	}
 }

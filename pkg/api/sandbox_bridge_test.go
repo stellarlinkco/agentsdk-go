@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 )
 
 func TestAdditionalSandboxPathsHandlesNilAndDedup(t *testing.T) {

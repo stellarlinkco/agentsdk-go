@@ -21,14 +21,7 @@ func TestIntegrationChainAllStages(t *testing.T) {
 			OnBeforeAgent: func(_ context.Context, st *State) error {
 				st.Iteration = 42
 				st.SetValue("agent", "ready")
-				return nil
-			},
-			OnBeforeModel: func(_ context.Context, st *State) error {
 				st.SetModelInput(map[string]any{"prompt": "ping"})
-				return nil
-			},
-			OnAfterModel: func(_ context.Context, st *State) error {
-				st.SetModelOutput(map[string]any{"content": "pong"})
 				return nil
 			},
 			OnBeforeTool: func(_ context.Context, st *State) error {
@@ -41,6 +34,7 @@ func TestIntegrationChainAllStages(t *testing.T) {
 				return nil
 			},
 			OnAfterAgent: func(_ context.Context, st *State) error {
+				st.SetModelOutput(map[string]any{"content": "pong"})
 				if st.Iteration != 42 || st.ModelOutput == nil || st.ToolResult == nil {
 					return fmt.Errorf("state missing data: %#v", st)
 				}
@@ -50,15 +44,13 @@ func TestIntegrationChainAllStages(t *testing.T) {
 		Funcs{
 			Identifier:    "observer",
 			OnBeforeAgent: record("observer.before_agent"),
-			OnBeforeModel: record("observer.before_model"),
-			OnAfterModel:  record("observer.after_model"),
 			OnBeforeTool:  record("observer.before_tool"),
 			OnAfterTool:   record("observer.after_tool"),
 			OnAfterAgent:  record("observer.after_agent"),
 		},
 	})
 
-	stages := []Stage{StageBeforeAgent, StageBeforeModel, StageAfterModel, StageBeforeTool, StageAfterTool, StageAfterAgent}
+	stages := []Stage{StageBeforeAgent, StageBeforeTool, StageAfterTool, StageAfterAgent}
 	st := &State{}
 	for _, stage := range stages {
 		if err := chain.Execute(context.Background(), stage, st); err != nil {
@@ -68,8 +60,6 @@ func TestIntegrationChainAllStages(t *testing.T) {
 
 	expected := []string{
 		"observer.before_agent",
-		"observer.before_model",
-		"observer.after_model",
 		"observer.before_tool",
 		"observer.after_tool",
 		"observer.after_agent",

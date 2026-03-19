@@ -2,19 +2,21 @@ package api
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/message"
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/message"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 type compactStubModel struct {
 	resp string
 	err  error
+	last model.Request
 }
 
 func (s *compactStubModel) Complete(ctx context.Context, req model.Request) (*model.Response, error) {
+	s.last = req
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -47,27 +49,58 @@ func TestCompactorMaybeCompact(t *testing.T) {
 
 	hist := message.NewHistory()
 	hist.Append(message.Message{Role: "user", Content: "one"})
-	hist.Append(message.Message{Role: "assistant", Content: "two"})
+	hist.Append(message.Message{Role: "assistant", ToolCalls: []message.ToolCall{{ID: "t1", Name: "bash", Arguments: map[string]any{"cmd": "echo TOP_SECRET"}}}})
+	hist.Append(message.Message{Role: "tool", ToolCalls: []message.ToolCall{{ID: "t1", Name: "bash", Result: "TOP_SECRET_OUTPUT"}}})
 	hist.Append(message.Message{Role: "user", Content: "three"})
 
-	comp := newCompactor("", CompactConfig{Enabled: true, PreserveCount: 1, Threshold: 0.1}, &compactStubModel{resp: "summary"}, 1, nil)
+	comp := newCompactor(CompactConfig{Enabled: true, PreserveCount: 1, Threshold: 0.1}, 1)
 	if comp == nil {
 		t.Fatalf("expected compactor")
 	}
-	res, ok, err := comp.maybeCompact(context.Background(), hist, "sess", nil)
-	if err != nil || !ok || res.summary == "" {
-		t.Fatalf("unexpected compact result res=%+v ok=%v err=%v", res, ok, err)
+	stub := &compactStubModel{resp: "summary"}
+	ok, err := comp.maybeCompact(context.Background(), hist, stub)
+	if err != nil || !ok {
+		t.Fatalf("unexpected compact result ok=%v err=%v", ok, err)
 	}
-	if hist.Len() < 2 {
-		t.Fatalf("expected compacted history retained")
+	msgs := hist.All()
+	if len(msgs) != 2 {
+		t.Fatalf("expected compacted history len=2, got %d", len(msgs))
+	}
+	if msgs[0].Role != "system" || !strings.Contains(msgs[0].Content, "summary") {
+		t.Fatalf("expected summary system message, got %+v", msgs[0])
+	}
+	if msgs[1].Role != "user" || msgs[1].Content != "three" {
+		t.Fatalf("expected preserved tail, got %+v", msgs[1])
+	}
+
+	combined := ""
+	for _, m := range stub.last.Messages {
+		combined += m.Role + ":" + m.Content + "\n"
+	}
+	if strings.Contains(combined, "TOP_SECRET") || strings.Contains(combined, "TOP_SECRET_OUTPUT") {
+		t.Fatalf("expected tool I/O stripped from compression input, got %q", combined)
 	}
 }
 
-func TestCompactorCompleteSummaryError(t *testing.T) {
+func TestCompactorPreservesToolTransactionSpans(t *testing.T) {
 	t.Parallel()
 
-	comp := &compactor{cfg: CompactConfig{Enabled: true}, model: &compactStubModel{err: errors.New("boom")}}
-	if _, err := comp.completeSummary(context.Background(), model.Request{}); err == nil {
-		t.Fatalf("expected summary error")
+	hist := message.NewHistory()
+	hist.Append(message.Message{Role: "user", Content: "u0"})
+	hist.Append(message.Message{Role: "assistant", ToolCalls: []message.ToolCall{{ID: "t1", Name: "echo", Arguments: map[string]any{"x": 1}}}})
+	hist.Append(message.Message{Role: "tool", ToolCalls: []message.ToolCall{{ID: "t1", Name: "echo", Result: "ok"}}})
+	hist.Append(message.Message{Role: "user", Content: "u1"})
+
+	comp := newCompactor(CompactConfig{Enabled: true, PreserveCount: 2, Threshold: 0.1}, 1)
+	ok, err := comp.maybeCompact(context.Background(), hist, &compactStubModel{resp: "summary"})
+	if err != nil || !ok {
+		t.Fatalf("maybeCompact ok=%v err=%v", ok, err)
+	}
+	msgs := hist.All()
+	if len(msgs) < 3 {
+		t.Fatalf("msgs=%+v", msgs)
+	}
+	if msgs[1].Role != "assistant" || len(msgs[1].ToolCalls) == 0 {
+		t.Fatalf("expected tool transaction preserved at start, got %+v", msgs[1])
 	}
 }

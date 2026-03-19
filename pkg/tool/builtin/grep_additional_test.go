@@ -32,7 +32,7 @@ func TestGrepToolRejectsTraversalInPath(t *testing.T) {
 	skipIfWindows(t)
 	dir := cleanTempDir(t)
 	tool := NewGrepToolWithRoot(dir)
-	if _, err := tool.Execute(context.Background(), map[string]any{"pattern": "foo", "path": "../.."}); err == nil || !strings.Contains(err.Error(), "path not in sandbox") {
+	if _, err := tool.Execute(context.Background(), map[string]any{"pattern": "foo", "path": "../.."}); err == nil || !strings.Contains(err.Error(), "path denied") {
 		t.Fatalf("expected sandbox error, got %v", err)
 	}
 }

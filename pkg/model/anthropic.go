@@ -116,9 +116,6 @@ func (m *anthropicModel) requestOptions() []option.RequestOption {
 	}
 	opts := make([]option.RequestOption, 0, len(headers))
 	for key, value := range headers {
-		if value == "" {
-			continue
-		}
 		opts = append(opts, option.WithHeader(key, value))
 	}
 	return opts
@@ -269,10 +266,7 @@ func (m *anthropicModel) CompleteStream(ctx context.Context, req Request, cb Str
 }
 
 func (m *anthropicModel) buildParams(req Request) (anthropicsdk.MessageNewParams, error) {
-	systemBlocks, messageParams, err := convertMessages(req.Messages, req.EnablePromptCache, m.system, req.System)
-	if err != nil {
-		return anthropicsdk.MessageNewParams{}, err
-	}
+	systemBlocks, messageParams := convertMessages(req.Messages, req.EnablePromptCache, m.system, req.System)
 
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
@@ -387,7 +381,7 @@ func convertCountTools(tools []anthropicsdk.ToolUnionParam) []anthropicsdk.Messa
 	return out
 }
 
-func convertMessages(msgs []Message, enableCache bool, defaults ...string) ([]anthropicsdk.TextBlockParam, []anthropicsdk.MessageParam, error) {
+func convertMessages(msgs []Message, enableCache bool, defaults ...string) ([]anthropicsdk.TextBlockParam, []anthropicsdk.MessageParam) {
 	var systemBlocks []anthropicsdk.TextBlockParam
 	for _, sys := range defaults {
 		if trimmed := strings.TrimSpace(sys); trimmed != "" {
@@ -481,7 +475,7 @@ func convertMessages(msgs []Message, enableCache bool, defaults ...string) ([]an
 		}
 	}
 
-	return systemBlocks, messageParams, nil
+	return systemBlocks, messageParams
 }
 
 func buildAssistantContent(msg Message) []anthropicsdk.ContentBlockParamUnion {
@@ -624,9 +618,7 @@ func encodeSchema(raw map[string]any) (anthropicsdk.ToolInputSchemaParam, error)
 		return anthropicsdk.ToolInputSchemaParam{}, err
 	}
 	var schema anthropicsdk.ToolInputSchemaParam
-	if err := json.Unmarshal(data, &schema); err != nil {
-		return anthropicsdk.ToolInputSchemaParam{}, err
-	}
+	_ = json.Unmarshal(data, &schema)
 	if schema.Type == "" {
 		schema.Type = "object"
 	}

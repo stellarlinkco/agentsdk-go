@@ -11,8 +11,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
+
+func openCommandPipes(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("stderr pipe: %w", err)
+	}
+	return stdoutPipe, stderrPipe, nil
+}
 
 // StreamExecute runs the bash command while emitting incremental output. It
 // preserves backwards compatibility by sharing validation and metadata with
@@ -21,7 +33,7 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if b == nil || b.sandbox == nil {
+	if b == nil || b.validator == nil {
 		return nil, errors.New("bash tool is not initialised")
 	}
 
@@ -29,7 +41,7 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 	if err != nil {
 		return nil, err
 	}
-	if err := b.sandbox.ValidateCommand(command); err != nil {
+	if err := b.validator.Validate(command); err != nil {
 		return nil, err
 	}
 	workdir, err := b.resolveWorkdir(params)
@@ -52,13 +64,13 @@ func (b *BashTool) StreamExecute(ctx context.Context, params map[string]interfac
 	cmd.Env = os.Environ()
 	cmd.Dir = workdir
 
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("stdout pipe: %w", err)
+	openPipes := b.openPipes
+	if openPipes == nil {
+		openPipes = openCommandPipes
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	stdoutPipe, stderrPipe, err := openPipes(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("stderr pipe: %w", err)
+		return nil, err
 	}
 
 	spool := newBashOutputSpool(ctx, b.effectiveOutputThresholdBytes())

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cexll/agentsdk-go/pkg/security"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const writeDescription = `Writes a file to the local filesystem.
@@ -50,11 +50,11 @@ func NewWriteToolWithRoot(root string) *WriteTool {
 }
 
 // NewWriteToolWithSandbox builds a WriteTool using a custom sandbox.
-func NewWriteToolWithSandbox(root string, sandbox *security.Sandbox) *WriteTool {
-	return &WriteTool{base: newFileSandboxWithSandbox(root, sandbox)}
+func NewWriteToolWithSandbox(root string, policy sandbox.FileSystemPolicy) *WriteTool {
+	return &WriteTool{base: newFileSandboxWithSandbox(root, policy)}
 }
 
-func (w *WriteTool) Name() string { return "Write" }
+func (w *WriteTool) Name() string { return "write" }
 
 func (w *WriteTool) Description() string { return writeDescription }
 
@@ -64,7 +64,7 @@ func (w *WriteTool) Execute(ctx context.Context, params map[string]interface{}) 
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if w == nil || w.base == nil || w.base.sandbox == nil {
+	if w == nil || w.base == nil {
 		return nil, errors.New("write tool is not initialised")
 	}
 	path, err := w.resolveFilePath(params)

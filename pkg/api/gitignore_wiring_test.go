@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,7 +52,7 @@ func TestBuiltinToolsRespectGitignoreSetting(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			respect := tc.respectGitignore
 			settings := &config.Settings{RespectGitignore: &respect}
-			factories := builtinToolFactories(root, false, EntryPointCLI, settings, nil, nil, nil)
+				factories := builtinToolFactories(root, false, EntryPointCLI, settings, nil)
 
 			globTool := factories["glob"]()
 			require.NotNil(t, globTool)

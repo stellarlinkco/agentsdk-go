@@ -4,12 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/message"
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/message"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 type helperStubTool struct {
@@ -46,9 +45,6 @@ func TestRegisterHelpers(t *testing.T) {
 
 	if _, err := registerSkills([]SkillRegistration{{Definition: skills.Definition{Name: "s"}, Handler: nil}}); err == nil {
 		t.Fatalf("expected skill handler error")
-	}
-	if _, err := registerCommands([]CommandRegistration{{Definition: commands.Definition{Name: "c"}, Handler: nil}}); err == nil {
-		t.Fatalf("expected command handler error")
 	}
 	if _, err := registerSubagents([]SubagentRegistration{{Definition: subagents.Definition{Name: "x"}, Handler: nil}}); err == nil {
 		t.Fatalf("expected subagent handler error")

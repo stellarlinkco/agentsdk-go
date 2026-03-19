@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -74,8 +74,8 @@ func LoadFromFS(opts LoaderOptions) ([]SubagentRegistration, []error) {
 		fsLayer = config.NewFS(opts.ProjectRoot, nil)
 	}
 
-	projectDir := filepath.Join(opts.ProjectRoot, ".claude", "agents")
-	files, loadErrs := loadSubagentDir(projectDir, fsLayer)
+	agentsDir := filepath.Join(opts.ProjectRoot, ".agents", "agents")
+	files, loadErrs := loadSubagentDir(agentsDir, fsLayer)
 	errs = append(errs, loadErrs...)
 	for name, file := range files {
 		merged[name] = file
@@ -93,11 +93,7 @@ func LoadFromFS(opts LoaderOptions) ([]SubagentRegistration, []error) {
 
 	for _, name := range names {
 		file := merged[name]
-		model, modelErr := normalizeModel(file.Metadata.Model)
-		if modelErr != nil {
-			errs = append(errs, fmt.Errorf("subagents: %s: %w", file.Path, modelErr))
-			continue
-		}
+		model := normalizeModel(file.Metadata.Model)
 		whitelist := parseList(file.Metadata.Tools)
 		skills := parseList(file.Metadata.Skills)
 		meta := buildMetadataMap(file, whitelist, skills, model)
@@ -258,14 +254,14 @@ func validateMetadata(meta SubagentMetadata) error {
 	return nil
 }
 
-func normalizeModel(model string) (string, error) {
+func normalizeModel(model string) string {
 	if model == "" || model == "inherit" {
-		return "", nil
+		return ""
 	}
 	if _, ok := allowedModels[model]; ok {
-		return model, nil
+		return model
 	}
-	return "", fmt.Errorf("invalid model %q", model)
+	return ""
 }
 
 func parseList(raw string) []string {

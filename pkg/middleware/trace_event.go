@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 // TraceEvent captures a single middleware hook invocation and its payloads.
@@ -28,7 +28,7 @@ type TraceEvent struct {
 }
 
 func captureModelRequest(stage Stage, st *State) map[string]any {
-	if st == nil || (stage != StageBeforeModel && stage != StageAfterModel) {
+	if st == nil || stage != StageBeforeAgent {
 		return nil
 	}
 	payload := modelRequestPayload(st.ModelInput)
@@ -42,7 +42,7 @@ func captureModelRequest(stage Stage, st *State) map[string]any {
 }
 
 func captureModelResponse(stage Stage, st *State) map[string]any {
-	if st == nil || (stage != StageAfterModel && stage != StageAfterAgent) {
+	if st == nil || stage != StageAfterAgent {
 		return nil
 	}
 	payload := modelResponsePayload(st.ModelOutput)
@@ -110,7 +110,7 @@ func captureTraceError(stage Stage, st *State, toolRes map[string]any) string {
 		}
 	}
 	switch stage {
-	case StageAfterModel:
+	case StageAfterAgent:
 		if msg := valueErrorString(st.ModelOutput); msg != "" {
 			return msg
 		}
@@ -419,9 +419,6 @@ func valueErrorString(v any) string {
 		return err.Error()
 	}
 	val := reflect.ValueOf(v)
-	if !val.IsValid() {
-		return ""
-	}
 	if val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			return ""

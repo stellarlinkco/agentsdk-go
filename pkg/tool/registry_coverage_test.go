@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/cexll/agentsdk-go/pkg/mcp"
+	"github.com/stellarlinkco/agentsdk-go/pkg/mcp"
 )
 
 func TestNewMCPClientWithOptionsDefaultPath(t *testing.T) {

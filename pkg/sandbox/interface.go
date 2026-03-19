@@ -3,10 +3,6 @@ package sandbox
 import (
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
-
-	"github.com/cexll/agentsdk-go/pkg/security"
 )
 
 var (
@@ -96,26 +92,11 @@ type Manager struct {
 	fs FileSystemPolicy
 	nw NetworkPolicy
 	rp ResourcePolicy
-
-	permRoot    string
-	permOnce    sync.Once
-	permErr     error
-	permSandbox *security.Sandbox
 }
 
 // NewManager wires a sandbox manager using the provided policies.
 func NewManager(fs FileSystemPolicy, nw NetworkPolicy, rp ResourcePolicy) *Manager {
-	root := ""
-	if fs != nil {
-		if roots := fs.Roots(); len(roots) > 0 {
-			root = roots[0]
-		}
-	}
-	var permSandbox *security.Sandbox
-	if strings.TrimSpace(root) != "" {
-		permSandbox = security.NewSandbox(root)
-	}
-	return &Manager{fs: fs, nw: nw, rp: rp, permRoot: root, permSandbox: permSandbox}
+	return &Manager{fs: fs, nw: nw, rp: rp}
 }
 
 // CheckPath validates filesystem access against the configured policy.
@@ -159,36 +140,4 @@ func (m *Manager) Limits() ResourceLimits {
 		return ResourceLimits{}
 	}
 	return m.rp.Limits()
-}
-
-// CheckToolPermission consults the permission matcher when configured. Missing
-// rules default to allow.
-func (m *Manager) CheckToolPermission(tool string, params map[string]any) (security.PermissionDecision, error) {
-	if m == nil || m.permSandbox == nil {
-		return security.PermissionDecision{Action: security.PermissionAllow, Tool: tool}, nil
-	}
-	if err := m.ensurePermissionsLoaded(); err != nil {
-		return security.PermissionDecision{}, err
-	}
-	return m.permSandbox.CheckToolPermission(tool, params)
-}
-
-// PermissionAudits returns a snapshot of the latest audited permission decisions.
-func (m *Manager) PermissionAudits() []security.PermissionAudit {
-	if m == nil || m.permSandbox == nil {
-		return nil
-	}
-	return m.permSandbox.PermissionAudits()
-}
-
-func (m *Manager) ensurePermissionsLoaded() error {
-	m.permOnce.Do(func() {
-		if m.permSandbox == nil {
-			return
-		}
-		if err := m.permSandbox.LoadPermissions(m.permRoot); err != nil {
-			m.permErr = err
-		}
-	})
-	return m.permErr
 }

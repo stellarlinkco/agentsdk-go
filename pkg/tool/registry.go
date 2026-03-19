@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/mcp"
+	"github.com/stellarlinkco/agentsdk-go/pkg/mcp"
 )
 
 // Registry keeps the mapping between tool names and implementations.
@@ -163,9 +163,6 @@ func (r *Registry) RegisterMCPServer(ctx context.Context, serverPath, serverName
 	if session.InitializeResult() == nil {
 		return fmt.Errorf("initialize MCP client: mcp session missing initialize result")
 	}
-	if err := connectCtx.Err(); err != nil {
-		return fmt.Errorf("connect MCP client: %w", err)
-	}
 
 	listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -231,9 +228,6 @@ func (r *Registry) RegisterMCPServerWithOptions(ctx context.Context, serverPath,
 	if session.InitializeResult() == nil {
 		return fmt.Errorf("initialize MCP client: mcp session missing initialize result")
 	}
-	if err := connectCtx.Err(); err != nil {
-		return fmt.Errorf("connect MCP client: %w", err)
-	}
 
 	listCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -291,12 +285,7 @@ func connectMCPClientWithOptions(ctx context.Context, spec string, opts MCPServe
 	var clientOpts *mcp.ClientOptions
 	if handler != nil {
 		clientOpts = &mcp.ClientOptions{
-			ToolListChangedHandler: func(ctx context.Context, req *mcp.ToolListChangedRequest) {
-				if req == nil || req.Session == nil {
-					return
-				}
-				handler(ctx, req.Session)
-			},
+			ToolListChangedHandler: toolListChangedHandler(handler),
 		}
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "agentsdk-go", Version: "dev"}, clientOpts)
@@ -318,6 +307,15 @@ func connectMCPClientWithOptions(ctx context.Context, spec string, opts MCPServe
 		return nil, err
 	}
 	return session, nil
+}
+
+func toolListChangedHandler(handler mcpListChangedHandler) func(context.Context, *mcp.ToolListChangedRequest) {
+	return func(ctx context.Context, req *mcp.ToolListChangedRequest) {
+		if handler == nil || req == nil || req.Session == nil {
+			return
+		}
+		handler(ctx, req.Session)
+	}
 }
 
 type mcpSessionInfo struct {
@@ -684,9 +682,6 @@ func normalizeHeaders(headers map[string]string) http.Header {
 	out := make(http.Header, len(keys))
 	for _, raw := range keys {
 		key := http.CanonicalHeaderKey(strings.TrimSpace(raw))
-		if key == "" {
-			continue
-		}
 		out.Set(key, strings.TrimSpace(headers[raw]))
 	}
 	return out
@@ -760,9 +755,6 @@ func mergeEnv(base []string, extra map[string]string) []string {
 		out = append(out, entry)
 	}
 	for _, key := range keys {
-		if key == "" {
-			continue
-		}
 		out = append(out, fmt.Sprintf("%s=%s", key, trimmed[key]))
 	}
 	return out

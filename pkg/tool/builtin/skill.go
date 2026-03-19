@@ -7,19 +7,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const skillToolDescriptionHeader = `Execute a skill within the main conversation
 
 <skills_instructions>
-When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
+When users ask you to perform work, check if an available skill can help complete the job more effectively. Skills provide specialized capabilities and domain knowledge.
 
 How to use skills:
 - Invoke skills using this tool with the skill name only (no arguments)
-- When you invoke a skill, you will see <command-message>The "{name}" skill is loading</command-message>
-- The skill's prompt will expand and provide detailed instructions on how to complete the task
+- The skill prompt expands with detailed instructions for the job
 - Examples:
   - command: "pdf" - invoke the pdf skill
   - command: "excel-parser" - invoke the excel-parser skill
@@ -61,7 +60,7 @@ func NewSkillTool(reg *skills.Registry, provider ActivationContextProvider) *Ski
 	return &SkillTool{registry: reg, provider: provider}
 }
 
-func (s *SkillTool) Name() string { return "Skill" }
+func (s *SkillTool) Name() string { return "skill" }
 
 func (s *SkillTool) Description() string {
 	var defs []skills.Definition

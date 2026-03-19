@@ -29,22 +29,39 @@ func (l *SettingsLoader) Load() (*Settings, error) {
 	root := l.ProjectRoot
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
-	} else {
-		return nil, fmt.Errorf("resolve project root: %w", err)
 	}
 
 	merged := GetDefaultSettings()
 
+	home, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		home = ""
+	}
+
 	layers := []struct {
-		name string
-		path string
+		name  string
+		paths []string
 	}{
-		{name: "project", path: getProjectSettingsPath(root)},
-		{name: "local", path: getLocalSettingsPath(root)},
+		{
+			name:  "global",
+			paths: []string{getGlobalSettingsPath(home)},
+		},
+		{
+			name:  "global-local",
+			paths: []string{getGlobalLocalSettingsPath(home)},
+		},
+		{
+			name:  "project",
+			paths: []string{getProjectSettingsPath(root)},
+		},
+		{
+			name:  "local",
+			paths: []string{getLocalSettingsPath(root)},
+		},
 	}
 
 	for _, layer := range layers {
-		if err := applySettingsLayer(&merged, layer.name, layer.path, l.FS); err != nil {
+		if err := applySettingsLayerCandidates(&merged, layer.name, layer.paths, l.FS); err != nil {
 			return nil, err
 		}
 	}
@@ -54,8 +71,6 @@ func (l *SettingsLoader) Load() (*Settings, error) {
 		if next := MergeSettings(&merged, l.RuntimeOverrides); next != nil {
 			merged = *next
 		}
-	} else {
-		log.Printf("settings: no runtime overrides provided")
 	}
 
 	return &merged, nil
@@ -66,7 +81,7 @@ func getProjectSettingsPath(root string) string {
 	if strings.TrimSpace(root) == "" {
 		return ""
 	}
-	return filepath.Join(root, ".claude", "settings.json")
+	return filepath.Join(root, ".agents", "settings.json")
 }
 
 // getLocalSettingsPath returns the untracked project-local settings path.
@@ -74,7 +89,21 @@ func getLocalSettingsPath(root string) string {
 	if strings.TrimSpace(root) == "" {
 		return ""
 	}
-	return filepath.Join(root, ".claude", "settings.local.json")
+	return filepath.Join(root, ".agents", "settings.local.json")
+}
+
+func getGlobalSettingsPath(home string) string {
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".agents", "settings.json")
+}
+
+func getGlobalLocalSettingsPath(home string) string {
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".agents", "settings.local.json")
 }
 
 // loadJSONFile decodes a settings JSON file. Missing files return (nil, nil).
@@ -104,22 +133,38 @@ func loadJSONFile(path string, filesystem *FS) (*Settings, error) {
 	return &s, nil
 }
 
-func applySettingsLayer(dst *Settings, name, path string, filesystem *FS) error {
-	if path == "" {
+func applySettingsLayerCandidates(dst *Settings, name string, paths []string, filesystem *FS) error {
+	nonEmpty := 0
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		nonEmpty++
+		cfg, err := loadJSONFile(path, filesystem)
+		if err != nil {
+			return fmt.Errorf("load %s settings: %w", name, err)
+		}
+		if cfg == nil {
+			continue
+		}
+
+		log.Printf("settings: applying %s layer from %s", name, path)
+		if next := MergeSettings(dst, cfg); next != nil {
+			*dst = *next
+		}
+		return nil
+	}
+
+	if nonEmpty == 0 {
 		log.Printf("settings: %s layer skipped (no path)", name)
 		return nil
 	}
-	cfg, err := loadJSONFile(path, filesystem)
-	if err != nil {
-		return fmt.Errorf("load %s settings: %w", name, err)
-	}
-	if cfg == nil {
-		log.Printf("settings: %s layer not found at %s", name, path)
-		return nil
-	}
-	log.Printf("settings: applying %s layer from %s", name, path)
-	if next := MergeSettings(dst, cfg); next != nil {
-		*dst = *next
-	}
+
+	log.Printf("settings: %s layer not found", name)
 	return nil
+}
+
+// applySettingsLayer is kept for internal tests that target edge branches.
+func applySettingsLayer(dst *Settings, name, path string, filesystem *FS) error {
+	return applySettingsLayerCandidates(dst, name, []string{path}, filesystem)
 }

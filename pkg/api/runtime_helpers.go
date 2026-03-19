@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,21 +10,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	"github.com/cexll/agentsdk-go/pkg/message"
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/runtime/commands"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
-	"github.com/cexll/agentsdk-go/pkg/sandbox"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/message"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 func availableTools(registry *tool.Registry, whitelist map[string]struct{}) []model.ToolDefinition {
 	if registry == nil {
 		return nil
 	}
-	tools := registry.List()
+	return availableToolsFromList(registry.List(), whitelist)
+}
+
+func availableToolsFromList(tools []tool.Tool, whitelist map[string]struct{}) []model.ToolDefinition {
 	defs := make([]model.ToolDefinition, 0, len(tools))
 	for _, impl := range tools {
 		if impl == nil {
@@ -36,9 +37,6 @@ func availableTools(registry *tool.Registry, whitelist map[string]struct{}) []mo
 			continue
 		}
 		canon := canonicalToolName(name)
-		if canon == "" {
-			continue
-		}
 		if len(whitelist) > 0 {
 			if _, ok := whitelist[canon]; !ok {
 				continue
@@ -162,19 +160,6 @@ func registerSkills(registrations []SkillRegistration) (*skills.Registry, error)
 	return reg, nil
 }
 
-func registerCommands(registrations []CommandRegistration) (*commands.Executor, error) {
-	exec := commands.NewExecutor()
-	for _, entry := range registrations {
-		if entry.Handler == nil {
-			return nil, errors.New("api: command handler is nil")
-		}
-		if err := exec.Register(entry.Definition, entry.Handler); err != nil {
-			return nil, err
-		}
-	}
-	return exec, nil
-}
-
 func registerSubagents(registrations []SubagentRegistration) (*subagents.Manager, error) {
 	if len(registrations) == 0 {
 		return nil, nil
@@ -205,58 +190,6 @@ func buildLoaderOptions(opts Options) loaderOptions {
 		EnableUser:  false,
 		fs:          opts.fsLayer,
 	}
-}
-
-func buildCommandsExecutor(opts Options) (*commands.Executor, []error) {
-	loader := buildLoaderOptions(opts)
-	fsRegs, errs := commands.LoadFromFS(commands.LoaderOptions{
-		ProjectRoot: loader.ProjectRoot,
-		UserHome:    loader.UserHome,
-		EnableUser:  loader.EnableUser,
-		FS:          loader.fs,
-	})
-
-	merged := mergeCommandRegistrations(fsRegs, opts.Commands, &errs)
-
-	exec := commands.NewExecutor()
-	for _, reg := range merged {
-		if err := exec.Register(reg.Definition, reg.Handler); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return exec, errs
-}
-
-func mergeCommandRegistrations(fsRegs []commands.CommandRegistration, manual []CommandRegistration, errs *[]error) []commands.CommandRegistration {
-	merged := make([]commands.CommandRegistration, 0, len(fsRegs)+len(manual))
-	index := map[string]int{}
-
-	add := func(def commands.Definition, handler commands.Handler, source string) {
-		key := strings.ToLower(strings.TrimSpace(def.Name))
-		if key == "" {
-			*errs = append(*errs, fmt.Errorf("api: command name is empty (%s)", source))
-			return
-		}
-		if handler == nil {
-			*errs = append(*errs, fmt.Errorf("api: command %s handler is nil", key))
-			return
-		}
-		reg := commands.CommandRegistration{Definition: def, Handler: handler}
-		if idx, ok := index[key]; ok {
-			merged[idx] = reg // manual overrides loader
-			return
-		}
-		index[key] = len(merged)
-		merged = append(merged, reg)
-	}
-
-	for _, reg := range fsRegs {
-		add(reg.Definition, reg.Handler, "loader")
-	}
-	for _, reg := range manual {
-		add(reg.Definition, reg.Handler, "manual")
-	}
-	return merged
 }
 
 func buildSkillsRegistry(opts Options) (*skills.Registry, []error) {
@@ -498,66 +431,9 @@ func sanitizePathComponent(value string) string {
 	return sanitized
 }
 
-func definitionSnapshot(exec *commands.Executor, name string) commands.Definition {
-	if exec == nil {
-		return commands.Definition{Name: strings.ToLower(name)}
-	}
-	lower := strings.ToLower(strings.TrimSpace(name))
-	for _, def := range exec.List() {
-		if def.Name == lower {
-			return def
-		}
-	}
-	return commands.Definition{Name: lower}
-}
-
 func snapshotSandbox(mgr *sandbox.Manager) SandboxReport {
 	if mgr == nil {
 		return SandboxReport{}
 	}
 	return SandboxReport{ResourceLimits: mgr.Limits()}
-}
-
-type sessionGate struct {
-	gates sync.Map // map[string]chan struct{}
-}
-
-func newSessionGate() *sessionGate {
-	return &sessionGate{}
-}
-
-func (g *sessionGate) Acquire(ctx context.Context, sessionID string) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for {
-		gate := make(chan struct{})
-		existing, loaded := g.gates.LoadOrStore(sessionID, gate)
-		if !loaded {
-			if err := ctx.Err(); err != nil {
-				g.Release(sessionID)
-				return err
-			}
-			return nil
-		}
-
-		held := existing.(chan struct{}) //nolint:errcheck // sync.Map guarantees type safety for stored values
-		select {
-		case <-held:
-			continue
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
-func (g *sessionGate) Release(sessionID string) {
-	if g == nil {
-		return
-	}
-	existing, ok := g.gates.LoadAndDelete(sessionID)
-	if !ok {
-		return
-	}
-	close(existing.(chan struct{})) //nolint:errcheck // sync.Map guarantees type safety for stored values
 }

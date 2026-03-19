@@ -8,33 +8,33 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/security"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 const defaultMaxFileBytes = 1 << 20 // 1 MiB
 
 // fileSandbox enforces sandboxed filesystem operations shared by file tools.
 type fileSandbox struct {
-	sandbox  *security.Sandbox
+	policy   sandbox.FileSystemPolicy
 	root     string
 	maxBytes int64
 }
 
 func newFileSandbox(root string) *fileSandbox {
 	resolved := resolveRoot(root)
-	return newFileSandboxWithSandbox(resolved, security.NewSandbox(resolved))
+	return newFileSandboxWithSandbox(resolved, sandbox.NewFileSystemAllowList(resolved))
 }
 
-func newFileSandboxWithSandbox(root string, sandbox *security.Sandbox) *fileSandbox {
+func newFileSandboxWithSandbox(root string, policy sandbox.FileSystemPolicy) *fileSandbox {
 	return &fileSandbox{
-		sandbox:  sandbox,
+		policy:   policy,
 		root:     resolveRoot(root),
 		maxBytes: defaultMaxFileBytes,
 	}
 }
 
 func (f *fileSandbox) resolvePath(raw interface{}) (string, error) {
-	if f == nil || f.sandbox == nil {
+	if f == nil {
 		return "", errors.New("file sandbox is not initialised")
 	}
 	if raw == nil {
@@ -53,14 +53,16 @@ func (f *fileSandbox) resolvePath(raw interface{}) (string, error) {
 		candidate = filepath.Join(f.root, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	if err := f.sandbox.ValidatePath(candidate); err != nil {
-		return "", err
+	if f.policy != nil {
+		if err := f.policy.Validate(candidate); err != nil {
+			return "", err
+		}
 	}
 	return candidate, nil
 }
 
 func (f *fileSandbox) readFile(path string) (string, error) {
-	if f == nil || f.sandbox == nil {
+	if f == nil {
 		return "", errors.New("file sandbox is not initialised")
 	}
 	info, err := os.Stat(path)
@@ -77,9 +79,6 @@ func (f *fileSandbox) readFile(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read file: %w", err)
 	}
-	if f.maxBytes > 0 && int64(len(data)) > f.maxBytes {
-		return "", fmt.Errorf("file exceeds %d bytes limit", f.maxBytes)
-	}
 	if bytes.IndexByte(data, 0) >= 0 {
 		return "", fmt.Errorf("binary file %s is not supported", path)
 	}
@@ -87,7 +86,7 @@ func (f *fileSandbox) readFile(path string) (string, error) {
 }
 
 func (f *fileSandbox) writeFile(path string, content string) error {
-	if f == nil || f.sandbox == nil {
+	if f == nil {
 		return errors.New("file sandbox is not initialised")
 	}
 	data := []byte(content)

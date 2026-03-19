@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/gitignore"
+	"github.com/stellarlinkco/agentsdk-go/pkg/gitignore"
 )
 
 type grepSearchOptions struct {
@@ -48,9 +48,6 @@ func (g *GrepTool) searchDirectory(ctx context.Context, root string, re *regexp.
 			return err
 		}
 		if d.Type()&fs.ModeSymlink != 0 {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 
@@ -93,8 +90,10 @@ func (g *GrepTool) searchFile(ctx context.Context, path string, re *regexp.Regex
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if err := g.sandbox.ValidatePath(path); err != nil {
-		return false, err
+	if g.policy != nil {
+		if err := g.policy.Validate(path); err != nil {
+			return false, err
+		}
 	}
 	allowed, err := opts.allow(path)
 	if err != nil {
@@ -207,10 +206,7 @@ func relativeDepth(base, target string) int {
 	if base == target {
 		return 0
 	}
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return 0
-	}
+	rel, _ := filepath.Rel(base, target)
 	rel = filepath.Clean(rel)
 	if rel == "." || strings.HasPrefix(rel, "..") {
 		return 0

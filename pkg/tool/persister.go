@@ -66,12 +66,8 @@ func (p *OutputPersister) MaybePersist(call Call, result *ToolResult) error {
 	if err != nil {
 		return err
 	}
-
-	_, writeErr := f.WriteString(output)
-	closeErr := f.Close()
-	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(path)
-		return errors.Join(writeErr, closeErr)
+	if err := finalizeToolOutputFile(f, path, output); err != nil {
+		return err
 	}
 
 	result.Output = formatToolOutputReference(path)
@@ -104,7 +100,10 @@ func createToolOutputFile(dir string) (*os.File, string, error) {
 		return nil, "", errors.New("output directory is empty")
 	}
 
-	ts := time.Now().UnixNano()
+	return createToolOutputFileWithTimestamp(dir, time.Now().UnixNano())
+}
+
+func createToolOutputFileWithTimestamp(dir string, ts int64) (*os.File, string, error) {
 	for attempts := 0; attempts < 16; attempts++ {
 		filename := strconv.FormatInt(ts, 10) + ".output"
 		path := filepath.Join(dir, filename)
@@ -119,6 +118,21 @@ func createToolOutputFile(dir string) (*os.File, string, error) {
 		return f, path, nil
 	}
 	return nil, "", fmt.Errorf("output file collision under %s", dir)
+}
+
+type toolOutputFile interface {
+	WriteString(string) (int, error)
+	Close() error
+}
+
+func finalizeToolOutputFile(f toolOutputFile, path string, output string) error {
+	_, writeErr := f.WriteString(output)
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return errors.Join(writeErr, closeErr)
+	}
+	return nil
 }
 
 func formatToolOutputReference(path string) string {

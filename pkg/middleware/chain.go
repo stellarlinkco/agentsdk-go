@@ -65,10 +65,6 @@ func (c *Chain) Execute(ctx context.Context, stage Stage, st *State) error {
 			switch stage {
 			case StageBeforeAgent:
 				return mw.BeforeAgent(ctx, st)
-			case StageBeforeModel:
-				return mw.BeforeModel(ctx, st)
-			case StageAfterModel:
-				return mw.AfterModel(ctx, st)
 			case StageBeforeTool:
 				return mw.BeforeTool(ctx, st)
 			case StageAfterTool:

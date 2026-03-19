@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/security"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const (
@@ -31,6 +31,8 @@ Usage:
 - You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
 - If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.`
 )
+
+const is32Bit = ^uint(0)>>32 == 0
 
 var readSchema = &tool.JSONSchema{
 	Type: "object",
@@ -73,15 +75,15 @@ func NewReadToolWithRoot(root string) *ReadTool {
 }
 
 // NewReadToolWithSandbox builds a ReadTool using a custom sandbox.
-func NewReadToolWithSandbox(root string, sandbox *security.Sandbox) *ReadTool {
+func NewReadToolWithSandbox(root string, policy sandbox.FileSystemPolicy) *ReadTool {
 	return &ReadTool{
-		base:          newFileSandboxWithSandbox(root, sandbox),
+		base:          newFileSandboxWithSandbox(root, policy),
 		defaultLimit:  readDefaultLineLimit,
 		maxLineLength: readMaxLineLength,
 	}
 }
 
-func (r *ReadTool) Name() string { return "Read" }
+func (r *ReadTool) Name() string { return "read" }
 
 func (r *ReadTool) Description() string { return readDescription }
 
@@ -91,7 +93,7 @@ func (r *ReadTool) Execute(ctx context.Context, params map[string]interface{}) (
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if r == nil || r.base == nil || r.base.sandbox == nil {
+	if r == nil || r.base == nil {
 		return nil, errors.New("read tool is not initialised")
 	}
 	path, err := r.resolveFilePath(params)
@@ -270,7 +272,7 @@ func coerceInt(value interface{}) (int, error) {
 	case int32:
 		return int(v), nil
 	case int64:
-		if v > math.MaxInt || v < math.MinInt {
+		if is32Bit && (v > math.MaxInt32 || v < math.MinInt32) {
 			return 0, fmt.Errorf("value %d out of int range", v)
 		}
 		return int(v), nil
@@ -284,7 +286,7 @@ func coerceInt(value interface{}) (int, error) {
 	case uint16:
 		return int(v), nil
 	case uint32:
-		if uint64(v) > uint64(math.MaxInt) {
+		if is32Bit && uint64(v) > uint64(math.MaxInt32) {
 			return 0, fmt.Errorf("value %d out of int range", v)
 		}
 		return int(v), nil

@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 )
 
 func TestLoadSettingsMergesOverridesAndInitialisesEnv(t *testing.T) {
 	root := t.TempDir()
-	claudeDir := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
-		t.Fatalf("mkdir claude: %v", err)
+	agentsDir := filepath.Join(root, ".agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
 	}
 
 	overlayPath := filepath.Join(root, "custom_settings.json")

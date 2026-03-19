@@ -3,6 +3,7 @@ package toolbuiltin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -123,7 +124,7 @@ func TestReadToolValidationErrors(t *testing.T) {
 		{"invalid offset type", map[string]any{"file_path": path, "offset": []int{1}}, "offset"},
 		{"negative offset", map[string]any{"file_path": path, "offset": -1}, "offset"},
 		{"non integer limit", map[string]any{"file_path": path, "limit": 1.5}, "limit"},
-		{"sandbox escape", map[string]any{"file_path": filepath.Join(dir, "..", "escape.txt")}, "path not in sandbox"},
+		{"sandbox escape", map[string]any{"file_path": filepath.Join(dir, "..", "escape.txt")}, "path denied"},
 	}
 
 	for _, tc := range cases {
@@ -162,9 +163,27 @@ func TestReadToolRejectsBinaryFiles(t *testing.T) {
 	}
 }
 
+func TestReadToolExecute_RespectsContextCancel(t *testing.T) {
+	skipIfWindows(t)
+	dir := cleanTempDir(t)
+	path := filepath.Join(dir, "data.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	tool := NewReadToolWithRoot(dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := tool.Execute(ctx, map[string]any{"file_path": path})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
+	}
+}
+
 func TestReadToolMetadataAndHelpers(t *testing.T) {
 	tool := NewReadTool()
-	if tool.Name() != "Read" {
+	if tool.Name() != "read" {
 		t.Fatalf("unexpected name %q", tool.Name())
 	}
 	if tool.Description() == "" || tool.Schema() == nil {
@@ -204,8 +223,10 @@ func TestReadToolMetadataAndHelpers(t *testing.T) {
 		{"json number invalid", json.Number("abc"), 0, true},
 		{"json number overflow", json.Number(strconv.FormatInt(math.MaxInt64, 10) + "9"), 0, true},
 		{"json number float int", json.Number("20.0"), 20, false},
+		{"json number float invalid", json.Number("1.2.3"), 0, true},
 		{"string ok", "14", 14, false},
 		{"string empty", "  ", 0, true},
+		{"string invalid", "nope", 0, true},
 		{"unsupported", []byte("15"), 0, true},
 	}
 
@@ -253,5 +274,12 @@ func TestReadToolMetadataAndHelpers(t *testing.T) {
 	tool.maxLineLength = 5
 	if got, truncated := tool.applyLineTruncation("0123456789"); !truncated || !strings.Contains(got, "...(truncated)") {
 		t.Fatalf("expected truncation suffix, got %q truncated=%v", got, truncated)
+	}
+
+	if formatted, returned, _, _ := tool.formatLines(nil, 1, 1); formatted != "" || returned != 0 {
+		t.Fatalf("expected empty formatLines result")
+	}
+	if formatted, returned, _, _ := tool.formatLines([]string{"x", "y"}, 0, 1); formatted == "" || returned != 1 {
+		t.Fatalf("expected offset clamped result, got %q returned=%d", formatted, returned)
 	}
 }

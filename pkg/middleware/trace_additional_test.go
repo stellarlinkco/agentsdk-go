@@ -18,12 +18,6 @@ func TestTraceMiddlewareStages(t *testing.T) {
 	if err := mw.BeforeAgent(ctx, state); err != nil {
 		t.Fatalf("before agent: %v", err)
 	}
-	if err := mw.BeforeModel(ctx, state); err != nil {
-		t.Fatalf("before model: %v", err)
-	}
-	if err := mw.AfterModel(ctx, state); err != nil {
-		t.Fatalf("after model: %v", err)
-	}
 	if err := mw.BeforeTool(ctx, state); err != nil {
 		t.Fatalf("before tool: %v", err)
 	}

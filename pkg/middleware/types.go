@@ -2,13 +2,11 @@ package middleware
 
 import "context"
 
-// Stage enumerates the six interception points supported by the chain.
+// Stage enumerates the interception points supported by the chain.
 type Stage int
 
 const (
 	StageBeforeAgent Stage = iota
-	StageBeforeModel
-	StageAfterModel
 	StageBeforeTool
 	StageAfterTool
 	StageAfterAgent
@@ -27,13 +25,11 @@ type State struct {
 	Values      map[string]any
 }
 
-// Middleware defines all six interception points. Implementations may
+// Middleware defines all four interception points. Implementations may
 // no-op individual methods when the hook is not needed.
 type Middleware interface {
 	Name() string
 	BeforeAgent(ctx context.Context, st *State) error
-	BeforeModel(ctx context.Context, st *State) error
-	AfterModel(ctx context.Context, st *State) error
 	BeforeTool(ctx context.Context, st *State) error
 	AfterTool(ctx context.Context, st *State) error
 	AfterAgent(ctx context.Context, st *State) error
@@ -45,8 +41,6 @@ type Funcs struct {
 	Identifier string
 
 	OnBeforeAgent func(ctx context.Context, st *State) error
-	OnBeforeModel func(ctx context.Context, st *State) error
-	OnAfterModel  func(ctx context.Context, st *State) error
 	OnBeforeTool  func(ctx context.Context, st *State) error
 	OnAfterTool   func(ctx context.Context, st *State) error
 	OnAfterAgent  func(ctx context.Context, st *State) error
@@ -64,20 +58,6 @@ func (f Funcs) BeforeAgent(ctx context.Context, st *State) error {
 		return nil
 	}
 	return f.OnBeforeAgent(ctx, st)
-}
-
-func (f Funcs) BeforeModel(ctx context.Context, st *State) error {
-	if f.OnBeforeModel == nil {
-		return nil
-	}
-	return f.OnBeforeModel(ctx, st)
-}
-
-func (f Funcs) AfterModel(ctx context.Context, st *State) error {
-	if f.OnAfterModel == nil {
-		return nil
-	}
-	return f.OnAfterModel(ctx, st)
 }
 
 func (f Funcs) BeforeTool(ctx context.Context, st *State) error {

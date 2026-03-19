@@ -111,20 +111,38 @@ func TestHelpersAndEdgeCases(t *testing.T) {
 	if res := (KeywordMatcher{All: []string{"deploy"}}).Match(ActivationContext{}); res.Matched {
 		t.Fatalf("keyword matcher should not match empty prompt")
 	}
+	if res := (KeywordMatcher{All: []string{"deploy"}, Any: []string{"prod"}}).Match(ActivationContext{Prompt: "deploy to dev"}); res.Matched {
+		t.Fatalf("expected any-miss to fail, got %+v", res)
+	}
 
 	// tag matcher coverage: exclude with empty value, normalize case
+	if res := (TagMatcher{}).Match(ActivationContext{Tags: map[string]string{"env": "prod"}}); res.Matched {
+		t.Fatalf("empty tag matcher should not match")
+	}
 	tags := map[string]string{"Role": "Admin"}
 	if res := (TagMatcher{Exclude: map[string]string{"role": ""}}).Match(ActivationContext{Tags: tags}); res.Matched {
 		t.Fatalf("exclude any value should block match")
+	}
+	if res := (TagMatcher{Exclude: map[string]string{"missing": "x"}}).Match(ActivationContext{Tags: tags}); !res.Matched {
+		t.Fatalf("expected exclude miss to allow, got %+v", res)
 	}
 	req := map[string]string{"Env": "Prod"}
 	if !(TagMatcher{Require: req}.Match(ActivationContext{Tags: map[string]string{"env": "prod"}}).Matched) {
 		t.Fatalf("require should match ignoring case")
 	}
+	if res := (TagMatcher{Require: map[string]string{"env": "prod"}}).Match(ActivationContext{Tags: map[string]string{}}); res.Matched {
+		t.Fatalf("expected missing required tag to fail")
+	}
+	if res := (TagMatcher{Require: map[string]string{"env": "prod"}}).Match(ActivationContext{Tags: map[string]string{"env": "dev"}}); res.Matched {
+		t.Fatalf("expected mismatched required value to fail")
+	}
 
 	// trait matcher with empty context
 	if res := (TraitMatcher{Traits: []string{"vip"}}).Match(ActivationContext{}); res.Matched {
 		t.Fatalf("should not match when ctx has no traits")
+	}
+	if res := (TraitMatcher{}).Match(ActivationContext{Traits: []string{"vip"}}); res.Matched {
+		t.Fatalf("empty trait matcher should not match")
 	}
 
 	// helper utilities
@@ -137,11 +155,14 @@ func TestHelpersAndEdgeCases(t *testing.T) {
 	if r := ratio(1, 0); r != 0 {
 		t.Fatalf("ratio should guard zero total")
 	}
-	tokens := normalizeTokens([]string{" B ", "a", "a"})
+	tokens := normalizeTokens([]string{"", "  ", " B ", "a", "a"})
 	if len(tokens) != 2 || tokens[0] != "a" || tokens[1] != "b" {
 		t.Fatalf("normalizeTokens unexpected: %v", tokens)
 	}
-	if m := normalizeTagMap(map[string]string{" Key ": " Val "}); m["key"] != "val" {
+	if m := normalizeTagMap(map[string]string{" ": "x"}); m != nil {
+		t.Fatalf("expected empty normalizeTagMap result to be nil, got %v", m)
+	}
+	if m := normalizeTagMap(map[string]string{" ": "x", " Key ": " Val "}); m["key"] != "val" {
 		t.Fatalf("normalizeTagMap failed: %v", m)
 	}
 	if len(tokenSet([]string{"", "X", "x"})) != 1 {

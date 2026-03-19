@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/middleware"
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 func TestBashSessionIDFromContext(t *testing.T) {

@@ -80,9 +80,9 @@ func TestMergeMCPConfig(t *testing.T) {
 
 func TestMergeHooksAndCloneHooks(t *testing.T) {
 	lower := &HooksConfig{
-		PreToolUse:        []HookMatcherEntry{{Matcher: "a", Hooks: []HookDefinition{{Type: "command", Command: "1"}}}},
-		PostToolUse:       []HookMatcherEntry{{Matcher: "b", Hooks: []HookDefinition{{Type: "command", Command: "2"}}}},
-		PermissionRequest: []HookMatcherEntry{{Matcher: "p", Hooks: []HookDefinition{{Type: "command", Command: "x"}}}},
+		PreToolUse:   []HookMatcherEntry{{Matcher: "a", Hooks: []HookDefinition{{Type: "command", Command: "1"}}}},
+		PostToolUse:  []HookMatcherEntry{{Matcher: "b", Hooks: []HookDefinition{{Type: "command", Command: "2"}}}},
+		SessionStart: []HookMatcherEntry{{Matcher: "p", Hooks: []HookDefinition{{Type: "command", Command: "x"}}}},
 	}
 	higher := &HooksConfig{
 		PreToolUse:   []HookMatcherEntry{{Matcher: "c", Hooks: []HookDefinition{{Type: "command", Command: "3"}}}},
@@ -97,10 +97,9 @@ func TestMergeHooksAndCloneHooks(t *testing.T) {
 	require.Equal(t, "c", out.PreToolUse[1].Matcher)
 	require.Len(t, out.PostToolUse, 1)
 	require.Equal(t, "b", out.PostToolUse[0].Matcher)
-	require.Len(t, out.PermissionRequest, 1)
-	require.Equal(t, "p", out.PermissionRequest[0].Matcher)
-	require.Len(t, out.SessionStart, 1)
-	require.Equal(t, "s", out.SessionStart[0].Matcher)
+	require.Len(t, out.SessionStart, 2)
+	require.Equal(t, "p", out.SessionStart[0].Matcher)
+	require.Equal(t, "s", out.SessionStart[1].Matcher)
 
 	// Mutation isolation
 	out.PreToolUse[0].Matcher = "changed"

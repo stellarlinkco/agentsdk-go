@@ -140,10 +140,7 @@ func TestConvertMessages_UserWithContentBlocks(t *testing.T) {
 			},
 		},
 	}
-	_, params, err := convertMessages(msgs, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, params := convertMessages(msgs, false)
 	if len(params) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(params))
 	}
@@ -167,10 +164,7 @@ func TestConvertMessages_UserContentMergedWithContentBlocks(t *testing.T) {
 			},
 		},
 	}
-	_, params, err := convertMessages(msgs, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, params := convertMessages(msgs, false)
 	if len(params) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(params))
 	}
@@ -187,10 +181,7 @@ func TestConvertMessages_UserFallsBackToContent(t *testing.T) {
 	msgs := []Message{
 		{Role: "user", Content: "plain text"},
 	}
-	_, params, err := convertMessages(msgs, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, params := convertMessages(msgs, false)
 	if len(params) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(params))
 	}
@@ -227,10 +218,7 @@ func TestCacheControl_MultimodalMessageEndingWithImage(t *testing.T) {
 			},
 		},
 	}
-	_, params, err := convertMessages(msgs, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, params := convertMessages(msgs, true)
 	if len(params) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(params))
 	}
@@ -251,10 +239,7 @@ func TestCacheControl_TextOnlyMessage(t *testing.T) {
 	msgs := []Message{
 		{Role: "user", Content: "hello"},
 	}
-	_, params, err := convertMessages(msgs, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, params := convertMessages(msgs, true)
 	textBlock := params[0].Content[0]
 	if textBlock.OfText == nil || textBlock.OfText.CacheControl.Type == "" {
 		t.Fatal("expected cache control on text-only message")
@@ -272,10 +257,7 @@ func TestCacheControl_AllImageMessage_NoCacheSlotWasted(t *testing.T) {
 		},
 		{Role: "user", Content: "second message"},
 	}
-	_, params, err := convertMessages(msgs, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_, params := convertMessages(msgs, true)
 	// The second message (text-only) should get cache control
 	if len(params) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(params))

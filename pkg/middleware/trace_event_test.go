@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 func TestTraceEventCapture(t *testing.T) {
@@ -22,10 +22,10 @@ func TestTraceEventCapture(t *testing.T) {
 		},
 	}
 
-	if captureModelRequest(StageBeforeModel, st) == nil {
+	if captureModelRequest(StageBeforeAgent, st) == nil {
 		t.Fatalf("expected model request payload")
 	}
-	if captureModelResponse(StageAfterModel, st) == nil {
+	if captureModelResponse(StageAfterAgent, st) == nil {
 		t.Fatalf("expected model response payload")
 	}
 	if captureToolCall(StageBeforeTool, st) == nil {

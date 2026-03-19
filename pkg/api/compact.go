@@ -3,16 +3,11 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log"
 	"strings"
 	"sync"
-	"time"
 
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
-	corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
-	"github.com/cexll/agentsdk-go/pkg/message"
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/message"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 // CompactConfig controls automatic context compaction.
@@ -20,30 +15,13 @@ type CompactConfig struct {
 	Enabled       bool    `json:"enabled"`
 	Threshold     float64 `json:"threshold"`      // trigger ratio (default 0.8)
 	PreserveCount int     `json:"preserve_count"` // keep latest N messages (default 5)
-	SummaryModel  string  `json:"summary_model"`  // model tier/name used for summary
-
-	PreserveInitial  bool `json:"preserve_initial"`   // keep initial messages when compacting
-	InitialCount     int  `json:"initial_count"`      // keep first N messages from the compacted prefix
-	PreserveUserText bool `json:"preserve_user_text"` // keep recent user messages from the compacted prefix
-	UserTextTokens   int  `json:"user_text_tokens"`   // token budget for preserved user messages
-
-	MaxRetries    int           `json:"max_retries"`
-	RetryDelay    time.Duration `json:"retry_delay"`
-	FallbackModel string        `json:"fallback_model"`
-
-	// RolloutDir enables compact event persistence when non-empty.
-	// The directory is resolved relative to Options.ProjectRoot unless absolute.
-	RolloutDir string `json:"rollout_dir"`
 }
 
 const (
 	defaultCompactThreshold   = 0.8
 	defaultCompactPreserve    = 5
 	defaultClaudeContextLimit = 200000
-	summaryMaxTokens          = 1024
 )
-
-var errNoCompaction = errors.New("api: nothing to compact")
 
 func (c CompactConfig) withDefaults() CompactConfig {
 	cfg := c
@@ -53,40 +31,16 @@ func (c CompactConfig) withDefaults() CompactConfig {
 	if cfg.PreserveCount <= 0 {
 		cfg.PreserveCount = defaultCompactPreserve
 	}
-	if cfg.PreserveCount < 1 {
-		cfg.PreserveCount = 1
-	}
-	cfg.SummaryModel = strings.TrimSpace(cfg.SummaryModel)
-	if cfg.InitialCount < 0 {
-		cfg.InitialCount = 0
-	}
-	if cfg.PreserveInitial && cfg.InitialCount == 0 {
-		cfg.InitialCount = 1
-	}
-	if cfg.UserTextTokens < 0 {
-		cfg.UserTextTokens = 0
-	}
-	if cfg.MaxRetries < 0 {
-		cfg.MaxRetries = 0
-	}
-	if cfg.RetryDelay < 0 {
-		cfg.RetryDelay = 0
-	}
-	cfg.FallbackModel = strings.TrimSpace(cfg.FallbackModel)
-	cfg.RolloutDir = strings.TrimSpace(cfg.RolloutDir)
 	return cfg
 }
 
 type compactor struct {
-	cfg     CompactConfig
-	model   model.Model
-	limit   int
-	hooks   *corehooks.Executor
-	rollout *RolloutWriter
-	mu      sync.Mutex
+	cfg   CompactConfig
+	limit int
+	mu    sync.Mutex
 }
 
-func newCompactor(projectRoot string, cfg CompactConfig, mdl model.Model, tokenLimit int, hooks *corehooks.Executor) *compactor {
+func newCompactor(cfg CompactConfig, tokenLimit int) *compactor {
 	cfg = cfg.withDefaults()
 	if !cfg.Enabled {
 		return nil
@@ -95,14 +49,7 @@ func newCompactor(projectRoot string, cfg CompactConfig, mdl model.Model, tokenL
 	if limit <= 0 {
 		limit = defaultClaudeContextLimit
 	}
-	rollout := newRolloutWriter(projectRoot, cfg.RolloutDir)
-	return &compactor{
-		cfg:     cfg,
-		model:   mdl,
-		limit:   limit,
-		hooks:   hooks,
-		rollout: rollout,
-	}
+	return &compactor{cfg: cfg, limit: limit}
 }
 
 func (c *compactor) shouldCompact(msgCount, tokenCount int) bool {
@@ -119,17 +66,12 @@ func (c *compactor) shouldCompact(msgCount, tokenCount int) bool {
 	return ratio >= c.cfg.Threshold
 }
 
-type compactResult struct {
-	summary       string
-	originalMsgs  int
-	preservedMsgs int
-	tokensBefore  int
-	tokensAfter   int
-}
-
-func (c *compactor) maybeCompact(ctx context.Context, hist *message.History, sessionID string, recorder *hookRecorder) (compactResult, bool, error) {
+func (c *compactor) maybeCompact(ctx context.Context, hist *message.History, mdl model.Model) (bool, error) {
 	if c == nil || hist == nil || !c.cfg.Enabled {
-		return compactResult{}, false, nil
+		return false, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -137,320 +79,111 @@ func (c *compactor) maybeCompact(ctx context.Context, hist *message.History, ses
 	msgCount := hist.Len()
 	tokenCount := hist.TokenCount()
 	if !c.shouldCompact(msgCount, tokenCount) {
-		return compactResult{}, false, nil
+		return false, nil
 	}
+	if mdl == nil {
+		return false, errors.New("api: compaction enabled but model is nil")
+	}
+
 	snapshot := hist.All()
-	if len(snapshot) <= c.cfg.PreserveCount {
-		return compactResult{}, false, nil
-	}
-
-	payload := coreevents.PreCompactPayload{
-		EstimatedTokens: tokenCount,
-		TokenLimit:      c.limit,
-		Threshold:       c.cfg.Threshold,
-		PreserveCount:   c.cfg.PreserveCount,
-	}
-	allow, err := c.preCompact(ctx, sessionID, payload, recorder)
-	if err != nil {
-		return compactResult{}, false, err
-	}
-	if !allow {
-		return compactResult{}, false, nil
-	}
-
-	res, err := c.compact(ctx, hist, snapshot, tokenCount)
-	if err != nil {
-		if errors.Is(err, errNoCompaction) {
-			return compactResult{}, false, nil
-		}
-		return compactResult{}, false, err
-	}
-	c.postCompact(sessionID, res, recorder)
-	return res, true, nil
-}
-
-func (c *compactor) preCompact(ctx context.Context, sessionID string, payload coreevents.PreCompactPayload, recorder *hookRecorder) (bool, error) {
-	evt := coreevents.Event{
-		Type:      coreevents.PreCompact,
-		SessionID: sessionID,
-		Payload:   payload,
-	}
-	if c.hooks == nil {
-		c.record(recorder, evt)
-		return true, nil
-	}
-	results, err := c.hooks.Execute(ctx, evt)
-	c.record(recorder, evt)
-	if err != nil {
-		return false, err
-	}
-	for _, res := range results {
-		if res.Decision == corehooks.DecisionBlockingError {
-			return false, nil
-		}
-		if res.Output != nil && res.Output.Continue != nil && !*res.Output.Continue {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-func (c *compactor) postCompact(sessionID string, res compactResult, recorder *hookRecorder) {
-	payload := coreevents.ContextCompactedPayload{
-		Summary:               res.summary,
-		OriginalMessages:      res.originalMsgs,
-		PreservedMessages:     res.preservedMsgs,
-		EstimatedTokensBefore: res.tokensBefore,
-		EstimatedTokensAfter:  res.tokensAfter,
-	}
-	evt := coreevents.Event{
-		Type:      coreevents.ContextCompacted,
-		SessionID: sessionID,
-		Payload:   payload,
-	}
-	if c.hooks != nil {
-		//nolint:errcheck // context compacted events are non-critical notifications
-		c.hooks.Publish(evt)
-	}
-	c.record(recorder, evt)
-	if c.rollout != nil {
-		if err := c.rollout.WriteCompactEvent(sessionID, res); err != nil {
-			log.Printf("api: write compaction rollout: %v", err)
-		}
-	}
-}
-
-func (c *compactor) record(recorder *hookRecorder, evt coreevents.Event) {
-	if recorder == nil {
-		return
-	}
-	recorder.Record(evt)
-}
-
-func (c *compactor) compact(ctx context.Context, hist *message.History, snapshot []message.Message, tokensBefore int) (compactResult, error) {
-	if c.model == nil {
-		return compactResult{}, errors.New("api: summary model is nil")
-	}
 	preserve := c.cfg.PreserveCount
 	if preserve >= len(snapshot) {
-		return compactResult{}, nil
+		return false, nil
 	}
+
 	cut := len(snapshot) - preserve
-	spans := toolTransactionSpans(snapshot)
-	for _, span := range spans {
+	for _, span := range toolTransactionSpans(snapshot) {
 		if span.start < cut && cut < span.end {
 			cut = span.start
 			break
 		}
 	}
-	older := snapshot[:cut]
-	kept := snapshot[cut:]
-
-	preservedInitial := make([]bool, len(older))
-	preservedUserText := make([]bool, len(older))
-	if c.cfg.PreserveInitial && c.cfg.InitialCount > 0 {
-		n := c.cfg.InitialCount
-		if n > len(older) {
-			n = len(older)
-		}
-		for i := 0; i < n; i++ {
-			preservedInitial[i] = true
-		}
+	if cut <= 0 {
+		return false, nil
 	}
 
-	if c.cfg.PreserveUserText && c.cfg.UserTextTokens > 0 {
-		var counter message.NaiveCounter
-		total := 0
-		for i := len(older) - 1; i >= 0; i-- {
-			if preservedInitial[i] {
-				continue
-			}
-			if older[i].Role != "user" || strings.TrimSpace(older[i].Content) == "" {
-				continue
-			}
-			total += counter.Count(older[i])
-			preservedUserText[i] = true
-			if total >= c.cfg.UserTextTokens {
-				break
-			}
-		}
-	}
-	for _, span := range spans {
-		if span.end > len(older) {
-			break
-		}
-		keep := false
-		for i := span.start; i < span.end; i++ {
-			if preservedInitial[i] {
-				keep = true
-				break
-			}
-		}
-		if !keep {
-			continue
-		}
-		for i := span.start; i < span.end; i++ {
-			preservedInitial[i] = true
-		}
-	}
-
-	initial := make([]message.Message, 0, len(older))
-	userText := make([]message.Message, 0, len(older))
-	summarize := make([]message.Message, 0, len(older))
-	for i, msg := range older {
-		if preservedInitial[i] {
-			initial = append(initial, message.CloneMessage(msg))
-			continue
-		}
-		if preservedUserText[i] {
-			userText = append(userText, message.CloneMessage(msg))
-			continue
-		}
-		summarize = append(summarize, msg)
-	}
-	if len(summarize) == 0 {
-		return compactResult{}, errNoCompaction
-	}
-
-	req := model.Request{
-		Messages:  convertMessages(summarize),
-		System:    summarySystemPrompt,
-		Model:     c.cfg.SummaryModel,
-		MaxTokens: summaryMaxTokens,
-	}
-	resp, err := c.completeSummary(ctx, req)
+	summary, err := compressMessages(ctx, mdl, stripToolIO(snapshot[:cut]))
 	if err != nil {
-		return compactResult{}, fmt.Errorf("api: compact summary: %w", err)
+		return false, err
 	}
-	summary := strings.TrimSpace(resp.Message.Content)
+	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		summary = "对话摘要为空"
+		return false, nil
 	}
 
-	newMsgs := make([]message.Message, 0, len(initial)+1+len(userText)+len(kept))
-	newMsgs = append(newMsgs, initial...)
-	newMsgs = append(newMsgs, message.Message{
+	out := make([]message.Message, 0, 1+len(snapshot[cut:]))
+	out = append(out, message.Message{
 		Role:    "system",
-		Content: fmt.Sprintf("对话摘要：\n%s", summary),
+		Content: "## Summary\n\n" + summary,
 	})
-	newMsgs = append(newMsgs, userText...)
-	newMsgs = append(newMsgs, message.CloneMessages(kept)...)
-	hist.Replace(newMsgs)
-
-	tokensAfter := hist.TokenCount()
-	preservedMsgs := len(initial) + len(userText) + len(kept)
-	return compactResult{
-		summary:       summary,
-		originalMsgs:  len(snapshot),
-		preservedMsgs: preservedMsgs,
-		tokensBefore:  tokensBefore,
-		tokensAfter:   tokensAfter,
-	}, nil
-}
-
-func (c *compactor) completeSummary(ctx context.Context, req model.Request) (*model.Response, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if c == nil || c.model == nil {
-		return nil, errors.New("api: summary model is nil")
-	}
-	attempts := 1 + c.cfg.MaxRetries
-	if attempts < 1 {
-		attempts = 1
-	}
-
-	var lastErr error
-	for attempt := 1; attempt <= attempts; attempt++ {
-		if attempt > 1 {
-			if delay := c.cfg.RetryDelay; delay > 0 {
-				timer := time.NewTimer(delay)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return nil, ctx.Err()
-				case <-timer.C:
-				}
-			}
-			if fallback := strings.TrimSpace(c.cfg.FallbackModel); fallback != "" {
-				req.Model = fallback
-			}
-		}
-		var resp *model.Response
-		err := c.model.CompleteStream(ctx, req, func(sr model.StreamResult) error {
-			if sr.Final && sr.Response != nil {
-				resp = sr.Response
-			}
-			return nil
-		})
-		if err == nil && resp != nil {
-			return resp, nil
-		}
-		if err == nil && resp == nil {
-			err = errors.New("api: compact summary returned no final response")
-		}
-		lastErr = err
-		if attempts > 1 {
-			log.Printf("api: compact summary attempt %d/%d failed: %v", attempt, attempts, err)
-		}
-	}
-	return nil, lastErr
+	out = append(out, snapshot[cut:]...)
+	hist.Replace(out)
+	return true, nil
 }
 
 type toolTransactionSpan struct {
 	start int
-	end   int
+	end   int // exclusive
 }
 
 func toolTransactionSpans(msgs []message.Message) []toolTransactionSpan {
-	pending := make(map[string]struct{})
-	spans := make([]toolTransactionSpan, 0)
-	start := -1
-	for i, msg := range msgs {
-		role := strings.ToLower(strings.TrimSpace(msg.Role))
-		if start == -1 {
-			if role != "assistant" {
-				continue
-			}
-			ids := toolMessageIDs(msg)
-			if len(ids) == 0 {
-				continue
-			}
-			start = i
-			for _, id := range ids {
-				pending[id] = struct{}{}
-			}
+	if len(msgs) == 0 {
+		return nil
+	}
+	var spans []toolTransactionSpan
+	for i := 0; i < len(msgs); i++ {
+		msg := msgs[i]
+		if msg.Role != "assistant" || len(msg.ToolCalls) == 0 {
 			continue
 		}
-
-		switch role {
-		case "assistant":
-			for _, id := range toolMessageIDs(msg) {
-				pending[id] = struct{}{}
-			}
-		case "tool":
-			for _, id := range toolMessageIDs(msg) {
-				delete(pending, id)
-			}
+		end := i + 1
+		for end < len(msgs) && msgs[end].Role == "tool" {
+			end++
 		}
-		if len(pending) == 0 {
-			spans = append(spans, toolTransactionSpan{start: start, end: i + 1})
-			start = -1
-		}
+		spans = append(spans, toolTransactionSpan{start: i, end: end})
+		i = end - 1
 	}
 	return spans
 }
 
-func toolMessageIDs(msg message.Message) []string {
-	if len(msg.ToolCalls) == 0 {
+func stripToolIO(msgs []message.Message) []message.Message {
+	if len(msgs) == 0 {
 		return nil
 	}
-
-	ids := make([]string, 0, len(msg.ToolCalls))
-	for _, call := range msg.ToolCalls {
-		if id := strings.TrimSpace(call.ID); id != "" {
-			ids = append(ids, id)
+	out := make([]message.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg.Role == "tool" {
+			continue
 		}
+		cloned := message.CloneMessage(msg)
+		cloned.ToolCalls = nil
+		cloned.ReasoningContent = ""
+		if cloned.Role == "assistant" && len(msg.ToolCalls) > 0 && strings.TrimSpace(cloned.Content) == "" && len(cloned.ContentBlocks) == 0 {
+			cloned.Content = "Tool call(s) omitted."
+		}
+		out = append(out, cloned)
 	}
-	return ids
+	return out
+}
+
+func compressMessages(ctx context.Context, mdl model.Model, msgs []message.Message) (string, error) {
+	if mdl == nil {
+		return "", errors.New("api: compressMessages: model is nil")
+	}
+	req := model.Request{
+		System: "You are a prompt compression engine. Summarize the conversation for future context. Do not include any tool inputs, tool JSON, or tool outputs verbatim. Keep key facts, decisions, and constraints. Be concise.",
+		Messages: append(convertMessages(msgs), model.Message{
+			Role:    "user",
+			Content: "Compress the above conversation into a short summary.",
+		}),
+		MaxTokens: 512,
+	}
+	resp, err := mdl.Complete(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if resp == nil {
+		return "", errors.New("api: compaction model returned nil response")
+	}
+	return resp.Message.Content, nil
 }

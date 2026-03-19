@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	"github.com/cexll/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 type noopFileSystemPolicy struct {

@@ -156,7 +156,7 @@ func TestSkillBodyLengthVariants(t *testing.T) {
 
 func TestSetSkillFileOpsForTest(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "testops")
+	dir := filepath.Join(root, ".agents", "skills", "testops")
 	skillPath := filepath.Join(dir, "SKILL.md")
 	writeSkill(t, skillPath, "testops", "original body")
 
@@ -225,7 +225,7 @@ func TestNilHandlerBodyLength(t *testing.T) {
 
 func TestHandlerReloadAfterError(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "reloaderr")
+	dir := filepath.Join(root, ".agents", "skills", "reloaderr")
 	skillPath := filepath.Join(dir, "SKILL.md")
 	writeSkill(t, skillPath, "reloaderr", "body")
 

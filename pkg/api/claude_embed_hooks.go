@@ -10,7 +10,9 @@ import (
 	"strings"
 )
 
-const embeddedClaudeHooksDir = ".claude/hooks"
+const (
+	embeddedAgentHooksDir = ".agents/hooks"
+)
 
 func materializeEmbeddedClaudeHooks(projectRoot string, embedFS fs.FS) error {
 	if embedFS == nil {
@@ -25,18 +27,22 @@ func materializeEmbeddedClaudeHooks(projectRoot string, embedFS fs.FS) error {
 		root = abs
 	}
 
-	info, err := fs.Stat(embedFS, embeddedClaudeHooksDir)
+	return materializeEmbeddedHooksDir(root, embedFS, embeddedAgentHooksDir)
+}
+
+func materializeEmbeddedHooksDir(projectRoot string, embedFS fs.FS, embedDir string) error {
+	info, err := fs.Stat(embedFS, embedDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("stat embedded %s: %w", embeddedClaudeHooksDir, err)
+		return fmt.Errorf("stat embedded %s: %w", embedDir, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("embedded %s is not a directory", embeddedClaudeHooksDir)
+		return fmt.Errorf("embedded %s is not a directory", embedDir)
 	}
 
-	return fs.WalkDir(embedFS, embeddedClaudeHooksDir, func(embedPath string, d fs.DirEntry, walkErr error) error {
+	return fs.WalkDir(embedFS, embedDir, func(embedPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -45,12 +51,12 @@ func materializeEmbeddedClaudeHooks(projectRoot string, embedFS fs.FS) error {
 		}
 
 		rel := path.Clean(embedPath)
-		prefix := embeddedClaudeHooksDir + "/"
-		if rel != embeddedClaudeHooksDir && !strings.HasPrefix(rel, prefix) {
+		prefix := embedDir + "/"
+		if rel != embedDir && !strings.HasPrefix(rel, prefix) {
 			return nil
 		}
 
-		dest := filepath.Join(root, filepath.FromSlash(rel))
+		dest := filepath.Join(projectRoot, filepath.FromSlash(rel))
 		if _, err := os.Stat(dest); err == nil {
 			return nil
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {

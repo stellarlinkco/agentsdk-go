@@ -356,3 +356,31 @@ func TestLoadJSONFileMissingReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, settings)
 }
+
+func TestSettingsLoader_GlobalAgentsLayerIsLoaded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	projectRoot := filepath.Join(t.TempDir(), "project")
+	require.NoError(t, os.MkdirAll(projectRoot, 0o755))
+
+	globalPath := filepath.Join(home, ".agents", "settings.json")
+	writeSettingsFile(t, globalPath, Settings{Model: "global"})
+
+	loader := SettingsLoader{ProjectRoot: projectRoot}
+	got, err := loader.Load()
+	require.NoError(t, err)
+	require.Equal(t, "global", got.Model)
+}
+
+func TestSettingsLoader_ProjectOverridesGlobal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	projectRoot, projectPath, _ := newIsolatedPaths(t)
+	writeSettingsFile(t, filepath.Join(home, ".agents", "settings.json"), Settings{Model: "global"})
+	writeSettingsFile(t, projectPath, Settings{Model: "project"})
+
+	got := loadSettings(t, projectRoot, nil)
+	require.Equal(t, "project", got.Model)
+}

@@ -262,14 +262,14 @@ func TestAnthropicHelpers(t *testing.T) {
 		t.Fatalf("expected unauthorized to be non-retryable")
 	}
 
-	systemBlocks, messages, err := convertMessages([]Message{
+	systemBlocks, messages := convertMessages([]Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "u1"},
 		{Role: "assistant", Content: "a1", ToolCalls: []ToolCall{{ID: "toolu_2", Name: "t", Arguments: map[string]any{"x": "y"}}}},
 		{Role: "tool", Content: "ok", ToolCalls: []ToolCall{{ID: "toolu_2", Result: `{"error":true}`}}},
 	}, true, "defaults")
-	if err != nil || len(systemBlocks) == 0 || len(messages) == 0 {
-		t.Fatalf("convert messages failed: %v", err)
+	if len(systemBlocks) == 0 || len(messages) == 0 {
+		t.Fatalf("convert messages failed")
 	}
 	cached := false
 	for _, msg := range messages {

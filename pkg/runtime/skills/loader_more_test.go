@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
 )
 
 func TestParseSkillFileMismatchAndInvalid(t *testing.T) {
@@ -80,4 +80,10 @@ func TestResolveFileOps(t *testing.T) {
 	if err != nil || string(data) != "ok" {
 		t.Fatalf("expected override read, got %q err=%v", data, err)
 	}
+
+	f, err := ops2.openFile(path)
+	if err != nil {
+		t.Fatalf("open (nil fs): %v", err)
+	}
+	_ = f.Close()
 }

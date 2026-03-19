@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/gitignore"
-	"github.com/cexll/agentsdk-go/pkg/security"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/gitignore"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 const (
@@ -42,7 +42,7 @@ var globSchema = &tool.JSONSchema{
 
 // GlobTool looks up files via glob patterns.
 type GlobTool struct {
-	sandbox          *security.Sandbox
+	policy           sandbox.FileSystemPolicy
 	root             string
 	maxResults       int
 	respectGitignore bool
@@ -56,7 +56,7 @@ func NewGlobTool() *GlobTool { return NewGlobToolWithRoot("") }
 func NewGlobToolWithRoot(root string) *GlobTool {
 	resolved := resolveRoot(root)
 	return &GlobTool{
-		sandbox:          security.NewSandbox(resolved),
+		policy:           sandbox.NewFileSystemAllowList(resolved),
 		root:             resolved,
 		maxResults:       globResultLimit,
 		respectGitignore: true, // Default to respecting .gitignore
@@ -64,10 +64,10 @@ func NewGlobToolWithRoot(root string) *GlobTool {
 }
 
 // NewGlobToolWithSandbox builds a GlobTool using a custom sandbox.
-func NewGlobToolWithSandbox(root string, sandbox *security.Sandbox) *GlobTool {
+func NewGlobToolWithSandbox(root string, policy sandbox.FileSystemPolicy) *GlobTool {
 	resolved := resolveRoot(root)
 	return &GlobTool{
-		sandbox:          sandbox,
+		policy:           policy,
 		root:             resolved,
 		maxResults:       globResultLimit,
 		respectGitignore: true, // Default to respecting .gitignore
@@ -82,7 +82,7 @@ func (g *GlobTool) SetRespectGitignore(respect bool) {
 	}
 }
 
-func (g *GlobTool) Name() string { return "Glob" }
+func (g *GlobTool) Name() string { return "glob" }
 
 func (g *GlobTool) Description() string { return globToolDesc }
 
@@ -92,7 +92,7 @@ func (g *GlobTool) Execute(ctx context.Context, params map[string]interface{}) (
 	if ctx == nil {
 		return nil, errors.New("context is nil")
 	}
-	if g == nil || g.sandbox == nil {
+	if g == nil {
 		return nil, errors.New("glob tool is not initialised")
 	}
 
@@ -125,8 +125,10 @@ func (g *GlobTool) Execute(ctx context.Context, params map[string]interface{}) (
 	results := make([]string, 0, len(matches))
 	for _, match := range matches {
 		clean := filepath.Clean(match)
-		if err := g.sandbox.ValidatePath(clean); err != nil {
-			return nil, err
+		if g.policy != nil {
+			if err := g.policy.Validate(clean); err != nil {
+				return nil, err
+			}
 		}
 		relPath := displayPath(clean, g.root)
 
@@ -198,8 +200,10 @@ func (g *GlobTool) resolveDir(params map[string]interface{}) (string, error) {
 		dir = filepath.Join(g.root, dir)
 	}
 	dir = filepath.Clean(dir)
-	if err := g.sandbox.ValidatePath(dir); err != nil {
-		return "", err
+	if g.policy != nil {
+		if err := g.policy.Validate(dir); err != nil {
+			return "", err
+		}
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -218,8 +222,10 @@ func (g *GlobTool) combinePattern(dir, pattern string) (string, error) {
 	}
 	candidate = filepath.Clean(candidate)
 	parent := filepath.Dir(candidate)
-	if err := g.sandbox.ValidatePath(parent); err != nil {
-		return "", err
+	if g.policy != nil {
+		if err := g.policy.Validate(parent); err != nil {
+			return "", err
+		}
 	}
 	return candidate, nil
 }

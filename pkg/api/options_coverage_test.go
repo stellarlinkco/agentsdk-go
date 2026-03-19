@@ -5,51 +5,9 @@ import (
 	"testing"
 )
 
-func TestFreezeModeDeepCopy(t *testing.T) {
-	mode := ModeContext{
-		EntryPoint: EntryPointCLI,
-		CLI: &CLIContext{
-			Args:  []string{"a"},
-			Flags: map[string]string{"k": "v"},
-		},
-		CI: &CIContext{
-			Matrix:   map[string]string{"os": "linux"},
-			Metadata: map[string]string{"build": "1"},
-		},
-		Platform: &PlatformContext{
-			Labels: map[string]string{"org": "acme"},
-		},
-	}
-
-	frozen := freezeMode(mode)
-	if frozen.CLI == mode.CLI || frozen.CI == mode.CI || frozen.Platform == mode.Platform {
-		t.Fatal("expected freezeMode to deep copy nested pointers")
-	}
-
-	mode.CLI.Args[0] = "b"
-	mode.CLI.Flags["k"] = "changed"
-	mode.CI.Matrix["os"] = "windows"
-	mode.CI.Metadata["build"] = "2"
-	mode.Platform.Labels["org"] = "other"
-
-	if frozen.CLI.Args[0] != "a" {
-		t.Fatalf("CLI.Args=%v, want %v", frozen.CLI.Args, []string{"a"})
-	}
-	if frozen.CLI.Flags["k"] != "v" {
-		t.Fatalf("CLI.Flags=%v, want map[k:v]", frozen.CLI.Flags)
-	}
-	if frozen.CI.Matrix["os"] != "linux" || frozen.CI.Metadata["build"] != "1" {
-		t.Fatalf("CI=%+v, want original values preserved", frozen.CI)
-	}
-	if frozen.Platform.Labels["org"] != "acme" {
-		t.Fatalf("Platform.Labels=%v, want map[org:acme]", frozen.Platform.Labels)
-	}
-}
-
 func TestRequestNormalizedPopulatesDefaults(t *testing.T) {
 	defaultMode := ModeContext{
 		EntryPoint: EntryPointPlatform,
-		CLI:        &CLIContext{Args: []string{"--flag"}, Flags: map[string]string{"x": "y"}},
 	}
 
 	req := Request{

@@ -2,15 +2,12 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
-
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
 )
 
 func TestRuntimePrepare_PrecheckCompactsHistory(t *testing.T) {
 	auto := CompactConfig{Enabled: true, Threshold: 0.8, PreserveCount: 1}
-	rt := newTestRuntime(t, staticModel{content: "SUM"}, auto)
+	rt := newTestRuntime(t, staticModel{content: "ok"}, auto)
 
 	sessionID := "sess"
 	hist := rt.histories.Get(sessionID)
@@ -18,22 +15,22 @@ func TestRuntimePrepare_PrecheckCompactsHistory(t *testing.T) {
 		hist.Append(msgWithTokens("user", 20))
 	}
 
-	prep, err := rt.prepare(context.Background(), Request{Prompt: "hello", SessionID: sessionID})
+	_, err := rt.Run(context.Background(), Request{Prompt: "hello", SessionID: sessionID})
 	if err != nil {
-		t.Fatalf("prepare: %v", err)
+		t.Fatalf("run: %v", err)
 	}
 
 	got := hist.All()
-	if len(got) == 0 || got[0].Role != "system" || !strings.Contains(got[0].Content, "SUM") {
-		t.Fatalf("expected history to be compacted during prepare, got %+v", got)
+	if len(got) != 3 {
+		t.Fatalf("expected compacted history len=3, got len=%d msgs=%+v", len(got), got)
 	}
-	for _, msg := range got {
-		if msg.Role == "user" && msg.Content == "hello" {
-			t.Fatalf("prompt should not be appended during prepare")
-		}
+	if got[0].Role != "system" {
+		t.Fatalf("expected summary message first, got %+v", got[0])
 	}
-
-	events := prep.recorder.Drain()
-	mustContainEventType(t, events, coreevents.PreCompact)
-	mustContainEventType(t, events, coreevents.ContextCompacted)
+	if got[1].Role != "user" || got[1].Content != "hello" {
+		t.Fatalf("expected preserved prompt, got %+v", got[1])
+	}
+	if got[2].Role != "assistant" || got[2].Content != "ok" {
+		t.Fatalf("expected model response appended after compaction, got %+v", got[2])
+	}
 }

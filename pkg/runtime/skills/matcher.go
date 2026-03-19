@@ -122,8 +122,6 @@ func (m KeywordMatcher) Match(ctx ActivationContext) MatchResult {
 	}
 	if matchedToken != "" {
 		reasonParts = append(reasonParts, "hit="+matchedToken)
-	} else if len(any) > 0 {
-		reasonParts = append(reasonParts, "any="+strconv.Itoa(len(any)))
 	}
 	return MatchResult{Matched: true, Score: score, Reason: strings.Join(reasonParts, "|")}
 }

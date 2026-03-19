@@ -9,16 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/security"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 func TestNewGrepToolWithSandbox(t *testing.T) {
 	loc := cleanTempDir(t)
-	custom := security.NewDisabledSandbox()
+	custom := sandbox.NewFileSystemAllowList(loc)
 	tool := NewGrepToolWithSandbox(loc, custom)
 
-	if tool.sandbox != custom {
-		t.Fatalf("expected custom sandbox to be used")
+	if tool.policy != custom {
+		t.Fatalf("expected custom policy to be used")
 	}
 	if want := resolveRoot(loc); tool.root != want {
 		t.Fatalf("root mismatch: got %q want %q", tool.root, want)

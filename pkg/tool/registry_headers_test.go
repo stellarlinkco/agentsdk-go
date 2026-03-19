@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/mcp"
+	"github.com/stellarlinkco/agentsdk-go/pkg/mcp"
 )
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -109,7 +109,7 @@ func TestWithInjectedHeaders(t *testing.T) {
 	}
 }
 
-func TestMCPToolsChangedHandlerNilSession(t *testing.T) {
+func TestMCPToolListChangedHandlerNilSession(t *testing.T) {
 	t.Parallel()
 
 	r := NewRegistry()

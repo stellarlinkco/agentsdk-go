@@ -3,8 +3,8 @@ package api
 import (
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	hookspkg "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
 )
 
 func TestBuildSettingsHooksNil(t *testing.T) {
@@ -24,15 +24,15 @@ func TestBuildSettingsHooksCreatesCorrectTypes(t *testing.T) {
 			PostToolUse: []config.HookMatcherEntry{{Matcher: "grep", Hooks: []config.HookDefinition{{Type: "command", Command: "echo post"}}}},
 		},
 	}
-	hooks := buildSettingsHooks(settings, "/tmp/test")
-	if len(hooks) != 2 {
-		t.Fatalf("expected 2 hooks, got %d", len(hooks))
+	settingsHooks := buildSettingsHooks(settings, "/tmp/test")
+	if len(settingsHooks) != 2 {
+		t.Fatalf("expected 2 hooks, got %d", len(settingsHooks))
 	}
 
 	// Verify PreToolUse hook
 	var foundPre, foundPost bool
-	for _, h := range hooks {
-		if h.Event == coreevents.PreToolUse {
+	for _, h := range settingsHooks {
+		if h.Event == hookspkg.PreToolUse {
 			foundPre = true
 			if h.Command != "echo pre" {
 				t.Fatalf("expected pre command 'echo pre', got %q", h.Command)
@@ -41,7 +41,7 @@ func TestBuildSettingsHooksCreatesCorrectTypes(t *testing.T) {
 				t.Fatalf("expected env KEY=value, got %v", h.Env)
 			}
 		}
-		if h.Event == coreevents.PostToolUse {
+		if h.Event == hookspkg.PostToolUse {
 			foundPost = true
 			if h.Command != "echo post" {
 				t.Fatalf("expected post command 'echo post', got %q", h.Command)
@@ -65,9 +65,9 @@ func TestBuildSettingsHooksSkipsEmpty(t *testing.T) {
 			},
 		},
 	}
-	hooks := buildSettingsHooks(settings, "/tmp/test")
-	if len(hooks) != 1 {
-		t.Fatalf("expected 1 hook (empty skipped), got %d", len(hooks))
+	settingsHooks := buildSettingsHooks(settings, "/tmp/test")
+	if len(settingsHooks) != 1 {
+		t.Fatalf("expected 1 hook (empty skipped), got %d", len(settingsHooks))
 	}
 }
 
