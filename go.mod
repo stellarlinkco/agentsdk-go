@@ -1,10 +1,9 @@
-module github.com/cexll/agentsdk-go
+module github.com/stellarlinkco/agentsdk-go
 
 go 1.24.0
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.18.0
-	github.com/coder/acp-go-sdk v0.6.4-0.20260227160919-584abe6abe22
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.1.0
@@ -15,7 +14,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.40.0
 	go.opentelemetry.io/otel/sdk v1.40.0
 	go.opentelemetry.io/otel/trace v1.40.0
-	golang.org/x/net v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -36,6 +34,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
