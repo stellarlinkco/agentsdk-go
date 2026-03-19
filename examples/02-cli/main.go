@@ -5,57 +5,77 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/api"
-	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/examples/internal/demomodel"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 const defaultModel = "claude-sonnet-4-5-20250929"
 
+var (
+	cliFatal                    = log.Fatal
+	filepathAbs                 = filepath.Abs
+	offlineModel modelpkg.Model = &demomodel.EchoModel{Prefix: "offline"}
+)
+
+type runConfig struct {
+	sessionID   string
+	projectRoot string
+	enableMCP   bool
+	interactive bool
+	online      bool
+	prompt      string
+}
+
 func main() {
-	sessionID := flag.String("session-id", envOrDefault("SESSION_ID", "demo-session"), "session identifier to keep chat history")
-	projectRoot := flag.String("project-root", ".", "project root directory (default: current directory)")
-	enableMCP := flag.Bool("enable-mcp", true, "enable MCP servers from .claude/settings.json (auto-loaded)")
-	flag.Parse()
+	if err := run(context.Background(), os.Args[1:], os.Stdin, os.Stdout); err != nil {
+		cliFatal(err)
+	}
+}
 
-	// Resolve project root path
-	absRoot, err := filepath.Abs(*projectRoot)
+func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	cfg, opts, err := buildConfigAndOptions(args, out)
 	if err != nil {
-		log.Fatalf("resolve project root: %v", err)
+		return err
 	}
 
-	provider := &modelpkg.AnthropicProvider{ModelName: defaultModel}
-
-	opts := api.Options{
-		EntryPoint:   api.EntryPointCLI,
-		ProjectRoot:  absRoot,
-		ModelFactory: provider,
-	}
-
-	if !*enableMCP {
-		// Empty slice tells the SDK to skip auto-loading MCP servers from settings.
-		opts.MCPServers = []string{}
-	}
-
-	rt, err := api.New(context.Background(), opts)
+	rt, err := api.New(ctx, opts)
 	if err != nil {
-		log.Fatalf("build runtime: %v", err)
+		return fmt.Errorf("build runtime: %w", err)
 	}
 	defer rt.Close()
 
-	fmt.Println("Type 'exit' to quit.")
-	if *enableMCP {
-		fmt.Println("MCP auto-load enabled; SDK will read .claude/settings.json. Use --enable-mcp=false to disable.")
+	if !cfg.interactive {
+		resp, err := rt.Run(ctx, api.Request{
+			Prompt:    cfg.prompt,
+			SessionID: cfg.sessionID,
+		})
+		if err != nil {
+			return fmt.Errorf("run: %w", err)
+		}
+		if resp != nil && resp.Result != nil && strings.TrimSpace(resp.Result.Output) != "" {
+			fmt.Fprintln(out, resp.Result.Output)
+			return nil
+		}
+		fmt.Fprintln(out, "(no output)")
+		return nil
 	}
-	fmt.Println()
 
-	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Fprintln(out, "Type 'exit' to quit.")
+	if cfg.enableMCP {
+		fmt.Fprintln(out, "MCP auto-load enabled; SDK will read .agents/settings.json. Use --enable-mcp=false to disable.")
+	}
+	fmt.Fprintln(out)
+
+	scanner := bufio.NewScanner(in)
 	for {
-		fmt.Print("You> ")
+		fmt.Fprint(out, "You> ")
 		if !scanner.Scan() {
 			break
 		}
@@ -66,23 +86,66 @@ func main() {
 		if input == "exit" {
 			break
 		}
-
-		resp, err := rt.Run(context.Background(), api.Request{
+		resp, err := rt.Run(ctx, api.Request{
 			Prompt:    input,
-			SessionID: *sessionID,
+			SessionID: cfg.sessionID,
 		})
 		if err != nil {
-			fmt.Printf("\nError: %v\n\n", err)
+			fmt.Fprintf(out, "\nError: %v\n\n", err)
 			continue
 		}
-		if resp.Result != nil && resp.Result.Output != "" {
-			fmt.Printf("\nAssistant> %s\n\n", resp.Result.Output)
+		if resp != nil && resp.Result != nil && strings.TrimSpace(resp.Result.Output) != "" {
+			fmt.Fprintf(out, "\nAssistant> %s\n\n", resp.Result.Output)
 		}
 	}
-
 	if err := scanner.Err(); err != nil {
-		log.Printf("read input: %v", err)
+		return fmt.Errorf("read input: %w", err)
 	}
+	return nil
+}
+
+func buildConfigAndOptions(args []string, out io.Writer) (runConfig, api.Options, error) {
+	fs := flag.NewFlagSet("02-cli", flag.ContinueOnError)
+	fs.SetOutput(out)
+
+	var cfg runConfig
+	fs.StringVar(&cfg.sessionID, "session-id", envOrDefault("SESSION_ID", "demo-session"), "session identifier to keep chat history")
+	fs.StringVar(&cfg.projectRoot, "project-root", ".", "project root directory (default: current directory)")
+	fs.BoolVar(&cfg.enableMCP, "enable-mcp", false, "enable MCP servers from .agents/settings.json (auto-loaded)")
+	fs.BoolVar(&cfg.interactive, "interactive", false, "run in interactive REPL mode (default: single prompt and exit)")
+	fs.BoolVar(&cfg.online, "online", false, "use real online model (requires ANTHROPIC_API_KEY)")
+	fs.StringVar(&cfg.prompt, "prompt", "你好", "single prompt used when not interactive")
+	if err := fs.Parse(args); err != nil {
+		return runConfig{}, api.Options{}, err
+	}
+
+	absRoot, err := filepathAbs(cfg.projectRoot)
+	if err != nil {
+		return runConfig{}, api.Options{}, fmt.Errorf("resolve project root: %w", err)
+	}
+
+	opts := api.Options{
+		EntryPoint:  api.EntryPointCLI,
+		ProjectRoot: absRoot,
+	}
+	if !cfg.enableMCP {
+		opts.MCPServers = []string{}
+	}
+
+	if cfg.online {
+		apiKey := demomodel.AnthropicAPIKey()
+		if strings.TrimSpace(apiKey) == "" {
+			return runConfig{}, api.Options{}, fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
+		}
+		opts.ModelFactory = &modelpkg.AnthropicProvider{
+			APIKey:    apiKey,
+			BaseURL:   demomodel.AnthropicBaseURL(),
+			ModelName: defaultModel,
+		}
+	} else {
+		opts.Model = offlineModel
+	}
+	return cfg, opts, nil
 }
 
 func envOrDefault(key, fallback string) string {

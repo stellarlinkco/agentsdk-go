@@ -10,15 +10,15 @@ import (
 	"log"
 )
 
-//go:embed .claude
-var claudeFS embed.FS
+//go:embed .agents
+var agentsFS embed.FS
 
 func main() {
 	fmt.Println("=== 验证嵌入文件系统 ===")
 	fmt.Println()
 
 	// 验证 settings.json
-	data, err := fs.ReadFile(claudeFS, ".claude/settings.json")
+	data, err := fs.ReadFile(agentsFS, ".agents/settings.json")
 	if err != nil {
 		log.Fatalf("读取 settings.json 失败: %v", err)
 	}
@@ -27,7 +27,7 @@ func main() {
 	fmt.Println()
 
 	// 验证 skill
-	data, err = fs.ReadFile(claudeFS, ".claude/skills/demo/SKILL.md")
+	data, err = fs.ReadFile(agentsFS, ".agents/skills/demo/SKILL.md")
 	if err != nil {
 		log.Fatalf("读取 SKILL.md 失败: %v", err)
 	}
@@ -37,7 +37,7 @@ func main() {
 
 	// 列出所有嵌入的文件
 	fmt.Println("嵌入的文件列表:")
-	err = fs.WalkDir(claudeFS, ".", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(agentsFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

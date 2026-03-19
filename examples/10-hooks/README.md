@@ -17,11 +17,11 @@ go run ./examples/10-hooks
 ```go
 typedHooks := []hooks.ShellHook{
     {
-        Event:   events.PreToolUse,
+        Event:   hooks.PreToolUse,
         Command: "/path/to/pre_tool.sh",
     },
     {
-        Event:   events.PostToolUse,
+        Event:   hooks.PostToolUse,
         Command: "/path/to/post_tool.sh",
         Async:   true,  // 异步执行，不阻塞主流程
     },
@@ -69,12 +69,9 @@ rt, _ := api.New(ctx, api.Options{
 | PostToolUse | 工具执行后 | 工具名 |
 | SessionStart | 会话开始 | source |
 | SessionEnd | 会话结束 | reason |
-| Notification | 通知 | notification_type |
-| PreCompact | 上下文压缩前 | trigger |
 | SubagentStart | 子 Agent 启动 | agent_type |
 | SubagentStop | 子 Agent 停止 | agent_type |
 | Stop | Agent 停止 | (无 matcher) |
-| UserPromptSubmit | 用户提交 | (无 matcher) |
 
 ## Payload 格式 (扁平化)
 
@@ -96,10 +93,6 @@ Hook 可通过 stdout 输出 JSON 来控制行为：
 
 ```json
 {"decision": "deny", "reason": "危险命令被拒绝"}
-```
-
-```json
-{"hookSpecificOutput": {"permissionDecision": "ask"}}
 ```
 
 ```json

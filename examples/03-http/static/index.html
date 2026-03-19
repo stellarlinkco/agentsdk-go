@@ -521,6 +521,8 @@
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
+          // Normalize CRLF to LF so we can reliably split SSE frames.
+          if (buffer.includes('\r')) buffer = buffer.replace(/\r/g, '');
 
           let sep = buffer.indexOf('\n\n');
           while (sep !== -1) {
@@ -536,6 +538,23 @@
             }
             sep = buffer.indexOf('\n\n');
           }
+        }
+        // Flush any buffered multi-byte characters and handle a trailing SSE frame
+        // that might not end with \n\n (rare, but makes the client more robust).
+        buffer += decoder.decode();
+        if (buffer.includes('\r')) buffer = buffer.replace(/\r/g, '');
+        let sep = buffer.indexOf('\n\n');
+        while (sep !== -1) {
+          const chunk = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          const evt = parseSSEBlock(chunk.trim());
+          if (evt) handleEvent(evt);
+          sep = buffer.indexOf('\n\n');
+        }
+        const tail = buffer.trim();
+        if (tail) {
+          const evt = parseSSEBlock(tail);
+          if (evt) handleEvent(evt);
         }
       } catch (err) {
         addBubble('system', `流中断：${err.message}`, '错误');

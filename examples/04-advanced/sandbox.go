@@ -3,8 +3,8 @@ package main
 import (
 	"path/filepath"
 
-	"github.com/cexll/agentsdk-go/pkg/api"
-	"github.com/cexll/agentsdk-go/pkg/sandbox"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	"github.com/stellarlinkco/agentsdk-go/pkg/sandbox"
 )
 
 func buildSandboxOptions(cfg runConfig, projectRoot string) api.SandboxOptions {

@@ -30,8 +30,8 @@ export ANTHROPIC_API_KEY=sk-ant-your-key-here
 - `05-custom-tools`（~58 行）：选择性内置工具和自定义工具注册。
 - `06-embed`（~181 行）：通过 `go:embed` 嵌入 `.claude` 目录到二进制文件。
 - `07-multimodel`（~130 行）：多模型池，分层路由和成本优化。
-- `08-askuserquestion`（~474 行）：AskUserQuestion 工具集成，多种演示场景。
-- `09-task-system`（~56 行）：任务跟踪与依赖管理。
+- `08-safety-hook`（~200 行）：Go-native safety hook + DisableSafetyHook（离线）。
+- `09-compaction`（~200 行）：prompt 压缩 compaction，剔除 tool I/O（离线）。
 - `10-hooks`（~85 行）：Hooks 系统，PreToolUse/PostToolUse shell 钩子。
 - `11-reasoning`（~186 行）：推理模型支持（DeepSeek-R1 reasoning_content 透传）。
 - `12-multimodal`（~135 行）：多模态内容块（文本 + 图片）。
@@ -94,23 +94,19 @@ go run ./examples/07-multimodel
 ```
 - 配置示例和最佳实践见 [07-multimodel/README.md](07-multimodel/README.md)。
 
-## 08-askuserquestion — AskUserQuestion 工具
-- 关键特性：通过 build tag 选择三种演示模式。
+## 08-safety-hook — safety hook（离线）
+- 关键特性：Go-native `PreToolUse` safety check；`DisableSafetyHook=true` 可禁用。
 - 运行：
 ```bash
-source .env
-(cd examples/08-askuserquestion && go run .)                  # 完整 agent 场景
-(cd examples/08-askuserquestion && go run -tags demo_llm .)   # LLM 集成测试
-(cd examples/08-askuserquestion && go run -tags demo_simple .) # 纯工具测试（无需 API key）
+go run ./examples/08-safety-hook
 ```
-- 详细用法和实现模式见 [08-askuserquestion/README.md](08-askuserquestion/README.md)。
+- 详情见 [08-safety-hook/README.md](08-safety-hook/README.md)。
 
-## 09-task-system — 任务跟踪
-- 关键特性：任务创建、依赖管理、通过内置任务工具进行状态跟踪。
+## 09-compaction — prompt 压缩 compaction（离线）
+- 关键特性：触发 prompt compression，并确保压缩输入中剔除 tool-call/tool-result。
 - 运行：
 ```bash
-source .env
-go run ./examples/09-task-system
+go run ./examples/09-compaction
 ```
 
 ## 10-hooks — Hooks 系统

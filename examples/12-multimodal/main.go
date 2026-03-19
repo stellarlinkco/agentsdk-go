@@ -1,16 +1,10 @@
 // Package main demonstrates multimodal content block support.
 //
-// Three demos:
-//  1. Text-only via ContentBlocks (backward-compatible path)
-//  2. Text + base64 image (programmatically generated PNG)
-//  3. Text + URL image (public image)
-//
-// Usage:
-//
-//	ANTHROPIC_API_KEY=sk-ant-xxx go run ./examples/12-multimodal
+// Offline-safe by default; pass --online to call Anthropic.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -18,35 +12,59 @@ import (
 	"image/color"
 	"image/png"
 	"log"
+	"os"
 	"strings"
 	"time"
 
-	"bytes"
+	"github.com/stellarlinkco/agentsdk-go/examples/internal/demomodel"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
+)
 
-	"github.com/cexll/agentsdk-go/pkg/api"
-	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
+var (
+	multimodalFatal                       = log.Fatal
+	multimodalNewRuntime                  = api.New
+	multimodalOfflineModel modelpkg.Model = &demomodel.EchoModel{Prefix: "offline"}
+	multimodalPNGEncode                   = png.Encode
 )
 
 func main() {
-	provider := &modelpkg.AnthropicProvider{
-		ModelName: "claude-sonnet-4-5-20250929",
+	if err := run(context.Background(), os.Args[1:]); err != nil {
+		multimodalFatal(err)
+	}
+}
+
+func run(ctx context.Context, args []string) error {
+	online := false
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "--online" {
+			online = true
+		}
 	}
 
-	rt, err := api.New(context.Background(), api.Options{
-		ModelFactory: provider,
-	})
+	opts := api.Options{}
+	if online {
+		apiKey := demomodel.AnthropicAPIKey()
+		if strings.TrimSpace(apiKey) == "" {
+			return fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
+		}
+		opts.ModelFactory = &modelpkg.AnthropicProvider{
+			APIKey:    apiKey,
+			BaseURL:   demomodel.AnthropicBaseURL(),
+			ModelName: "claude-sonnet-4-5-20250929",
+		}
+	} else {
+		opts.Model = multimodalOfflineModel
+	}
+
+	rt, err := multimodalNewRuntime(ctx, opts)
 	if err != nil {
-		log.Fatalf("build runtime: %v", err)
+		return fmt.Errorf("build runtime: %w", err)
 	}
 	defer rt.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-
-	// ── Demo 1: Text-only via ContentBlocks ──────────────────────────
-	fmt.Println("═══════════════════════════════════════════════════")
-	fmt.Println(" Demo 1: Text-only ContentBlocks")
-	fmt.Println("═══════════════════════════════════════════════════")
 
 	resp, err := rt.Run(ctx, api.Request{
 		ContentBlocks: []modelpkg.ContentBlock{
@@ -55,36 +73,27 @@ func main() {
 		SessionID: "multimodal-demo-1",
 	})
 	if err != nil {
-		log.Fatalf("demo1: %v", err)
+		return fmt.Errorf("demo1: %w", err)
 	}
-	printResult("Text-only", resp)
+	_ = resp
 
-	// ── Demo 2: Text + base64 image ──────────────────────────────────
-	fmt.Println("\n═══════════════════════════════════════════════════")
-	fmt.Println(" Demo 2: Text + Base64 Image")
-	fmt.Println("═══════════════════════════════════════════════════")
-
-	pngData := generateTestPNG()
+	pngData, err := generateTestPNG()
+	if err != nil {
+		return fmt.Errorf("generate png: %w", err)
+	}
 	b64 := base64.StdEncoding.EncodeToString(pngData)
-
-	fmt.Printf("Generated test PNG: %d bytes, base64 length: %d\n\n", len(pngData), len(b64))
 
 	resp, err = rt.Run(ctx, api.Request{
 		ContentBlocks: []modelpkg.ContentBlock{
-			{Type: modelpkg.ContentBlockText, Text: "Describe this image in one sentence. What colors do you see?"},
+			{Type: modelpkg.ContentBlockText, Text: "Describe this image in one sentence."},
 			{Type: modelpkg.ContentBlockImage, MediaType: "image/png", Data: b64},
 		},
 		SessionID: "multimodal-demo-2",
 	})
 	if err != nil {
-		log.Fatalf("demo2: %v", err)
+		return fmt.Errorf("demo2: %w", err)
 	}
-	printResult("Base64 Image", resp)
-
-	// ── Demo 3: Prompt + ContentBlocks combined ──────────────────────
-	fmt.Println("\n═══════════════════════════════════════════════════")
-	fmt.Println(" Demo 3: Prompt + ContentBlocks (mixed)")
-	fmt.Println("═══════════════════════════════════════════════════")
+	_ = resp
 
 	resp, err = rt.Run(ctx, api.Request{
 		Prompt: "You are a helpful image analyst.",
@@ -95,41 +104,28 @@ func main() {
 		SessionID: "multimodal-demo-3",
 	})
 	if err != nil {
-		log.Fatalf("demo3: %v", err)
+		return fmt.Errorf("demo3: %w", err)
 	}
-	printResult("Prompt+Blocks", resp)
+	_ = resp
 
-	fmt.Println("\nAll demos completed.")
+	return nil
 }
 
 // generateTestPNG creates a small 8x8 PNG with a red/blue checkerboard pattern.
-func generateTestPNG() []byte {
+func generateTestPNG() ([]byte, error) {
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
 			if (x+y)%2 == 0 {
-				img.Set(x, y, color.RGBA{R: 255, A: 255}) // red
+				img.Set(x, y, color.RGBA{R: 255, A: 255})
 			} else {
-				img.Set(x, y, color.RGBA{B: 255, A: 255}) // blue
+				img.Set(x, y, color.RGBA{B: 255, A: 255})
 			}
 		}
 	}
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		log.Fatalf("encode PNG: %v", err)
+	if err := multimodalPNGEncode(&buf, img); err != nil {
+		return nil, err
 	}
-	return buf.Bytes()
-}
-
-func printResult(label string, resp *api.Response) {
-	if resp.Result == nil {
-		fmt.Printf("[%s] No result\n", label)
-		return
-	}
-	output := resp.Result.Output
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	fmt.Printf("[%s] Response (%d lines):\n", label, len(lines))
-	for _, line := range lines {
-		fmt.Printf("  │ %s\n", line)
-	}
+	return buf.Bytes(), nil
 }

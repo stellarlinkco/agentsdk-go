@@ -9,17 +9,24 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/api"
-	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 const (
-	maxBodyBytes     = 1 << 20
-	streamPingPeriod = 15 * time.Second
+	maxBodyBytes = 1 << 20
 )
 
+var streamPingPeriod = 15 * time.Second
+
+type agentRuntime interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	RunStream(context.Context, api.Request) (<-chan api.StreamEvent, error)
+	Close() error
+}
+
 type httpServer struct {
-	runtime        *api.Runtime
+	runtime        agentRuntime
 	defaultTimeout time.Duration
 	staticDir      string
 }
@@ -138,6 +145,14 @@ func (s *httpServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	// Avoid buffering by reverse proxies (e.g. nginx) when users run this behind one.
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Send an immediate event so clients don't appear "stuck" before the first model event
+	// or the periodic ping ticks.
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "data: {\"type\":\"ping\"}\n\n")
+	flusher.Flush()
 
 	ticker := time.NewTicker(streamPingPeriod)
 	defer ticker.Stop()

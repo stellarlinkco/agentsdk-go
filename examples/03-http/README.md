@@ -7,7 +7,8 @@ The leanest HTTP example: one shared `api.Runtime`, three endpoints, zero extra 
 export ANTHROPIC_API_KEY=sk-ant-...
 # OR use ANTHROPIC_AUTH_TOKEN (takes precedence)
 # export ANTHROPIC_AUTH_TOKEN=your-token
-go run ./examples/03-http
+export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic  # optional (proxies / Anthropic-compatible endpoints)
+go run ./examples/03-http --online --model deepseek-chat
 ```
 Defaults to `:8080`. Override with `AGENTSDK_HTTP_ADDR`. Choose a model with `AGENTSDK_MODEL` (default `claude-3-5-sonnet-20241022`). Optionally set `ANTHROPIC_BASE_URL` for custom endpoints.
 

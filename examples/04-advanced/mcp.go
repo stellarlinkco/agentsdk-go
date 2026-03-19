@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+var lookPath = exec.LookPath
+
 func buildMCPServers(cfg runConfig, logger *slog.Logger) []string {
 	if !cfg.enableMCP {
 		return nil
@@ -27,6 +29,6 @@ func needsUVX(spec string) bool {
 }
 
 func binaryAvailable(name string) bool {
-	_, err := exec.LookPath(name)
+	_, err := lookPath(name)
 	return err == nil
 }

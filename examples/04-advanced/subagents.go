@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cexll/agentsdk-go/pkg/api"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
 )
 
 func buildSubagents() []api.SubagentRegistration {

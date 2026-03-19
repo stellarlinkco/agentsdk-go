@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 const (
@@ -16,9 +16,11 @@ const (
 	securityFlagsKey = "security.flags"
 )
 
+var randRead = rand.Read
+
 func genRequestID() string {
 	buf := make([]byte, 4)
-	if _, err := rand.Read(buf); err == nil {
+	if _, err := randRead(buf); err == nil {
 		return "req-" + hex.EncodeToString(buf)
 	}
 	return "req-unknown"
@@ -76,12 +78,18 @@ func lastToolResult(msgs []model.Message, names ...string) string {
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		msg := msgs[i]
-		if !strings.EqualFold(msg.Role, "tool") || strings.TrimSpace(msg.Content) == "" {
+		if !strings.EqualFold(msg.Role, "tool") {
 			continue
 		}
 		for _, call := range msg.ToolCalls {
 			if _, ok := lower[strings.ToLower(call.Name)]; ok {
-				return strings.TrimSpace(msg.Content)
+				if s := strings.TrimSpace(call.Result); s != "" {
+					return s
+				}
+				if s := strings.TrimSpace(msg.Content); s != "" {
+					return s
+				}
+				return ""
 			}
 		}
 	}

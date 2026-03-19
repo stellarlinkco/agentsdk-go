@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	"github.com/cexll/agentsdk-go/pkg/model"
-	"github.com/cexll/agentsdk-go/pkg/tool"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 	"log/slog"
 )
 

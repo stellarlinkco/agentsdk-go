@@ -7,12 +7,13 @@ This example shows how to:
 
 ## Run
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
 go run ./examples/05-custom-tools
+# Online mode (requires ANTHROPIC_API_KEY):
+# go run ./examples/05-custom-tools --online
 ```
 
 ## What happens
-- Registers built-ins `bash` and `file_read` (because `EnabledBuiltinTools` lists them)
+- Registers built-ins `bash` and `read` (because `EnabledBuiltinTools` lists them)
 - Skips other built-ins (empty list would disable all)
 - Appends a custom `echo` tool
 - Sends a prompt instructing the model to call `echo`
