@@ -49,32 +49,40 @@ func TestRulesLoader_WatchChangesEventFilteringAndErrorChannel(t *testing.T) {
 	require.NoError(t, err)
 
 	updates := make(chan []Rule, 4)
-	require.NoError(t, loader.WatchChanges(func(r []Rule) {
+	var watcher *fsnotify.Watcher
+	newWatcherFn := func() (*fsnotify.Watcher, error) {
+		watcher = &fsnotify.Watcher{
+			Events: make(chan fsnotify.Event, 8),
+			Errors: make(chan error, 1),
+		}
+		return watcher, nil
+	}
+	require.NoError(t, loader.watchChangesWith(func(r []Rule) {
 		select {
 		case updates <- r:
 		default:
 		}
-	}))
-	require.NotNil(t, loader.watcher)
+	}, os.Stat, newWatcherFn, func(*fsnotify.Watcher, string) error { return nil }))
+	require.NotNil(t, watcher)
 
 	// Non-blocking watcher error path.
-	loader.watcher.Errors <- errors.New("watcher boom")
+	watcher.Errors <- errors.New("watcher boom")
 
 	// Chmod event should be ignored (op filter branch).
-	loader.watcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "ignored.md"), Op: fsnotify.Chmod}
+	watcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "ignored.md"), Op: fsnotify.Chmod}
 
 	// Non-md should be ignored (ext filter branch).
-	loader.watcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "note.txt"), Op: fsnotify.Create}
+	watcher.Events <- fsnotify.Event{Name: filepath.Join(dir, "note.txt"), Op: fsnotify.Create}
 
 	// md event that triggers reload error branch.
 	bad := writeRuleFile(t, dir, "02-bad.md", "nope")
 	require.NoError(t, os.Chmod(bad, 0o000))
-	loader.watcher.Events <- fsnotify.Event{Name: bad, Op: fsnotify.Write}
+	watcher.Events <- fsnotify.Event{Name: bad, Op: fsnotify.Write}
 
 	// Fix and send another md event to exercise happy callback path.
 	require.NoError(t, os.Chmod(bad, 0o600))
 	require.NoError(t, os.WriteFile(bad, []byte("ok"), 0o600))
-	loader.watcher.Events <- fsnotify.Event{Name: bad, Op: fsnotify.Write}
+	watcher.Events <- fsnotify.Event{Name: bad, Op: fsnotify.Write}
 
 	select {
 	case got := <-updates:
@@ -82,8 +90,7 @@ func TestRulesLoader_WatchChangesEventFilteringAndErrorChannel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for rules reload")
 	}
-
-	require.NoError(t, loader.Close())
+	close(watcher.Events)
 }
 
 func TestRulesLoader_WatchChangesStatError(t *testing.T) {

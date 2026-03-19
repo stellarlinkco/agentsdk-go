@@ -37,9 +37,13 @@ func (l *SettingsLoader) Load() (*Settings, error) {
 
 	merged := GetDefaultSettings()
 
-	home, homeErr := os.UserHomeDir()
-	if homeErr != nil {
-		home = ""
+	home := strings.TrimSpace(os.Getenv("HOME"))
+	if home == "" {
+		var homeErr error
+		home, homeErr = os.UserHomeDir()
+		if homeErr != nil {
+			home = ""
+		}
 	}
 
 	layers := []struct {
