@@ -1,5 +1,7 @@
 # Changelog
 
+> NOTE (v2): This repository has undergone a v2 simplification refactor. Entries below may refer to removed v1 packages/tools (commands/tasks/security and legacy tool names like `file_read`). For v2 ground truth, see `docs/refactor/PRD.md` and `docs/refactor/ARCHITECTURE-v2.md`.
+
 All notable changes to agentsdk-go will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -59,14 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2025-12-12
 
 ### Added
-- **Hooks System Extension (#11)**: Added 4 new hook event types - `PermissionRequest`, `SessionStart/End`, `SubagentStart/Stop`, and enhanced `PreToolUse` with input modification support (`pkg/core/hooks/`)
+- **Hooks System Extension (#11)**: Added 4 new hook event types - `PermissionRequest`, `SessionStart/End`, `SubagentStart/Stop`, and enhanced `PreToolUse` with input modification support (`pkg/hooks/`)
 - **Multi-model Support (#12)**: Implemented subagent-level model binding via `api.ModelFactory` interface, allowing different models for different subagents (`pkg/api/`, `pkg/model/`)
 - **Token Statistics (#13)**: Added comprehensive token usage tracking with `TokenStats` struct, automatic accumulation across turns (`pkg/model/`, `pkg/api/`)
 - **Auto Compact (#14)**: Implemented automatic context compression when token threshold reached, using configurable compactor model (`pkg/api/compact.go`)
 - **Async Bash (#15)**: Added `background` parameter to bash tool for non-blocking command execution (`pkg/tool/builtin/bash.go`)
 - **DisallowedTools (#15)**: New `DisallowedTools` configuration to block specific tools at runtime (`pkg/config/`, `pkg/api/`)
 - **Rules Configuration (#16)**: Support for `.claude/rules/` directory with markdown rules loading (`pkg/config/rules.go`)
-- **OpenTelemetry Integration (#17)**: Added distributed tracing support with span propagation (`pkg/core/middleware/otel.go`)
+- **OpenTelemetry Integration (#17)**: Added distributed tracing support with span propagation (`pkg/api/otel.go`)
 - **UUID Tracking (#17)**: Request-level UUID tracking for observability (`pkg/api/`)
 
 ### Changed
@@ -75,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - Added `docs/trace-system.md` for OpenTelemetry setup guide
-- Updated CLAUDE.md with new feature documentation
+- Updated AGENTS.md with new feature documentation
 
 ---
 

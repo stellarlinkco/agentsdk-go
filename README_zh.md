@@ -6,7 +6,7 @@
 
 ## 概述
 
-agentsdk-go 是一个模块化的 Agent 开发框架，实现 Claude Code 风格的核心运行时能力（Hooks、MCP、Sandbox、Skills、Subagents、Commands、Tasks），并在此基础上提供可选的 6 点 Middleware 拦截机制。该 SDK 支持 CLI、CI/CD 和企业平台等多种部署场景。
+agentsdk-go 是一个模块化的 Agent 开发框架，实现 Claude Code 风格的核心运行时能力（Hooks、MCP、Sandbox、Skills、Subagents），并在此基础上提供可选的 4 点 Middleware 拦截机制。该 SDK 支持 CLI、CI/CD 和企业平台等多种部署场景。
 
 ### 依赖
 
@@ -15,10 +15,9 @@ agentsdk-go 是一个模块化的 Agent 开发框架，实现 Claude Code 风格
 ### 功能概览
 
 - **多模型支持**：通过 `ModelFactory` 接口实现 Subagent 级别的模型绑定
-- **Token 统计**：支持 Token 用量追踪与累计
 - **自动 Compact**：当 Token 达到阈值时自动压缩上下文
-- **异步 Bash**：后台命令执行与任务管理
-- **Rules 配置**：支持 `.claude/rules/` 目录并支持热重载
+- **Rules 配置**：支持 `.agents/rules/` 目录并支持热重载
+- **Safety Hook**：Go-native `PreToolUse` safety check，默认阻止灾难性 bash 命令（YOLO）
 - **OpenTelemetry**：分布式追踪与 span 传播
 - **UUID 追踪**：请求级别的 UUID 用于可观测性
 
@@ -32,54 +31,46 @@ agentsdk-go 是一个模块化的 Agent 开发框架，实现 Claude Code 风格
 
 ### 核心层
 
-- `pkg/agent` - Agent 执行循环，负责模型调用和工具执行的协调
-- `pkg/middleware` - 6 点拦截机制，支持请求/响应生命周期的扩展
+- `pkg/middleware` - 4 点拦截机制，支持请求/响应生命周期的扩展
 - `pkg/model` - 模型适配器，当前支持 Anthropic Claude
 - `pkg/tool` - 工具注册与执行，包含内置工具和 MCP 工具支持
-- `pkg/message` - 消息历史管理，基于 LRU 的会话缓存
-- `pkg/api` - 统一 API 接口，对外暴露 SDK 功能
+- `pkg/message` - 内存中的消息历史基础类型
+- `pkg/api` - 统一 API 接口，对外暴露 SDK 功能（包含 agent loop）
 
 ### 功能层
 
-- `pkg/core/hooks` - Hooks 执行器，覆盖 7 类生命周期事件，支持自定义扩展
+- `pkg/hooks` - Hooks 执行器 + 事件总线（由 `pkg/core/events` + `pkg/core/hooks` 合并）
 - `pkg/mcp` - MCP（Model Context Protocol）客户端，桥接外部工具（stdio/SSE）并自动注册
 - `pkg/sandbox` - 沙箱隔离层，控制文件系统与网络访问策略
 - `pkg/runtime/skills` - Skills 管理，支持脚本化技能装载与热更新
 - `pkg/runtime/subagents` - Subagents 管理，负责多智能体的编排与调度
-- `pkg/runtime/commands` - Commands 解析器，处理 Slash 命令路由与参数校验
-- `pkg/runtime/tasks` - 任务追踪与依赖管理
 
-此外，功能层还包含 `pkg/config`（配置加载/热更新）、`pkg/core/events`（事件总线）和 `pkg/security`（命令与路径校验）等支撑包。
+此外，功能层还包含 `pkg/config`（配置加载/热更新）与 `pkg/hooks`（事件总线 + hooks）等支撑包。
 
 ### 架构图
 
 ```mermaid
 flowchart TB
   subgraph Core
-    API[pkg/api] --> Agent[pkg/agent]
-    Agent --> Model[pkg/model]
-    Agent --> Tool[pkg/tool]
-    Agent --> Message[pkg/message]
-    Middleware[pkg/middleware] -. intercepts .-> Agent
+    API[pkg/api] --> Model[pkg/model]
+    API --> Tool[pkg/tool]
+    API --> Message[pkg/message]
+    Middleware[pkg/middleware] -. intercepts .-> API
   end
 
   subgraph Feature
     Config[pkg/config]
-    Hooks[pkg/core/hooks]
-    Events[pkg/core/events]
+    Hooks[pkg/hooks]
     Runtime[pkg/runtime/*]
     MCP[pkg/mcp]
     Sandbox[pkg/sandbox]
-    Security[pkg/security]
   end
 
   Config --> API
-  Hooks --> Agent
-  Events --> Agent
-  Runtime --> Agent
+  Hooks --> API
+  Runtime --> API
   MCP --> Tool
   Tool --> Sandbox
-  Tool --> Security
 ```
 
 ### Middleware 拦截点
@@ -92,12 +83,6 @@ SDK 在请求处理的关键节点提供拦截能力：
 before_agent  ← 请求验证、审计日志
   ↓
 Agent 循环
-  ↓
-before_model  ← Prompt 处理、上下文优化
-  ↓
-模型调用
-  ↓
-after_model   ← 结果过滤、内容检查
   ↓
 before_tool   ← 工具参数验证
   ↓
@@ -120,7 +105,7 @@ after_agent   ← 响应格式化、指标采集
 ### 获取 SDK
 
 ```bash
-go get github.com/cexll/agentsdk-go
+go get github.com/stellarlinkco/agentsdk-go
 ```
 
 ## 快速开始
@@ -135,8 +120,8 @@ import (
     "log"
     "os"
 
-    "github.com/cexll/agentsdk-go/pkg/api"
-    "github.com/cexll/agentsdk-go/pkg/model"
+    "github.com/stellarlinkco/agentsdk-go/pkg/api"
+    "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 func main() {
@@ -179,7 +164,7 @@ import (
     "log"
     "time"
 
-    "github.com/cexll/agentsdk-go/pkg/middleware"
+    "github.com/stellarlinkco/agentsdk-go/pkg/middleware"
 )
 
 // 日志中间件
@@ -280,7 +265,7 @@ _, _ = runtime.Run(ctx, api.Request{Prompt: "第二个", SessionID: "same"})
 rt, err := api.New(ctx, api.Options{
     ProjectRoot:         ".",
     ModelFactory:        provider,
-    EnabledBuiltinTools: []string{"bash", "file_read"}, // nil=全部，空切片=禁用全部
+    EnabledBuiltinTools: []string{"bash", "read"}, // nil=全部，空切片=禁用全部
     CustomTools:         []tool.Tool{&EchoTool{}},      // 当 Tools 为空时追加
 })
 if err != nil {
@@ -297,36 +282,39 @@ defer rt.Close()
 
 ## 示例
 
-仓库包含 5 个渐进式示例：
+仓库包含多个渐进式示例：
 - `01-basic` - 最小化单次请求/响应
-- `02-cli` - 交互式 REPL，带会话历史
+- `02-cli` - 交互式 REPL（会话历史 + 可选配置加载）
 - `03-http` - REST + SSE 服务器（`:8080`）
 - `04-advanced` - 完整流程（middleware、hooks、MCP、sandbox、skills、subagents）
 - `05-custom-tools` - 选择性内置工具 + 自定义工具注册
+- `06-embed` - 内嵌文件系统演示
+- `07-multimodel` - 多模型层级配置演示
+- `08-safety-hook` - 内置 Safety Hook 与 DisableSafetyHook 演示（离线）
+- `09-compaction` - Prompt-compression compaction 演示（离线）
+- `10-hooks` - Hooks 生命周期事件
+- `11-reasoning` - 推理/思考模型支持
+- `12-multimodal` - 图片与文档输入
 
 ## 项目结构
 
 ```
 agentsdk-go/
 ├── pkg/                        # 核心包
-│   ├── agent/                  # Agent 核心循环
-│   ├── middleware/             # Middleware 系统
-│   ├── model/                  # 模型适配器
-│   ├── tool/                   # 工具系统
-│   │   └── builtin/            # 内置工具（bash、file、grep、glob）
-│   ├── message/                # 消息历史管理
-│   ├── api/                    # SDK 统一接口
-│   ├── config/                 # 配置加载
-│   ├── core/
-│   │   ├── events/             # 事件总线
-│   │   └── hooks/              # Hooks 执行器
-│   ├── sandbox/                # 沙箱隔离
+│   ├── api/                    # SDK 统一入口（包含 agent loop）
+│   ├── config/                 # 配置加载与校验
+│   ├── gitignore/              # .gitignore 匹配器（glob/grep）
+│   ├── hooks/                  # Hooks 执行器 + 7 个事件
 │   ├── mcp/                    # MCP 客户端
+│   ├── message/                # 消息历史管理
+│   ├── middleware/             # Middleware（4 个阶段）
+│   ├── model/                  # 模型适配器（Anthropic/OpenAI）
 │   ├── runtime/
 │   │   ├── skills/             # Skills 管理
-│   │   ├── subagents/          # Subagents 管理
-│   │   └── commands/           # Commands 解析
-│   └── security/               # 安全工具
+│   │   └── subagents/          # Subagents 管理
+│   ├── sandbox/                # 文件系统/网络/资源隔离
+│   └── tool/
+│       └── builtin/            # 内置工具（bash/read/write/edit/glob/grep/skill）
 ├── cmd/cli/                    # CLI 入口
 ├── examples/                   # 示例代码
 │   ├── 01-basic/               # 最小化单次请求/响应
@@ -340,34 +328,33 @@ agentsdk-go/
 
 ## 配置
 
-SDK 使用 `.claude/` 目录进行配置，与 Claude Code 兼容：
+SDK 使用 `.agents/` 目录进行配置：
 
 ```
-.claude/
-├── settings.json     # 项目配置
+.agents/
+├── settings.json        # 项目配置
 ├── settings.local.json  # 本地覆盖（已加入 .gitignore）
-├── skills/           # Skills 定义
-├── commands/         # 斜杠命令定义
-└── agents/           # Subagents 定义
+├── rules/               # Rules 定义（markdown）
+├── skills/              # Skills 定义
+└── agents/              # Subagents 定义
 ```
 
 ### 配置优先级
 
 - 运行时覆盖（最高优先级，CLI / API 提供的配置）
-- `.claude/settings.local.json`
-- `.claude/settings.json`
+- `.agents/settings.local.json`
+- `.agents/settings.json`
+- `~/.agents/settings.json`（全局用户配置）
 - SDK 内置默认值
-
-`~/.claude` 已不再读取，请将全局配置迁移到项目范围的 `.claude/` 目录；原放在用户主目录的 `settings.json` / `settings.local.json` 需要复制到各项目根目录，确保加载顺序符合预期。
 
 ### 配置示例
 
 ```json
 {
   "permissions": {
-    "allow": ["Bash(ls:*)", "Bash(pwd:*)"],
-    "deny": ["Read(.env)", "Read(secrets/**)"]
+    "additionalDirectories": []
   },
+  "disallowedTools": ["bash"],
   "env": {
     "MY_VAR": "value"
   },
@@ -412,7 +399,7 @@ curl -N -X POST http://localhost:8080/v1/run/stream \
 - `iteration_start` / `iteration_stop` - 迭代边界
 - `message_start` / `message_stop` - 消息边界
 - `content_block_delta` - 文本增量输出
-- `tool_execution_start` / `tool_execution_stop` - 工具执行进度
+- `tool_execution_start` / `tool_execution_result` - 工具执行进度
 
 ## 测试
 
@@ -423,7 +410,7 @@ curl -N -X POST http://localhost:8080/v1/run/stream \
 go test ./...
 
 # 核心模块测试
-go test ./pkg/agent/... ./pkg/middleware/... ./pkg/model/...
+go test ./pkg/api/... ./pkg/middleware/... ./pkg/model/...
 
 # 集成测试
 go test ./test/integration/...
@@ -466,45 +453,22 @@ make clean
 SDK 包含以下内置工具：
 
 ### 核心工具（位于 `pkg/tool/builtin/`）
-- `bash` - 执行 shell 命令，支持工作目录和超时配置
-- `file_read` - 读取文件内容，支持 offset/limit
-- `file_write` - 写入文件内容（创建或覆盖）
-- `file_edit` - 编辑文件，字符串替换
-- `grep` - 正则搜索，支持递归和文件过滤
-- `glob` - 文件模式匹配，支持多个模式
+- `bash` - 通过 bash 执行命令，支持超时与沙箱工作目录
+- `read` - 读取文件内容
+- `write` - 写入文件内容（创建/覆盖）
+- `edit` - 编辑文件（字符串替换）
+- `glob` - 文件模式匹配
+- `grep` - 正则搜索
+- `skill` - 执行 `.agents/skills/` 中的技能
 
-### 扩展工具
-- `web_fetch` - 获取 Web 内容，基于提示词提取
-- `web_search` - Web 搜索，支持域名过滤
-- `bash_output` - 读取后台 bash 进程输出
-- `bash_status` - 轮询后台 bash 进程状态
-- `kill_task` - 终止运行中的后台 bash 任务
-- `task_create` - 创建新任务
-- `task_list` - 列出任务
-- `task_get` - 按 ID 获取任务
-- `task_update` - 更新任务状态与依赖关系
-- `ask_user_question` - 在执行过程中向用户提问
-- `skill` - 执行 `.claude/skills/` 中的技能
-- `slash_command` - 执行 `.claude/commands/` 中的斜杠命令
-- `task` - 生成子代理处理复杂任务（仅 CLI/Platform 入口点）
-
-所有内置工具遵循沙箱策略，受路径白名单和命令验证器约束。使用 `EnabledBuiltinTools` 选择性启用工具，或使用 `CustomTools` 注册自定义实现。
+所有内置工具遵循沙箱策略；bash 额外受 safety hook 保护（可通过 `DisableSafetyHook=true` 禁用）。
 
 ## 安全机制
 
-### 三层防御
+### Sandbox + Safety Hook
 
-1. **路径白名单**：限制文件系统访问范围
-2. **符号链接解析**：防止路径遍历攻击
-3. **命令验证**：阻止危险命令执行
-
-### 命令验证器
-
-位于 `pkg/security/validator.go`，默认阻止以下操作：
-
-- 破坏性命令：`dd`、`mkfs`、`fdisk`、`shutdown`、`reboot`
-- 危险删除模式：`rm -rf`、`rm -r`、`rmdir -p`
-- Shell 元字符：`|`、`;`、`&`、`>`、`<`、`` ` ``（在 Platform 模式下）
+1. **Sandbox**（`pkg/sandbox`）：文件系统 / 网络 / 资源隔离（通过 settings/options 配置）
+2. **Safety hook**（`pkg/hooks/safety.go`）：Go-native `PreToolUse` 检查，默认阻止灾难性 bash 命令；可通过 `DisableSafetyHook=true` 禁用
 
 ## 开发指南
 
@@ -548,31 +512,12 @@ func (t *CustomTool) Execute(ctx context.Context, params map[string]any) (*tool.
 ### 添加 Middleware
 
 ```go
-customMiddleware := middleware.Middleware{
-    BeforeAgent: func(ctx context.Context, req *middleware.AgentRequest) (*middleware.AgentRequest, error) {
-        // 请求前处理
-        return req, nil
-    },
-    AfterAgent: func(ctx context.Context, resp *middleware.AgentResponse) (*middleware.AgentResponse, error) {
-        // 响应后处理
-        return resp, nil
-    },
-    BeforeModel: func(ctx context.Context, msgs []message.Message) ([]message.Message, error) {
-        // 模型调用前处理
-        return msgs, nil
-    },
-    AfterModel: func(ctx context.Context, output *agent.ModelOutput) (*agent.ModelOutput, error) {
-        // 模型调用后处理
-        return output, nil
-    },
-    BeforeTool: func(ctx context.Context, call *middleware.ToolCall) (*middleware.ToolCall, error) {
-        // 工具执行前处理
-        return call, nil
-    },
-    AfterTool: func(ctx context.Context, result *middleware.ToolResult) (*middleware.ToolResult, error) {
-        // 工具执行后处理
-        return result, nil
-    },
+mw := middleware.Funcs{
+    Identifier:   "custom",
+    OnBeforeAgent: func(ctx context.Context, st *middleware.State) error { return nil },
+    OnBeforeTool:  func(ctx context.Context, st *middleware.State) error { return nil },
+    OnAfterTool:   func(ctx context.Context, st *middleware.State) error { return nil },
+    OnAfterAgent:  func(ctx context.Context, st *middleware.State) error { return nil },
 }
 ```
 
@@ -585,7 +530,7 @@ customMiddleware := middleware.Middleware{
 
 ### 配置驱动
 
-- 通过 `.claude/` 目录管理所有配置
+- 通过 `.agents/` 目录管理所有配置
 - 支持热更新，无需重启服务
 - 声明式配置优于命令式代码
 
@@ -603,15 +548,13 @@ customMiddleware := middleware.Middleware{
 
 ## 文档
 
-- [架构文档](docs/architecture.md) - 详细架构分析
+- [PRD（v2 重构）](docs/refactor/PRD.md) - Stories/FR/Acceptance Matrix（基准）
+- [架构（v2 重构）](docs/refactor/ARCHITECTURE-v2.md) - v2 架构基准
 - [入门指南](docs/getting-started.md) - 分步教程
-- [API 参考](docs/api-reference.md) - API 文档
 - [安全实践](docs/security.md) - 安全配置指南
 - [自定义工具指南](docs/custom-tools-guide.md) - 自定义工具注册与使用
-- [ACP 集成指南](docs/acp-integration.md) - ACP 的 stdio/进程内接入与协议覆盖测试说明
 - [HTTP API 指南](examples/03-http/README.md) - HTTP 服务器使用说明
-- [开发计划](.claude/specs/claude-code-rewrite/dev-plan.md) - 架构设计计划
-- [完成报告](.claude/specs/claude-code-rewrite/COMPLETION_REPORT.md) - 实现报告
+- v1 历史文档（仅供参考）：`docs/architecture.md`、`docs/api-reference.md`
 
 ## 技术栈
 

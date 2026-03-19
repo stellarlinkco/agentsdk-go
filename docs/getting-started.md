@@ -8,7 +8,10 @@ This guide walks through the basic usage of agentsdk-go, including environment s
 
 - Go 1.24 or later
 - Git (to clone the repo)
-- Anthropic API Key
+ 
+### Optional (online mode only)
+
+- Anthropic API Key (`ANTHROPIC_API_KEY`)
 
 ### Verify
 
@@ -21,7 +24,7 @@ go version  # should show go1.24 or later
 ### Get the Source
 
 ```bash
-git clone https://github.com/cexll/agentsdk-go.git
+git clone https://github.com/stellarlinkco/agentsdk-go.git
 cd agentsdk-go
 ```
 
@@ -32,7 +35,7 @@ cd agentsdk-go
 make build
 
 # Run core module tests
-go test ./pkg/agent ./pkg/middleware
+go test ./...
 ```
 
 ### Configure API Key
@@ -55,8 +58,8 @@ import (
     "log"
     "os"
 
-    "github.com/cexll/agentsdk-go/pkg/api"
-    "github.com/cexll/agentsdk-go/pkg/model"
+    "github.com/stellarlinkco/agentsdk-go/pkg/api"
+    "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 func main() {
@@ -108,9 +111,9 @@ import (
     "os"
     "time"
 
-    "github.com/cexll/agentsdk-go/pkg/api"
-    "github.com/cexll/agentsdk-go/pkg/middleware"
-    "github.com/cexll/agentsdk-go/pkg/model"
+    "github.com/stellarlinkco/agentsdk-go/pkg/api"
+    "github.com/stellarlinkco/agentsdk-go/pkg/middleware"
+    "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 func main() {
@@ -170,8 +173,8 @@ import (
     "log"
     "os"
 
-    "github.com/cexll/agentsdk-go/pkg/api"
-    "github.com/cexll/agentsdk-go/pkg/model"
+    "github.com/stellarlinkco/agentsdk-go/pkg/api"
+    "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 func main() {
@@ -219,19 +222,20 @@ func main() {
 
 ## Core Concepts
 
-### Agent
+### Runtime
 
-The Agent is the core component that orchestrates model calls and tool execution (`pkg/agent/agent.go`).
+The Runtime (in `pkg/api/`) orchestrates model calls and tool execution.
 
 Key method:
 
-- `Run(ctx context.Context) (*ModelOutput, error)` — runs a full agent loop
+- `Run(ctx context.Context, req api.Request) (*api.Response, error)` — blocking run
+- `RunStream(ctx context.Context, req api.Request) (<-chan api.StreamEvent, error)` — streaming run
 
 Key traits:
 
 - Supports multi-iteration (model → tools → model)
 - `MaxIterations` limits loop count
-- Middleware executes at 6 hook points
+- Middleware executes at 4 hook points
 
 ### Model
 
@@ -264,29 +268,21 @@ type Tool interface {
 Built-ins (`pkg/tool/builtin/`):
 
 - `bash` — execute shell commands
-- `file_read` — read files
-- `file_write` — write files
+- `read` — read files
+- `write` — write files
+- `edit` — edit files (string replacement)
 - `grep` — content search
 - `glob` — file globbing
+- `skill` — execute `.claude/skills/`
 
 ### Middleware
 
-Middleware offers 6 interception points to inject custom logic (`pkg/middleware/`):
+Middleware offers 4 interception points to inject custom logic (`pkg/middleware/`):
 
 1. `BeforeAgent` — before Agent runs
-2. `BeforeModel` — before model call
-3. `AfterModel` — after model call
-4. `BeforeTool` — before tool execution
-5. `AfterTool` — after tool execution
-6. `AfterAgent` — after Agent finishes
-
-### Context
-
-Context maintains state during Agent execution (`pkg/agent/context.go`):
-
-- message history
-- tool execution results
-- session metadata
+2. `BeforeTool` — before tool execution
+3. `AfterTool` — after tool execution
+4. `AfterAgent` — after Agent finishes
 
 ## Configuration
 
@@ -298,14 +294,14 @@ Configuration lives under `.claude/`:
 .claude/
 ├── settings.json         # main config
 ├── settings.local.json   # local overrides (gitignored)
+├── rules/                # rules (markdown)
 ├── skills/               # skill definitions
-├── commands/             # slash command definitions
 └── agents/               # subagent definitions
 ```
 
 ### Precedence (high → low)
 
-1. Runtime overrides (CLI flags / API `RuntimeOverrides`)
+1. Runtime overrides (CLI flags / API options)
 2. `.claude/settings.local.json`
 3. `.claude/settings.json`
 4. SDK defaults
@@ -317,9 +313,9 @@ Configuration lives under `.claude/`:
 ```json
 {
   "permissions": {
-    "allow": ["Bash(ls:*)", "Bash(pwd:*)"],
-    "deny": ["Read(.env)", "Read(secrets/**)"]
+    "additionalDirectories": []
   },
+  "disallowedTools": ["bash"],
   "env": {
     "MY_VAR": "value"
   },
@@ -332,7 +328,7 @@ Configuration lives under `.claude/`:
 ### Load Config
 
 ```go
-import "github.com/cexll/agentsdk-go/pkg/config"
+import "github.com/stellarlinkco/agentsdk-go/pkg/config"
 
 loader := &config.SettingsLoader{ProjectRoot: "."}
 
@@ -405,7 +401,7 @@ import (
     "log"
     "time"
 
-    "github.com/cexll/agentsdk-go/pkg/middleware"
+    "github.com/stellarlinkco/agentsdk-go/pkg/middleware"
 )
 
 // 令牌桶限流器
@@ -449,14 +445,12 @@ func createRateLimitMiddleware(maxTokens int) middleware.Middleware {
 func createMonitoringMiddleware() middleware.Middleware {
     return middleware.Funcs{
         Identifier: "monitoring",
-        OnBeforeModel: func(ctx context.Context, st *middleware.State) error {
-            // 记录模型调用
-            log.Printf("[监控] 模型调用开始")
+        OnBeforeAgent: func(ctx context.Context, st *middleware.State) error {
+            log.Printf("[monitor] agent request start")
             return nil
         },
-        OnAfterModel: func(ctx context.Context, st *middleware.State) error {
-            // 记录模型响应
-            log.Printf("[监控] 模型调用结束")
+        OnAfterAgent: func(ctx context.Context, st *middleware.State) error {
+            log.Printf("[monitor] agent request end")
             return nil
         },
         OnBeforeTool: func(ctx context.Context, st *middleware.State) error {
@@ -485,15 +479,13 @@ func min(a, b int) int {
 ### CLI
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-cd examples/02-cli
-go run . --session-id demo --settings-path .claude/settings.json
+go run ./examples/02-cli --session-id demo --prompt "你好"
 ```
 
 Flags:
 
 - `--session-id` — session ID (defaults to `SESSION_ID` env or `demo-session`)
-- `--settings-path` — path to `.claude/settings.json` to enable sandbox/tool config
+- `--claude` — optional path to `.claude` directory (defaults to `<project>/.claude`)
 
 ### HTTP Server
 

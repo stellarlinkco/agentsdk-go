@@ -174,21 +174,7 @@ rt, err := api.New(ctx, api.Options{
 })
 ```
 
-## 文件变更总结
+## 备注
 
-### 新增文件
-- `pkg/api/helpers.go` - 项目根目录解析工具函数
-
-### 修改文件
-- `pkg/api/options.go` - 添加智能默认值逻辑
-- `pkg/security/validator.go` - 添加 shell 元字符开关
-- `pkg/security/sandbox.go` - 暴露配置方法
-- `pkg/tool/builtin/bash.go` - 添加配置接口
-- `pkg/api/agent.go` - CLI 模式自动配置
-- `examples/02-cli/main.go` - 简化示例代码
-
-## 向后兼容性
-
-✅ **完全向后兼容** - 所有现有代码无需修改继续工作。
-
-新的默认值仅在配置项为空时生效，显式设置的值始终优先。
+- 本文描述的是**当前默认值行为**，不是变更日志。
+- v2 是 big-bang 重构分支，**不保证向后兼容**。

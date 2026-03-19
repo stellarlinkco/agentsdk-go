@@ -24,7 +24,7 @@ type Tool interface {
   - `nil` (default): register all built-ins  
   - empty slice: disable all built-ins  
   - non-empty: enable only the listed built-ins  
-  Available names (lowercase with underscores): `bash`, `file_read`, `file_write`, `file_edit`, `grep`, `glob`, `web_fetch`, `web_search`, `bash_output`, `bash_status`, `kill_task`, `task_create`, `task_list`, `task_get`, `task_update`, `ask_user_question`, `skill`, `slash_command`, `task` (Task is only auto-enabled in CLI/Platform entrypoints).
+  Available names (lowercase): `bash`, `read`, `write`, `edit`, `glob`, `grep`, `skill`.
 - `Options.CustomTools []tool.Tool`  
   Appends custom tools when `Tools` is empty (nil entries are skipped).
 
@@ -36,7 +36,7 @@ Priority: `Tools` > (`EnabledBuiltinTools` filtering + `CustomTools` append).
 opts := api.Options{
     ProjectRoot:         ".",
     ModelFactory:        provider,
-    EnabledBuiltinTools: []string{"bash", "grep", "file_read"}, // enable only these
+    EnabledBuiltinTools: []string{"bash", "grep", "read"}, // enable only these
 }
 rt, _ := api.New(context.Background(), opts)
 ```
@@ -66,12 +66,12 @@ opts := api.Options{
 ## Mix (Partial Built-ins + Custom)
 
 ```go
-opts := api.Options{
-    ProjectRoot:         ".",
-    ModelFactory:        provider,
-    EnabledBuiltinTools: []string{"bash", "file_read"},
-    CustomTools:         []tool.Tool{&CalculatorTool{}},
-}
+	opts := api.Options{
+	    ProjectRoot:         ".",
+	    ModelFactory:        provider,
+	    EnabledBuiltinTools: []string{"bash", "read"},
+	    CustomTools:         []tool.Tool{&CalculatorTool{}},
+	}
 ```
 
 ## Custom Tool Example: Echo
@@ -97,7 +97,6 @@ func (t *EchoTool) Execute(ctx context.Context, params map[string]any) (*tool.To
 
 ## Notes
 
-- Name matching is case-insensitive; `-` or spaces are treated as `_`. Prefer the listed lowercase underscore forms.
-- Task tool auto-attaches only in CLI/Platform entrypoints; CI entrypoint skips it.
+- Name matching is case-insensitive; `-` or spaces are treated as `_`. Prefer the listed lowercase forms.
 - MCP tools are registered by default; when MCP server config includes `enabledTools`/`disabledTools`, registration is filtered accordingly.
 - When names collide, the first tool wins and a warning is logged to highlight the conflict.

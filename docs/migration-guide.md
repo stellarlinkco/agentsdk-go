@@ -46,25 +46,24 @@ func (h *demoHooks) PostToolUse(ctx context.Context, payload events.ToolResultPa
 
 ```go
 import (
-    coreevents "github.com/cexll/agentsdk-go/pkg/core/events"
-    corehooks "github.com/cexll/agentsdk-go/pkg/core/hooks"
+    "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
 )
 
-hook, _ := corehooks.NewSelector("^Bash$", "") // limit to Bash tool
+sel, _ := hooks.NewSelector("^Bash$", "") // limit to Bash tool
 
 rt, err := api.New(ctx, api.Options{
     // ... other options ...
-    TypedHooks: []corehooks.ShellHook{
+    TypedHooks: []hooks.ShellHook{
         {
-            Event:    coreevents.PreToolUse,
+            Event:    hooks.PreToolUse,
             Command:  "./scripts/pre_bash.sh",
-            Selector: hook,
+            Selector: sel,
             Timeout:  2 * time.Second,
             Env:      map[string]string{"HOOK_ENV": "demo"},
         },
     },
     HookTimeout:    5 * time.Second,
-    HookMiddleware: []coremw.Middleware{auditHook},
+    HookMiddleware: []hooks.Middleware{auditHook},
 })
 ```
 
