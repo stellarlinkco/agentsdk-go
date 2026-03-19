@@ -100,7 +100,9 @@ func (s *sideEffectReadFS) ReadFile(name string) ([]byte, error) {
 	if s.makeDestDir || s.chmodParentTo != 0 {
 		dest := filepath.Join(s.root, filepath.FromSlash(path.Clean(name)))
 		if s.makeDestDir {
-			_ = os.MkdirAll(dest, 0o755)
+			if err := os.MkdirAll(dest, 0o755); err != nil {
+				return nil, err
+			}
 		}
 		if s.chmodParentTo != 0 && s.chmodParentPath == "" {
 			parent := filepath.Dir(dest)
@@ -159,7 +161,9 @@ func TestMaterializeEmbeddedClaudeHooksWriteTempError(t *testing.T) {
 
 	err := materializeEmbeddedClaudeHooks(root, fs)
 	if fs.chmodParentPath != "" {
-		_ = os.Chmod(fs.chmodParentPath, 0o755)
+		if chmodErr := os.Chmod(fs.chmodParentPath, 0o755); chmodErr != nil {
+			t.Errorf("chmod cleanup: %v", chmodErr)
+		}
 	}
 	if err == nil || !strings.Contains(err.Error(), "write") {
 		t.Fatalf("expected write error, got %v", err)

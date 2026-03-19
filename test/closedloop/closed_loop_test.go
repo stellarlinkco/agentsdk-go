@@ -92,7 +92,10 @@ func (e *echoTool) Schema() *tool.JSONSchema {
 
 func (e *echoTool) Execute(_ context.Context, params map[string]any) (*tool.ToolResult, error) {
 	e.calls++
-	text, _ := params["text"].(string)
+	text, ok := params["text"].(string)
+	if !ok {
+		return &tool.ToolResult{Success: false, Output: ""}, nil
+	}
 	return &tool.ToolResult{Success: true, Output: strings.TrimSpace(text)}, nil
 }
 
@@ -171,10 +174,14 @@ func TestClosedLoop_SDKClosedLoopV1_EmitsArtifactsAndVerdict(t *testing.T) {
 	reqPath := filepath.Join(runDir, "request-response", "request.json")
 	respPath := filepath.Join(runDir, "request-response", "response.json")
 	if data, err := json.MarshalIndent(req, "", "  "); err == nil {
-		_ = os.WriteFile(reqPath, data, 0o600)
+		if err := os.WriteFile(reqPath, data, 0o600); err != nil {
+			t.Fatalf("write request: %v", err)
+		}
 	}
 	if data, err := json.MarshalIndent(resp, "", "  "); err == nil {
-		_ = os.WriteFile(respPath, data, 0o600)
+		if err := os.WriteFile(respPath, data, 0o600); err != nil {
+			t.Fatalf("write response: %v", err)
+		}
 	}
 
 	verdictPath := filepath.Join(runDir, "verdict.json")

@@ -381,19 +381,6 @@ func newClaudeProject(t *testing.T) string {
 	return root
 }
 
-func newClaudeProjectWithSettings(t *testing.T, raw string) string {
-	t.Helper()
-	root := t.TempDir()
-	agents := filepath.Join(root, ".agents")
-	if err := os.MkdirAll(agents, 0o755); err != nil {
-		t.Fatalf("agents dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agents, "settings.json"), []byte(raw), 0o600); err != nil {
-		t.Fatalf("settings: %v", err)
-	}
-	return root
-}
-
 func TestRuntimeCacheConfigPriority(t *testing.T) {
 	root := newClaudeProject(t)
 

@@ -230,12 +230,18 @@ func TestNormalizeAbsFailureFallsBackToClean(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 	if err := os.Chmod(sealed, 0o000); err != nil {
-		_ = os.Chdir(oldwd)
+		if restoreErr := os.Chdir(oldwd); restoreErr != nil {
+			t.Fatalf("restore wd after chmod failure: %v (chmod: %v)", restoreErr, err)
+		}
 		t.Skipf("chmod unsupported: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(oldwd)
-		_ = os.Chmod(sealed, 0o700)
+		if err := os.Chmod(sealed, 0o700); err != nil {
+			t.Errorf("chmod cleanup: %v", err)
+		}
+		if err := os.Chdir(oldwd); err != nil {
+			t.Errorf("chdir cleanup: %v", err)
+		}
 	})
 
 	in := filepath.Join("relative", "path")

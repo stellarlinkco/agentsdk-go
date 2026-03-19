@@ -618,7 +618,9 @@ func encodeSchema(raw map[string]any) (anthropicsdk.ToolInputSchemaParam, error)
 		return anthropicsdk.ToolInputSchemaParam{}, err
 	}
 	var schema anthropicsdk.ToolInputSchemaParam
-	_ = json.Unmarshal(data, &schema)
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return anthropicsdk.ToolInputSchemaParam{}, err
+	}
 	if schema.Type == "" {
 		schema.Type = "object"
 	}

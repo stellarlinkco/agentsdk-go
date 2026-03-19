@@ -40,12 +40,15 @@ func (m *HTTPTraceMiddleware) Wrap(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &httpTraceStatusWriter{ResponseWriter: w}
 		next.ServeHTTP(sw, r)
-		_ = m.writer.WriteHTTPTrace(&HTTPTraceEvent{
+		if err := m.writer.WriteHTTPTrace(&HTTPTraceEvent{
 			Method:     r.Method,
 			URL:        r.URL.String(),
 			Status:     sw.statusOrOK(),
 			DurationMS: time.Since(start).Milliseconds(),
-		})
+		}); err != nil {
+			// Best-effort tracing: do not break the response path.
+			_ = err
+		}
 	})
 }
 
@@ -72,4 +75,3 @@ func (w *httpTraceStatusWriter) statusOrOK() int {
 	}
 	return w.status
 }
-

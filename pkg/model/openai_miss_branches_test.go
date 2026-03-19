@@ -28,7 +28,7 @@ func TestOpenAIModelBuildParamsCoversTemperatureAndUser(t *testing.T) {
 	}
 
 	params := m.buildParams(Request{
-		SessionID:    "sess",
+		SessionID:   "sess",
 		Temperature: &tempB,
 	})
 	if params.Model == "" {
@@ -44,7 +44,7 @@ func TestOpenAIModelBuildParamsCoversTemperatureAndUser(t *testing.T) {
 
 func TestBuildOpenAIUserContentPartsEmptyAddsPlaceholder(t *testing.T) {
 	parts := buildOpenAIUserContentParts(Message{
-		Content:      " ",
+		Content:       " ",
 		ContentBlocks: []ContentBlock{{Type: ContentBlockText, Text: " "}},
 	})
 	if len(parts) == 0 {

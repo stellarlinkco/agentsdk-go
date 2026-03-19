@@ -362,11 +362,6 @@ func TestFS_toEmbedPath(t *testing.T) {
 
 	windowsFS := &FS{projectRoot: "C:/project"}
 	noRootFS := NewFS("", nil)
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	cwdRelative := strings.TrimLeft(filepath.ToSlash(filepath.Join(cwd, ".agents", "file.json")), "/")
 	uncFS := &FS{projectRoot: `\\server\share`}
 
 	tests := []struct {
@@ -427,7 +422,7 @@ func TestFS_toEmbedPath(t *testing.T) {
 			name: "no project root uses cwd",
 			fs:   noRootFS,
 			path: filepath.Join(".agents", "file.json"),
-			want: cwdRelative,
+			want: ".agents/file.json",
 		},
 		{
 			name: "windows UNC path",

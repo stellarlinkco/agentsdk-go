@@ -19,7 +19,7 @@ func TestLoadAgentsMDEmptyProjectRootUsesDot(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(root))
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	t.Cleanup(func() { require.NoError(t, os.Chdir(cwd)) })
 
 	content, err := LoadAgentsMD("   ", nil)
 	require.NoError(t, err)
@@ -139,7 +139,9 @@ type fakeEmbedFile struct {
 	data []byte
 }
 
-func (f *fakeEmbedFile) Stat() (fs.FileInfo, error) { return fakeFileInfo{name: "x", size: int64(len(f.data))}, nil }
+func (f *fakeEmbedFile) Stat() (fs.FileInfo, error) {
+	return fakeFileInfo{name: "x", size: int64(len(f.data))}, nil
+}
 func (f *fakeEmbedFile) Read(p []byte) (int, error) { return f.r.Read(p) }
 func (f *fakeEmbedFile) Close() error               { return nil }
 

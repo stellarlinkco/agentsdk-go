@@ -24,13 +24,15 @@ func TestBus_Publish_ReturnsValidateError(t *testing.T) {
 }
 
 func TestBus_Publish_ReturnsClosedWhenBaseContextDone(t *testing.T) {
-	bus := NewBus()
-	defer bus.Close()
-
-	// Cancel base context without flipping closed flag to cover select <-Done path.
-	// Force the send case to be disabled so select deterministically observes Done.
-	bus.queue = nil
-	bus.cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	bus := &Bus{
+		queue:   nil,
+		subs:    make(map[EventType]map[int64]*subscription),
+		deduper: newDeduper(defaultDedupLimit),
+		baseCtx: ctx,
+		cancel:  func() {},
+	}
 
 	if err := bus.Publish(Event{Type: Stop}); err == nil {
 		t.Fatalf("expected closed error")
@@ -59,7 +61,9 @@ func TestBus_Unsubscribe_IsSafeToCallMultipleTimes(t *testing.T) {
 	unsub()
 	unsub() // should not panic
 
-	_ = bus.Publish(Event{Type: Stop})
+	if err := bus.Publish(Event{Type: Stop}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
 	time.Sleep(25 * time.Millisecond)
 	if called.Load() != 0 {
 		t.Fatalf("unexpected handler invocation after unsubscribe: %d", called.Load())

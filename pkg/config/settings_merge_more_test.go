@@ -36,7 +36,7 @@ func TestSettingsMergeCoverageMore(t *testing.T) {
 		AWSAuthRefresh:      "refresh",
 		AWSCredentialExport: "export",
 		Permissions: &PermissionsConfig{
-			Ask:                        []string{"Read(**/draft.md)"},
+			Ask:                          []string{"Read(**/draft.md)"},
 			DisableBypassPermissionsMode: "on",
 		},
 		Sandbox: &SandboxConfig{
@@ -108,4 +108,3 @@ func TestSettingsMergeCoverageMore(t *testing.T) {
 	require.Nil(t, cloneStatusLine(nil))
 	require.Nil(t, cloneBoolPtr(nil))
 }
-

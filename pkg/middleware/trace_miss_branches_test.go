@@ -139,7 +139,7 @@ func TestTraceMiddleware_Append_LogsWriteAndRenderErrors(t *testing.T) {
 
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "blocked")
-	if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
 		t.Fatalf("write placeholder: %v", err)
 	}
 
@@ -205,15 +205,28 @@ func TestTraceHelpers_MissedBranches(t *testing.T) {
 	}
 
 	mw := NewTraceMiddleware(t.TempDir())
-	ctxTrace := context.WithValue(context.Background(), "trace.session_id", "trace-string")
+	ctxTrace := stringValueContext{Context: context.Background(), key: "trace.session_id", value: "trace-string"}
 	if got := mw.resolveSessionID(ctxTrace, nil); got != "trace-string" {
 		t.Fatalf("resolveSessionID trace string = %q", got)
 	}
 
-	ctxSess := context.WithValue(context.Background(), "session_id", "sess-string")
+	ctxSess := stringValueContext{Context: context.Background(), key: "session_id", value: "sess-string"}
 	if got := mw.resolveSessionID(ctxSess, nil); got != "sess-string" {
 		t.Fatalf("resolveSessionID session string = %q", got)
 	}
+}
+
+type stringValueContext struct {
+	context.Context
+	key   string
+	value string
+}
+
+func (c stringValueContext) Value(key any) any {
+	if k, ok := key.(string); ok && k == c.key {
+		return c.value
+	}
+	return c.Context.Value(key)
 }
 
 func TestTraceSkillsSnapshot_MissedBranches(t *testing.T) {

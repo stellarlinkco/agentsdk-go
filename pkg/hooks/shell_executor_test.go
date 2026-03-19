@@ -105,15 +105,15 @@ func TestExitCodeMapping(t *testing.T) {
 		tc := tc
 		t.Run(fmt.Sprintf("exit_%d", tc.code), func(t *testing.T) {
 			t.Parallel()
-				script := writeScript(t, dir, fmt.Sprintf("exit_%d.sh", tc.code), shScript(
-					fmt.Sprintf("#!/bin/sh\nexit %d\n", tc.code),
-					fmt.Sprintf("@exit /b %d\r\n", tc.code),
-				))
-				exec := NewExecutor()
-				exec.Register(ShellHook{Event: Stop, Command: script})
-				evt := Event{Type: Stop, Payload: StopPayload{Reason: "hi"}}
+			script := writeScript(t, dir, fmt.Sprintf("exit_%d.sh", tc.code), shScript(
+				fmt.Sprintf("#!/bin/sh\nexit %d\n", tc.code),
+				fmt.Sprintf("@exit /b %d\r\n", tc.code),
+			))
+			exec := NewExecutor()
+			exec.Register(ShellHook{Event: Stop, Command: script})
+			evt := Event{Type: Stop, Payload: StopPayload{Reason: "hi"}}
 
-				results, err := exec.Execute(context.Background(), evt)
+			results, err := exec.Execute(context.Background(), evt)
 			if tc.wantError {
 				if err == nil {
 					t.Fatalf("expected error for code %d", tc.code)
@@ -241,11 +241,11 @@ func TestConcurrentCallsAreIsolated(t *testing.T) {
 	errs := make([]error, 5)
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
-			go func(idx int) {
-				defer wg.Done()
-				_, errs[idx] = exec.Execute(context.Background(), Event{Type: Stop})
-			}(i)
-		}
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = exec.Execute(context.Background(), Event{Type: Stop})
+		}(i)
+	}
 	wg.Wait()
 	for i, e := range errs {
 		if e != nil {
@@ -523,7 +523,7 @@ func TestAsyncHookFireAndForget(t *testing.T) {
 			default:
 			}
 		}),
-		)
+	)
 	exec.Register(ShellHook{Event: Stop, Command: shCmd(": > async_marker", "type nul > async_marker"), Async: true})
 
 	results, err := exec.Execute(context.Background(), Event{Type: Stop})

@@ -102,4 +102,3 @@ func isForbiddenEdge(from, to string) bool {
 		return false
 	}
 }
-

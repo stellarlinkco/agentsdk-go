@@ -161,8 +161,7 @@ func ConnectSessionWithOptions(ctx context.Context, spec string, opts ...Connect
 	client := NewClient(&Implementation{
 		Name:    mcpClientName,
 		Version: mcpClientVersion,
-	}, &ClientOptions{
-	})
+	}, &ClientOptions{})
 
 	dialCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

@@ -3,7 +3,6 @@ package skills
 import (
 	"context"
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -83,20 +82,6 @@ func (m mockDirInfo) Mode() fs.FileMode {
 func (m mockDirInfo) ModTime() time.Time { return time.Unix(0, 0) }
 func (m mockDirInfo) IsDir() bool        { return m.isDir }
 func (m mockDirInfo) Sys() any           { return nil }
-
-type readOnlyFile struct {
-	r    io.Reader
-	info fs.FileInfo
-}
-
-func (f *readOnlyFile) Read(p []byte) (int, error) { return f.r.Read(p) }
-func (f *readOnlyFile) Close() error               { return nil }
-func (f *readOnlyFile) Stat() (fs.FileInfo, error) {
-	if f.info != nil {
-		return f.info, nil
-	}
-	return mockDirInfo{named: "file", isDir: false}, nil
-}
 
 type errReadFile struct {
 	err error

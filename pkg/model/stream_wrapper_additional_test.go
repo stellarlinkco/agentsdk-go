@@ -94,7 +94,9 @@ type fakeStreamInner struct {
 	called bool
 }
 
-func (f *fakeStreamInner) Complete(context.Context, Request) (*Response, error) { return &Response{}, nil }
+func (f *fakeStreamInner) Complete(context.Context, Request) (*Response, error) {
+	return &Response{}, nil
+}
 func (f *fakeStreamInner) CompleteStream(_ context.Context, _ Request, cb StreamHandler) error {
 	f.called = true
 	if cb != nil {

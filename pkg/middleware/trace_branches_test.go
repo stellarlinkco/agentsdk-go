@@ -24,7 +24,11 @@ func TestTraceMiddlewareBranches(t *testing.T) {
 		if err := os.Chdir(tmp); err != nil {
 			t.Fatalf("chdir: %v", err)
 		}
-		t.Cleanup(func() { _ = os.Chdir(wd) })
+		t.Cleanup(func() {
+			if err := os.Chdir(wd); err != nil {
+				t.Errorf("chdir cleanup: %v", err)
+			}
+		})
 
 		tm := NewTraceMiddleware("")
 		if tm.outputDir != ".trace" {
@@ -78,6 +82,7 @@ func TestTraceMiddlewareBranches(t *testing.T) {
 
 	t.Run("sessionFor id normalization and error path", func(t *testing.T) {
 		tm := NewTraceMiddleware(t.TempDir())
+		t.Cleanup(tm.Close)
 		sess := tm.sessionFor("")
 		if sess == nil || sess.id != "session" {
 			t.Fatalf("expected normalized session, got %#v", sess)
@@ -143,11 +148,12 @@ func TestTraceMiddlewareBranches(t *testing.T) {
 	t.Run("resolveSessionID and stage helpers", func(t *testing.T) {
 		tm := NewTraceMiddleware(t.TempDir())
 		st := &State{}
-		if got := tm.resolveSessionID(nil, st); !strings.HasPrefix(got, "session-0x") {
+		var ctx context.Context
+		if got := tm.resolveSessionID(ctx, st); !strings.HasPrefix(got, "session-0x") {
 			t.Fatalf("expected pointer-based session id, got %q", got)
 		}
 
-		ctx := context.WithValue(context.Background(), TraceSessionIDContextKey, "typed")
+		ctx = context.WithValue(context.Background(), TraceSessionIDContextKey, "typed")
 		if got := tm.resolveSessionID(ctx, &State{Values: map[string]any{}}); got != "typed" {
 			t.Fatalf("expected typed context session id, got %q", got)
 		}

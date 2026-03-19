@@ -88,16 +88,6 @@ func buildSubagentContext(req Request, def subagents.Definition, matched bool) (
 	return subCtx, true
 }
 
-func metadataString(meta map[string]any, key string) string {
-	if len(meta) == 0 {
-		return ""
-	}
-	if val, ok := anyToString(meta[key]); ok {
-		return val
-	}
-	return ""
-}
-
 func canonicalToolName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }

@@ -62,4 +62,3 @@ func TestOpenAIProviderModelMissingAPIKey(t *testing.T) {
 		t.Fatalf("expected error for missing api key")
 	}
 }
-

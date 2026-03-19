@@ -30,7 +30,9 @@ func TestRulesLoaderWatchChanges_LogsLoadErrorsAndStopsOnClosedErrorChannel(t *t
 		t.Fatalf("chmod bad rule: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chmod(bad, 0o600)
+		if err := os.Chmod(bad, 0o600); err != nil {
+			t.Errorf("chmod cleanup: %v", err)
+		}
 	})
 
 	loader := NewRulesLoader(root)

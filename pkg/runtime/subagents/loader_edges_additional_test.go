@@ -52,7 +52,11 @@ func TestLoadSubagentDir_StatPermissionErrorIsReported(t *testing.T) {
 	if err := os.Chmod(blocked, 0o000); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
+	t.Cleanup(func() {
+		if err := os.Chmod(blocked, 0o700); err != nil {
+			t.Errorf("chmod cleanup: %v", err)
+		}
+	})
 
 	fsLayer := config.NewFS("", nil)
 	_, errs := loadSubagentDir(filepath.Join(blocked, "agents"), fsLayer)
@@ -81,7 +85,11 @@ func TestLoadSubagentDir_RecordsWalkErrors(t *testing.T) {
 	if err := os.Chmod(privateDir, 0o000); err != nil {
 		t.Fatalf("chmod private: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(privateDir, 0o700) })
+	t.Cleanup(func() {
+		if err := os.Chmod(privateDir, 0o700); err != nil {
+			t.Errorf("chmod cleanup: %v", err)
+		}
+	})
 
 	fsLayer := config.NewFS(root, nil)
 	_, errs := loadSubagentDir(agentsDir, fsLayer)

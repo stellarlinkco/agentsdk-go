@@ -149,7 +149,10 @@ func TestAnthropicConvertContentBlocks_UnknownTypeFallsBack(t *testing.T) {
 	}
 	text := out[0].GetText()
 	if text == nil || *text != "." {
-		b, _ := json.Marshal(out[0])
+		b, err := json.Marshal(out[0])
+		if err != nil {
+			t.Fatalf("marshal output: %v", err)
+		}
 		t.Fatalf("expected '.' fallback, got %v (%s)", text, string(b))
 	}
 }

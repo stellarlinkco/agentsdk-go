@@ -128,8 +128,6 @@ func (f *FS) toEmbedPath(path string) string {
 	if !filepath.IsAbs(absPath) && !isWindowsAbs(absPath) {
 		if f.projectRoot != "" {
 			absPath = filepath.Join(f.projectRoot, absPath)
-		} else if resolved, err := filepath.Abs(absPath); err == nil {
-			absPath = resolved
 		}
 	}
 

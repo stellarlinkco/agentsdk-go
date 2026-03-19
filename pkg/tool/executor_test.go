@@ -432,12 +432,3 @@ func TestExecutorPersisterIsolatesDirectoriesPerToolName(t *testing.T) {
 		t.Fatalf("expected grep path under %q, got %q", wantGrepPrefix, grepRes.Result.OutputRef.Path)
 	}
 }
-
-func canonicalTempDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	if resolved, err := filepath.EvalSymlinks(dir); err == nil && resolved != "" {
-		return resolved
-	}
-	return dir
-}

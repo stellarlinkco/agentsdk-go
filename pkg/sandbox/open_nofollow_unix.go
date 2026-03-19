@@ -24,4 +24,3 @@ func openNoFollow(path string) error {
 	syscall.Close(fd)
 	return nil
 }
-

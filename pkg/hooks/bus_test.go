@@ -96,24 +96,24 @@ func TestBusConcurrentSubscribeSafety(t *testing.T) {
 	var unsubs []func()
 	wg := sync.WaitGroup{}
 	errCh := make(chan error, 1)
-		for s := 0; s < 5; s++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				unsub := bus.Subscribe(Stop, func(_ context.Context, evt Event) {
-					if evt.Type == Stop {
-						consumed.Add(1)
-					}
-				})
-				unsubMu.Lock()
-				unsubs = append(unsubs, unsub)
-				unsubMu.Unlock()
-				for i := 0; i < 20; i++ {
-					if err := bus.Publish(Event{Type: Stop}); err != nil {
-						// Report the first publish error back to the main goroutine.
-						select {
-						case errCh <- err:
-						default:
+	for s := 0; s < 5; s++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			unsub := bus.Subscribe(Stop, func(_ context.Context, evt Event) {
+				if evt.Type == Stop {
+					consumed.Add(1)
+				}
+			})
+			unsubMu.Lock()
+			unsubs = append(unsubs, unsub)
+			unsubMu.Unlock()
+			for i := 0; i < 20; i++ {
+				if err := bus.Publish(Event{Type: Stop}); err != nil {
+					// Report the first publish error back to the main goroutine.
+					select {
+					case errCh <- err:
+					default:
 					}
 					return
 				}

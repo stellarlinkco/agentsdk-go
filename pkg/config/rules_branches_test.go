@@ -97,7 +97,7 @@ func TestRulesLoader_WatchChangesStatError(t *testing.T) {
 	agentsDir := filepath.Join(root, ".agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.Chmod(agentsDir, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(agentsDir, 0o755) })
+	t.Cleanup(func() { require.NoError(t, os.Chmod(agentsDir, 0o755)) })
 
 	loader := NewRulesLoader(root)
 	err := loader.WatchChanges(nil)

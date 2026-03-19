@@ -58,4 +58,3 @@ func TestTraceEventSnapshotNilBranches(t *testing.T) {
 		t.Fatalf("got=%v, want nil", got)
 	}
 }
-

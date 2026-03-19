@@ -22,10 +22,10 @@ const (
 )
 
 var (
-	ErrDuplicateSubagent    = errors.New("subagents: duplicate registration")
-	ErrUnknownSubagent      = errors.New("subagents: unknown target")
-	ErrNoMatchingSubagent   = errors.New("subagents: no matching subagent")
-	ErrEmptyInstruction     = errors.New("subagents: instruction is empty")
+	ErrDuplicateSubagent  = errors.New("subagents: duplicate registration")
+	ErrUnknownSubagent    = errors.New("subagents: unknown target")
+	ErrNoMatchingSubagent = errors.New("subagents: no matching subagent")
+	ErrEmptyInstruction   = errors.New("subagents: instruction is empty")
 )
 
 var builtinSubagentTypes = map[string]Definition{

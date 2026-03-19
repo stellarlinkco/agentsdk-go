@@ -7,13 +7,13 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/google/uuid"
 	hooks "github.com/stellarlinkco/agentsdk-go/pkg/hooks"
 	"github.com/stellarlinkco/agentsdk-go/pkg/message"
 	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
 	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
 	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
-	"github.com/google/uuid"
 )
 
 type preparedRun struct {

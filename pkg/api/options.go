@@ -107,29 +107,29 @@ type Options struct {
 	SystemPrompt string
 	RulesEnabled *bool // nil = 默认启用，false = 禁用
 
-	Middleware        []middleware.Middleware
-	MiddlewareTimeout time.Duration
-	MaxIterations     int
-	Timeout           time.Duration
-	TokenLimit        int
-	MaxSessions       int
-	Tools []tool.Tool
+	Middleware          []middleware.Middleware
+	MiddlewareTimeout   time.Duration
+	MaxIterations       int
+	Timeout             time.Duration
+	TokenLimit          int
+	MaxSessions         int
+	Tools               []tool.Tool
 	EnabledBuiltinTools []string
-	DisallowedTools []string
-	CustomTools []tool.Tool
-	MCPServers  []string
+	DisallowedTools     []string
+	CustomTools         []tool.Tool
+	MCPServers          []string
 
 	TypedHooks        []hooks.ShellHook
 	HookMiddleware    []hooks.Middleware
 	HookTimeout       time.Duration
 	DisableSafetyHook bool
 
-	Skills    []SkillRegistration
-	Subagents []SubagentRegistration
-	Sandbox SandboxOptions
-	AutoCompact CompactConfig
-	OTEL OTELConfig
-	fsLayer *config.FS
+	Skills           []SkillRegistration
+	Subagents        []SubagentRegistration
+	Sandbox          SandboxOptions
+	AutoCompact      CompactConfig
+	OTEL             OTELConfig
+	fsLayer          *config.FS
 	settingsSnapshot *config.Settings
 	skReg            *skills.Registry
 	subMgr           *subagents.Manager

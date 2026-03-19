@@ -48,7 +48,7 @@ func TestResolvePrompt_Precedence(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prompt.txt")
-	if err := os.WriteFile(path, []byte("from-file"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("from-file"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got, err = resolvePrompt("", path, []string{"tail"})
@@ -71,8 +71,12 @@ func TestResolvePrompt_FromStdin(t *testing.T) {
 		t.Fatalf("pipe: %v", err)
 	}
 	os.Stdin = r
-	_, _ = w.WriteString("a\nb\n")
-	_ = w.Close()
+	if _, err := w.WriteString("a\nb\n"); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
 
 	got, err := resolvePrompt("", "", nil)
 	if err != nil || got != "a\nb" {
@@ -99,8 +103,12 @@ func TestParseTags(t *testing.T) {
 
 func TestMultiValue(t *testing.T) {
 	var mv multiValue
-	_ = mv.Set("a")
-	_ = mv.Set("b")
+	if err := mv.Set("a"); err != nil {
+		t.Fatalf("set a: %v", err)
+	}
+	if err := mv.Set("b"); err != nil {
+		t.Fatalf("set b: %v", err)
+	}
 	if mv.String() != "a,b" {
 		t.Fatalf("String=%q", mv.String())
 	}

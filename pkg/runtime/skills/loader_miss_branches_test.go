@@ -114,7 +114,9 @@ func TestLoadSupportFilesWithFSCollectsStatErrors(t *testing.T) {
 		t.Fatalf("chmod 0: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chmod(dir, origMode)
+		if err := os.Chmod(dir, origMode); err != nil {
+			t.Errorf("chmod cleanup: %v", err)
+		}
 	})
 
 	_, errs := loadSupportFilesWithFS(dir, config.NewFS("", nil))

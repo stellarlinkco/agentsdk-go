@@ -357,10 +357,18 @@ func writeAtomicWith(
 	if err != nil {
 		return err
 	}
-	defer remove(tmp.Name())
+	defer func() {
+		if err := remove(tmp.Name()); err != nil {
+			// Best-effort cleanup: temp file may already be renamed/removed.
+			_ = err
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			// Best-effort close: preserve the original write error.
+			_ = closeErr
+		}
 		return err
 	}
 	if err := tmp.Close(); err != nil {

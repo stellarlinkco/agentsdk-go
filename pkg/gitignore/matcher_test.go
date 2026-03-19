@@ -565,7 +565,11 @@ func TestNewMatcherOpenPermissionError(t *testing.T) {
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Skipf("chmod unsupported: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	t.Cleanup(func() {
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Errorf("chmod cleanup: %v", err)
+		}
+	})
 
 	if _, err := NewMatcher(tmpDir); err == nil {
 		t.Fatalf("expected open permission error")

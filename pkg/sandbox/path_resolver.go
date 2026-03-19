@@ -101,4 +101,3 @@ func splitPathForWalk(clean string) (string, []string) {
 	}
 	return current, strings.Split(remainder, sep)
 }
-

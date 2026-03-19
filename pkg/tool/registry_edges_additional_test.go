@@ -120,7 +120,10 @@ func TestHeaderRoundTripperNilRequestAndBlankValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("round trip: %v", err)
 	}
-	rec := rt.base.(*roundTripRecorder)
+	rec, ok := rt.base.(*roundTripRecorder)
+	if !ok {
+		t.Fatalf("expected roundTripRecorder, got %T", rt.base)
+	}
 	if rec.req == nil {
 		t.Fatalf("expected recorded request")
 	}

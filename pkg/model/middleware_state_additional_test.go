@@ -6,7 +6,8 @@ import (
 )
 
 func TestMiddlewareStateNilContext(t *testing.T) {
-	if got := middlewareState(nil); got != nil {
+	var ctx context.Context
+	if got := middlewareState(ctx); got != nil {
 		t.Fatalf("expected nil state")
 	}
 }
@@ -17,4 +18,3 @@ func TestMiddlewareStateWrongType(t *testing.T) {
 		t.Fatalf("expected nil state for wrong type")
 	}
 }
-
