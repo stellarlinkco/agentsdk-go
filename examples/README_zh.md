@@ -24,14 +24,14 @@ export ANTHROPIC_API_KEY=sk-ant-your-key-here
 
 **学习路径**
 - `01-basic`（~36 行）：单次 API 调用，最小用法，打印一次响应。
-- `02-cli`（~93 行）：交互式 REPL，会话历史，可选读取 `.claude/settings.json`。
+- `02-cli`（~93 行）：交互式 REPL，会话历史，可选读取 `.agents/settings.json`。
 - `03-http`（~300 行）：REST + SSE 服务，监听 `:8080`，生产级组合。
 - `04-advanced`（~1400 行）：全功能集成，包含 middleware、hooks、MCP、sandbox、skills、subagents。
 - `05-custom-tools`（~58 行）：选择性内置工具和自定义工具注册。
-- `06-embed`（~181 行）：通过 `go:embed` 嵌入 `.claude` 目录到二进制文件。
+- `06-embed`（~181 行）：通过 `go:embed` 嵌入 `.agents` 目录到二进制文件。
 - `07-multimodel`（~130 行）：多模型池，分层路由和成本优化。
-- `08-safety-hook`（~200 行）：Go-native safety hook + DisableSafetyHook（离线）。
-- `09-compaction`（~200 行）：prompt 压缩 compaction，剔除 tool I/O（离线）。
+- `08-safety-hook`（~200 行）：Go-native safety hook + DisableSafetyHook。
+- `09-compaction`（~200 行）：prompt 压缩 compaction，剔除 tool I/O。
 - `10-hooks`（~85 行）：Hooks 系统，PreToolUse/PostToolUse shell 钩子。
 - `11-reasoning`（~186 行）：推理模型支持（DeepSeek-R1 reasoning_content 透传）。
 - `12-multimodal`（~135 行）：多模态内容块（文本 + 图片）。
@@ -45,11 +45,11 @@ go run ./examples/01-basic
 ```
 
 ## 02-cli — 交互式 REPL
-- 关键特性：交互输入、按会话保留历史、可选 `.claude/settings.json` 配置。
+- 关键特性：交互输入、按会话保留历史、可选 `.agents/settings.json` 配置。
 - 运行：
 ```bash
 source .env
-go run ./examples/02-cli --session-id demo --settings-path .claude/settings.json
+go run ./examples/02-cli --session-id demo --interactive
 ```
 
 ## 03-http — REST + SSE
@@ -78,7 +78,7 @@ go run ./examples/05-custom-tools
 - 详细用法和自定义工具实现指南见 [05-custom-tools/README.md](05-custom-tools/README.md)。
 
 ## 06-embed — 嵌入式文件系统
-- 关键特性：`EmbedFS` 将 `.claude` 目录嵌入二进制文件，嵌入配置与磁盘配置的优先级解析。
+- 关键特性：`EmbedFS` 将 `.agents` 目录嵌入二进制文件，嵌入配置与磁盘配置的优先级解析。
 - 运行：
 ```bash
 source .env
@@ -94,7 +94,7 @@ go run ./examples/07-multimodel
 ```
 - 配置示例和最佳实践见 [07-multimodel/README.md](07-multimodel/README.md)。
 
-## 08-safety-hook — safety hook（离线）
+## 08-safety-hook — safety hook
 - 关键特性：Go-native `PreToolUse` safety check；`DisableSafetyHook=true` 可禁用。
 - 运行：
 ```bash
@@ -102,7 +102,7 @@ go run ./examples/08-safety-hook
 ```
 - 详情见 [08-safety-hook/README.md](08-safety-hook/README.md)。
 
-## 09-compaction — prompt 压缩 compaction（离线）
+## 09-compaction — prompt 压缩 compaction
 - 关键特性：触发 prompt compression，并确保压缩输入中剔除 tool-call/tool-result。
 - 运行：
 ```bash

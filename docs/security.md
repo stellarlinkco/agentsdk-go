@@ -19,11 +19,11 @@ Sandbox is about isolation, not permission prompts:
 - Network restrictions (when enabled/configured)
 - Resource limits
 
-The sandbox manager is owned by tool execution (`pkg/tool/`) and is configured via `.claude/settings.json` and/or `api.Options`.
+The sandbox manager is owned by tool execution (`pkg/tool/`) and is configured via `.agents/settings.json` and/or `api.Options`.
 
 ## Settings Notes
 
-`.claude/settings.json` still accepts a `permissions` object for compatibility, but v2 core does not implement an approval/ask workflow.
+`.agents/settings.json` still accepts a `permissions` object for compatibility, but v2 core does not implement an approval/ask workflow.
 
 - Use `permissions.additionalDirectories` to widen filesystem roots.
 - Use `disallowedTools` to disable built-in tools by name.

@@ -28,10 +28,10 @@ export ANTHROPIC_API_KEY=sk-ant-your-key-here
 - `03-http` (~300 lines): REST + SSE server on `:8080`, production-ready wiring.
 - `04-advanced` (~1400 lines): full stack with middleware, hooks, MCP, sandbox, skills, subagents.
 - `05-custom-tools` (~58 lines): selective built-in tools and custom tool registration.
-- `06-embed` (~181 lines): embedded filesystem for `.claude` directory via `go:embed`.
+- `06-embed` (~181 lines): embedded filesystem for `.agents` directory via `go:embed`.
 - `07-multimodel` (~130 lines): multi-model pool with tier-based routing and cost optimization.
-- `08-safety-hook` (~200 lines): Go-native safety hook + DisableSafetyHook (offline).
-- `09-compaction` (~200 lines): prompt-compression compaction that strips tool I/O (offline).
+- `08-safety-hook` (~200 lines): Go-native safety hook + DisableSafetyHook.
+- `09-compaction` (~200 lines): prompt-compression compaction that strips tool I/O.
 - `10-hooks` (~85 lines): hooks system with PreToolUse/PostToolUse shell hooks.
 - `11-reasoning` (~186 lines): reasoning model support (DeepSeek-R1 reasoning_content passthrough).
 - `12-multimodal` (~135 lines): multimodal content blocks (text + images).
@@ -45,11 +45,11 @@ go run ./examples/01-basic
 ```
 
 ## 02-cli — interactive REPL
-- Key features: interactive prompt, per-session history, optional `.claude/settings.json` load.
+- Key features: interactive prompt, per-session history, optional `.agents/settings.json`-backed config.
 - Run:
 ```bash
 source .env
-go run ./examples/02-cli --session-id demo --settings-path .claude/settings.json
+go run ./examples/02-cli --session-id demo --interactive
 ```
 
 ## 03-http — REST + SSE
@@ -78,7 +78,7 @@ go run ./examples/05-custom-tools
 - See [05-custom-tools/README.md](05-custom-tools/README.md) for detailed usage and custom tool implementation guide.
 
 ## 06-embed — embedded filesystem
-- Key features: `EmbedFS` for embedding `.claude` directory into the binary, priority resolution between embedded and on-disk configs.
+- Key features: `EmbedFS` for embedding `.agents` directory into the binary, priority resolution between embedded and on-disk configs.
 - Run:
 ```bash
 source .env
@@ -94,7 +94,7 @@ go run ./examples/07-multimodel
 ```
 - See [07-multimodel/README.md](07-multimodel/README.md) for configuration examples and best practices.
 
-## 08-safety-hook — built-in safety hook (offline)
+## 08-safety-hook — built-in safety hook
 - Key features: Go-native `PreToolUse` safety check; `DisableSafetyHook=true` bypass.
 - Run:
 ```bash
@@ -102,7 +102,7 @@ go run ./examples/08-safety-hook
 ```
 - See [08-safety-hook/README.md](08-safety-hook/README.md).
 
-## 09-compaction — prompt compression compaction (offline)
+## 09-compaction — prompt compression compaction
 - Key features: compaction triggers prompt compression and strips tool-call/tool-result content from compression input.
 - Run:
 ```bash

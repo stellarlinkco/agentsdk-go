@@ -17,9 +17,17 @@ import (
 )
 
 var (
-	hooksFatal                  = log.Fatal
-	offlineModel modelpkg.Model = &demomodel.EchoModel{Prefix: "offline"}
+	hooksFatal = log.Fatal
 )
+
+type hooksRuntime interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	Close() error
+}
+
+var hooksNewRuntime = func(ctx context.Context, opts api.Options) (hooksRuntime, error) {
+	return api.New(ctx, opts)
+}
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -30,12 +38,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	online := false
-	for _, arg := range args {
-		if strings.TrimSpace(arg) == "--online" {
-			online = true
-		}
-	}
+	_ = args
 
 	_, currentFile, _, _ := runtime.Caller(0)
 	exampleDir := filepath.Dir(currentFile)
@@ -50,21 +53,17 @@ func run(ctx context.Context, args []string) error {
 		ProjectRoot: exampleDir,
 		TypedHooks:  typedHooks,
 	}
-	if online {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
-		opts.ModelFactory = &modelpkg.AnthropicProvider{
-			APIKey:    apiKey,
-			BaseURL:   demomodel.AnthropicBaseURL(),
-			ModelName: "claude-sonnet-4-5-20250514",
-		}
-	} else {
-		opts.Model = offlineModel
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
+	opts.ModelFactory = &modelpkg.AnthropicProvider{
+		APIKey:    apiKey,
+		BaseURL:   demomodel.AnthropicBaseURL(),
+		ModelName: "claude-sonnet-4-5-20250514",
 	}
 
-	rt, err := api.New(ctx, opts)
+	rt, err := hooksNewRuntime(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("build runtime: %w", err)
 	}

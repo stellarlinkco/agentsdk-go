@@ -36,6 +36,10 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return nil
 	}
 
+	if strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) == "" && strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")) == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
+
 	fake := &fakeBashTool{}
 	mdl := &compactionDemoModel{}
 	opts := api.Options{
@@ -82,7 +86,7 @@ type fakeBashTool struct {
 }
 
 func (*fakeBashTool) Name() string        { return "bash" }
-func (*fakeBashTool) Description() string { return "Fake bash tool for offline compaction demo." }
+func (*fakeBashTool) Description() string { return "Fake bash tool for compaction demo." }
 func (*fakeBashTool) Schema() *tool.JSONSchema {
 	return &tool.JSONSchema{
 		Type: "object",

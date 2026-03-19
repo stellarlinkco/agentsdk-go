@@ -1,6 +1,6 @@
 // Package main demonstrates multimodal content block support.
 //
-// Offline-safe by default; pass --online to call Anthropic.
+// Requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN).
 package main
 
 import (
@@ -22,11 +22,18 @@ import (
 )
 
 var (
-	multimodalFatal                       = log.Fatal
-	multimodalNewRuntime                  = api.New
-	multimodalOfflineModel modelpkg.Model = &demomodel.EchoModel{Prefix: "offline"}
-	multimodalPNGEncode                   = png.Encode
+	multimodalFatal     = log.Fatal
+	multimodalPNGEncode = png.Encode
 )
+
+type multimodalRuntime interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	Close() error
+}
+
+var multimodalNewRuntime = func(ctx context.Context, opts api.Options) (multimodalRuntime, error) {
+	return api.New(ctx, opts)
+}
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
@@ -35,26 +42,17 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	online := false
-	for _, arg := range args {
-		if strings.TrimSpace(arg) == "--online" {
-			online = true
-		}
+	_ = args
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
 	}
-
-	opts := api.Options{}
-	if online {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
-		opts.ModelFactory = &modelpkg.AnthropicProvider{
+	opts := api.Options{
+		ModelFactory: &modelpkg.AnthropicProvider{
 			APIKey:    apiKey,
 			BaseURL:   demomodel.AnthropicBaseURL(),
 			ModelName: "claude-sonnet-4-5-20250929",
-		}
-	} else {
-		opts.Model = multimodalOfflineModel
+		},
 	}
 
 	rt, err := multimodalNewRuntime(ctx, opts)

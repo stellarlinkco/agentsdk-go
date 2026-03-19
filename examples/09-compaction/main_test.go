@@ -8,7 +8,10 @@ import (
 	"testing"
 )
 
-func TestRun_OfflineDefault(t *testing.T) {
+func TestRun_Default(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	var out bytes.Buffer
 	if err := run(context.Background(), nil, &out); err != nil {
 		t.Fatalf("run: %v", err)
@@ -20,18 +23,21 @@ func TestRun_OfflineDefault(t *testing.T) {
 }
 
 func TestHasArg_EdgeCases(t *testing.T) {
-	if hasArg([]string{"--online"}, "") {
+	if hasArg([]string{"--help"}, "") {
 		t.Fatalf("expected hasArg=false for empty want")
 	}
-	if !hasArg([]string{"  --online "}, "--online") {
+	if !hasArg([]string{"  --help "}, "--help") {
 		t.Fatalf("expected hasArg=true with trimming")
 	}
-	if hasArg([]string{"--offline"}, "--online") {
+	if hasArg([]string{"--x"}, "--help") {
 		t.Fatalf("expected hasArg=false when missing")
 	}
 }
 
-func TestMain_OfflineDoesNotFatal(t *testing.T) {
+func TestMain_DoesNotFatal(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	oldFatal := compactionFatal
 	compactionFatal = func(_ ...any) { t.Fatalf("unexpected fatal") }
 	t.Cleanup(func() { compactionFatal = oldFatal })
@@ -41,4 +47,14 @@ func TestMain_OfflineDoesNotFatal(t *testing.T) {
 	os.Args = []string{"09-compaction"}
 
 	main()
+}
+
+func TestRun_RequiresKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	var out bytes.Buffer
+	if err := run(context.Background(), nil, &out); err == nil {
+		t.Fatalf("expected error")
+	}
 }

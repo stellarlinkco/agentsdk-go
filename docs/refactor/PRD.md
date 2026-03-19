@@ -11,7 +11,7 @@
 > **Goal**: Reduce agentsdk-go from ~34K lines / 24 packages to ~15-20K lines / ~11 packages via big-bang rewrite on a new branch, producing a simpler, faster, more testable SDK.
 > **Non-Goals**: Incremental migration, backward API compatibility, new external dependencies, moving OTel out of middleware/trace.
 > **Primary Workflow**: New branch rewrite -> merge single Model interface -> consolidate packages -> prompt-compression compaction (strip tool I/O) -> reduce tools/events/middleware -> delete dead code -> rewrite key tests.
-> **Success Metric**: `go test ./...` passes; total non-test LOC in pkg/ <= 20K; package count <= 11; all examples offline-runnable.
+> **Success Metric**: `go test ./...` passes; total non-test LOC in pkg/ <= 20K; package count <= 11; examples require API keys (no offline mode).
 > **Key Constraints**: Zero new dependencies; YOLO-default security with safety hook; must preserve gitignore matcher (grep/glob depend on it); message package kept as-is.
 > **Verification Path**: `wc -l` on non-test .go files; `go test ./...`; package count via `find pkg -type d`; manual example smoke test.
 > **Domain**: Go SDK, CLI/CI/enterprise agent runtime.
@@ -54,7 +54,7 @@ v2 is a big-bang rewrite on a new branch. It merges the dual Model interface int
 - G6: Delete ACP and Tasks from core (no `contrib/`).
 - G7: Delete dead code (`todo_write` tool, unused event types, deprecated fields).
 - G8: Rewrite key tests (not ported from v1) that cover core paths.
-- G9: All examples remain offline-runnable without API keys.
+- G9: All examples require API keys (no offline mode / no silent fallback).
 
 ## Non-Goals
 
@@ -313,7 +313,7 @@ v2 is a big-bang rewrite on a new branch. It merges the dual Model interface int
 | A12 | `todo_write` deleted | P0 | `find . -name 'todo_write*'` returns 0 in pkg/ |
 | A13 | `go build ./...` passes | P0 | CI green |
 | A14 | `go test ./pkg/...` passes | P0 | CI green |
-| A15 | All examples offline-runnable | P1 | Run each example without API keys, no panic/hang |
+| A15 | Examples require API keys | P1 | Run each example without API keys → error message is clear; with keys → no panic/hang |
 | A16 | Total non-test LOC in pkg/ <= 20K | P1 | `find pkg -name '*.go' ! -name '*_test.go' \| xargs wc -l \| tail -1` |
 
 ---
@@ -386,7 +386,7 @@ v2 is a big-bang rewrite on a new branch. It merges the dual Model interface int
 
 ### Phase 3: Testing & Validation (Must Have)
 13. Rewrite key tests for: Runtime lifecycle, single-prompt run, streaming, tool execution, compaction, middleware, events, context cancellation.
-14. Verify all examples compile and run offline.
+14. Verify all examples compile and run with API keys.
 15. Verify line count and package count targets.
 
 ### Nice to Have (Later)

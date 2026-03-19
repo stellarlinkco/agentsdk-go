@@ -25,10 +25,9 @@ const (
 )
 
 var (
-	httpFatal                         = log.Fatal
-	resolveProjectRoot                = api.ResolveProjectRoot
-	netListen                         = net.Listen
-	offlineModel       modelpkg.Model = &demomodel.EchoModel{Prefix: "offline"}
+	httpFatal          = log.Fatal
+	resolveProjectRoot = api.ResolveProjectRoot
+	netListen          = net.Listen
 )
 
 type runConfig struct {
@@ -36,7 +35,6 @@ type runConfig struct {
 	modelName   string
 	projectRoot string
 	staticDir   string
-	online      bool
 	serve       bool
 }
 
@@ -141,7 +139,6 @@ func buildConfigAndOptions(ctx context.Context, args []string, out io.Writer) (r
 	fs.StringVar(&cfg.modelName, "model", envOr("AGENTSDK_MODEL", defaultModel), "model name for online provider")
 	fs.StringVar(&cfg.projectRoot, "project-root", "", "project root (default: auto-resolve)")
 	fs.StringVar(&cfg.staticDir, "static-dir", "", "static files dir (default: <project-root>/examples/03-http/static)")
-	fs.BoolVar(&cfg.online, "online", false, "use real online model (requires ANTHROPIC_API_KEY)")
 	fs.BoolVar(&cfg.serve, "serve", false, "serve until ctx cancel (default: self-test and exit)")
 	if err := fs.Parse(args); err != nil {
 		return runConfig{}, api.Options{}, err
@@ -157,19 +154,18 @@ func buildConfigAndOptions(ctx context.Context, args []string, out io.Writer) (r
 	}
 	cfg.projectRoot = root
 
-	opts := api.Options{ProjectRoot: root}
-	if cfg.online {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return runConfig{}, api.Options{}, fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
-		opts.ModelFactory = &modelpkg.AnthropicProvider{
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return runConfig{}, api.Options{}, fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
+
+	opts := api.Options{
+		ProjectRoot: root,
+		ModelFactory: &modelpkg.AnthropicProvider{
 			APIKey:    apiKey,
 			BaseURL:   demomodel.AnthropicBaseURL(),
 			ModelName: strings.TrimSpace(cfg.modelName),
-		}
-	} else {
-		opts.Model = offlineModel
+		},
 	}
 	_ = ctx
 	return cfg, opts, nil

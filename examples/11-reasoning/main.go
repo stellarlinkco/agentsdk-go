@@ -1,5 +1,5 @@
 // Package main demonstrates reasoning_content passthrough for thinking models.
-// Offline-safe by default; pass --online to call DeepSeek via OpenAI/Anthropic APIs.
+// Requires DEEPSEEK_API_KEY.
 package main
 
 import (
@@ -30,28 +30,15 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	online := false
-	for _, arg := range args {
-		if strings.TrimSpace(arg) == "--online" {
-			online = true
-		}
-	}
-
 	provider := parseProvider(args)
 
-	var mdl model.Model
-	if online {
-		apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
-		if apiKey == "" {
-			return fmt.Errorf("--online requires DEEPSEEK_API_KEY")
-		}
-		var err error
-		mdl, err = reasoningOnlineModel(apiKey, provider)
-		if err != nil {
-			return err
-		}
-	} else {
-		mdl = offlineReasoningModel{}
+	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
+	if apiKey == "" {
+		return fmt.Errorf("DEEPSEEK_API_KEY is required")
+	}
+	mdl, err := reasoningOnlineModel(apiKey, provider)
+	if err != nil {
+		return err
 	}
 
 	// Demo 1: Non-streaming.
@@ -99,42 +86,6 @@ func parseProvider(args []string) string {
 		}
 	}
 	return provider
-}
-
-type offlineReasoningModel struct{}
-
-func (offlineReasoningModel) Complete(ctx context.Context, req model.Request) (*model.Response, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	last := ""
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if strings.TrimSpace(req.Messages[i].Role) == "user" {
-			last = strings.TrimSpace(req.Messages[i].TextContent())
-			break
-		}
-	}
-	return &model.Response{
-		Message: model.Message{
-			Role:             "assistant",
-			Content:          "offline: " + last,
-			ReasoningContent: "offline reasoning",
-		},
-		StopReason: "stop",
-		Usage:      model.Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
-	}, nil
-}
-
-func (m offlineReasoningModel) CompleteStream(ctx context.Context, req model.Request, cb model.StreamHandler) error {
-	if cb == nil {
-		return nil
-	}
-	resp, err := m.Complete(ctx, req)
-	if err != nil {
-		return err
-	}
-	_ = cb(model.StreamResult{Delta: "offline", Final: false})
-	return cb(model.StreamResult{Final: true, Response: resp})
 }
 
 func printResponse(resp *model.Response) {

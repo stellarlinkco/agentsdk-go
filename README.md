@@ -36,8 +36,8 @@ agentsdk-go is a modular agent development framework that implements core Claude
 - `examples/05-custom-tools` - Selective built-in tools and custom tool registration
 - `examples/07-multimodel` - Multi-model configuration demo
 - `examples/06-embed` - Embedded filesystem demo
-- `examples/08-safety-hook` - Built-in safety hook and DisableSafetyHook demo (offline)
-- `examples/09-compaction` - Prompt-compression compaction demo (offline)
+- `examples/08-safety-hook` - Built-in safety hook and DisableSafetyHook demo
+- `examples/09-compaction` - Prompt-compression compaction demo
 - `examples/10-hooks` - Hooks lifecycle events
 - `examples/11-reasoning` - Reasoning/thinking model support
 - `examples/12-multimodal` - Image and document input
@@ -321,8 +321,8 @@ The repository includes progressive examples:
 - `05-custom-tools` – selective built-ins plus custom tool registration.
 - `07-multimodel` – multi-model tier configuration.
 - `06-embed` – embedded filesystem for bundled `.agents/` configs.
-- `08-safety-hook` – built-in PreToolUse safety hook and DisableSafetyHook demo (offline).
-- `09-compaction` – prompt-compression compaction (offline).
+- `08-safety-hook` – built-in PreToolUse safety hook and DisableSafetyHook demo.
+- `09-compaction` – prompt-compression compaction.
 - `10-hooks` – hooks lifecycle events.
 - `11-reasoning` – reasoning/thinking model support.
 - `12-multimodal` – image and document input.

@@ -8,18 +8,18 @@ This guide walks existing users through the breaking Hooks API change introduced
 | --- | --- | --- |
 | Hook shape | Go interfaces: `PreToolUse(context.Context, events.ToolUsePayload) error`, `PostToolUse(...)`, `UserPromptSubmit(...)`, `Stop(...)`, `Notification(...)` | Shell commands executed via `/bin/sh -c` with JSON stdin; modeled as `hooks.ShellHook` |
 | Decision channel | Return `error` to veto; no structured decision for PreToolUse | Exit codes: `0=allow`, `1=deny`, `2=ask`, others = failure. PreToolUse may emit JSON permission map on stdout |
-| Registration | Pass structs implementing the interfaces into API options (e.g., the `demoHooks` in `examples/04-advanced/hooks.go`) | Provide `[]hooks.ShellHook` through `api.Options.TypedHooks` or declarative `.claude/settings.json` (`Hooks.PreToolUse` / `Hooks.PostToolUse`) |
+| Registration | Pass structs implementing the interfaces into API options (e.g., the `demoHooks` in `examples/04-advanced/hooks.go`) | Provide `[]hooks.ShellHook` through `api.Options.TypedHooks` or declarative `.agents/settings.json` (`Hooks.PreToolUse` / `Hooks.PostToolUse`) |
 | Payload | Go structs delivered directly | JSON envelope on stdin: `{"hook_event_name", "session_id"?, payload block}` |
 
 ## Migration Checklist
 
 1) **Remove in-process hook structs** that implement the old interfaces (e.g., `demoHooks` in `examples/04-advanced/hooks.go`). They are no longer invoked by the runtime.
 
-2) **Author shell commands/scripts** that accept JSON on stdin and exit with the correct code. Scripts run under `/bin/sh -c` and inherit environment variables plus `.claude/settings.json` `env`.
+2) **Author shell commands/scripts** that accept JSON on stdin and exit with the correct code. Scripts run under `/bin/sh -c` and inherit environment variables plus `.agents/settings.json` `env`.
 
 3) **Register ShellHooks** either programmatically or via settings:
 - Programmatic: set `api.Options.TypedHooks` and optional `HookMiddleware` / `HookTimeout`.
-- Declarative: add `Hooks.PreToolUse` / `Hooks.PostToolUse` command maps in `.claude/settings.json`. Tool names are matched using regex selectors.
+- Declarative: add `Hooks.PreToolUse` / `Hooks.PostToolUse` command maps in `.agents/settings.json`. Tool names are matched using regex selectors.
 
 4) **Validate selectors**: `hooks.NewSelector(toolPattern, payloadPattern)` compiles regex filters. Tool names must match for a hook to fire; leave blank for wildcard.
 
@@ -88,7 +88,7 @@ PY
 
 > Exit codes: `0` allow, `1` deny, `2` ask/needs confirmation, any other value causes the run to fail. For PreToolUse, stdout may include a JSON object (permission hints) consumed by the runtime.
 
-## Declarative Configuration Example (`.claude/settings.json`)
+## Declarative Configuration Example (`.agents/settings.json`)
 
 ```json
 {
@@ -134,7 +134,7 @@ If a hook returns a non-zero code other than `1` or `2`, the executor treats it 
 
 # Migration Guide: MCP `mcpServers` ➜ `mcp.servers` (v0.4.0)
 
-This section covers the breaking change that replaces the flat `mcpServers` list with a typed `mcp.servers` map in `.claude/settings.json` (effective v0.4.0).
+This section covers the breaking change that replaces the flat `mcpServers` list with a typed `mcp.servers` map in `.agents/settings.json` (effective v0.4.0).
 
 ## What Changed
 
@@ -147,7 +147,7 @@ This section covers the breaking change that replaces the flat `mcpServers` list
 
 ## Migration Checklist
 
-1) Remove any `mcpServers` arrays from `.claude/settings.json`; keep CLI `--mcp` overrides only for ad-hoc use.
+1) Remove any `mcpServers` arrays from `.agents/settings.json`; keep CLI `--mcp` overrides only for ad-hoc use.
 2) Create `mcp.servers` and assign stable, non-empty names for each server.
 3) For stdio servers: set `type: "stdio"` (or leave blank), move the binary into `command`, and split flags into `args`.
 4) For HTTP/SSE servers: set `type: "http"` or `"sse"`, move the endpoint into `url`, and port any auth into `headers`; add `timeoutSeconds` if you previously relied on global timeouts.

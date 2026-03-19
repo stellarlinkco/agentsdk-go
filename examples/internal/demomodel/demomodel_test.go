@@ -53,7 +53,7 @@ func TestEchoModelComplete_DefaultPrefixAndFallbackToLastMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if resp == nil || resp.Message.Content != "offline: hello" {
+	if resp == nil || resp.Message.Content != "demo: hello" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }
@@ -64,7 +64,7 @@ func TestEchoModelComplete_EmptyMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if resp == nil || resp.Message.Content != "offline" {
+	if resp == nil || resp.Message.Content != "demo" {
 		t.Fatalf("unexpected response: %+v", resp)
 	}
 }

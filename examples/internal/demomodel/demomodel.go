@@ -32,7 +32,7 @@ func (m *EchoModel) Complete(ctx context.Context, req model.Request) (*model.Res
 	}
 	content := m.Prefix
 	if content == "" {
-		content = "offline"
+		content = "demo"
 	}
 	last := ""
 	for i := len(req.Messages) - 1; i >= 0; i-- {

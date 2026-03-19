@@ -290,8 +290,8 @@ defer rt.Close()
 - `05-custom-tools` - 选择性内置工具 + 自定义工具注册
 - `06-embed` - 内嵌文件系统演示
 - `07-multimodel` - 多模型层级配置演示
-- `08-safety-hook` - 内置 Safety Hook 与 DisableSafetyHook 演示（离线）
-- `09-compaction` - Prompt-compression compaction 演示（离线）
+- `08-safety-hook` - 内置 Safety Hook 与 DisableSafetyHook 演示
+- `09-compaction` - Prompt-compression compaction 演示
 - `10-hooks` - Hooks 生命周期事件
 - `11-reasoning` - 推理/思考模型支持
 - `12-multimodal` - 图片与文档输入

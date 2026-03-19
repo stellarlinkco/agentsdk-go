@@ -14,7 +14,7 @@ import (
 
 func TestFS_ReadFile_OSOnly(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".claude", "settings.json")
+	path := filepath.Join(dir, ".agents", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestFS_WalkDir_OSOnly(t *testing.T) {
 func TestFS_ReadFile_EmbedOnly(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, buildEmbedFS())
-	path := filepath.Join(dir, ".claude", "settings.json")
+	path := filepath.Join(dir, ".agents", "settings.json")
 	data, err := fsys.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read embed: %v", err)
@@ -157,7 +157,7 @@ func TestFS_ReadFile_EmbedOnly(t *testing.T) {
 func TestFS_Open_EmbedOnly(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, buildEmbedFS())
-	path := filepath.Join(dir, ".claude", "settings.json")
+	path := filepath.Join(dir, ".agents", "settings.json")
 	file, err := fsys.Open(path)
 	if err != nil {
 		t.Fatalf("open embed: %v", err)
@@ -178,7 +178,7 @@ func TestFS_Open_EmbedOnly(t *testing.T) {
 func TestFS_Open_ErrorFallback(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, fstest.MapFS{})
-	path := filepath.Join(dir, ".claude", "missing.txt")
+	path := filepath.Join(dir, ".agents", "missing.txt")
 	if _, err := fsys.Open(path); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("expected ErrNotExist, got %v", err)
 	}
@@ -196,7 +196,7 @@ func TestFS_Open_NilEmbedFS(t *testing.T) {
 func TestFS_Stat_EmbedOnly(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, buildEmbedFS())
-	path := filepath.Join(dir, ".claude", "settings.json")
+	path := filepath.Join(dir, ".agents", "settings.json")
 	info, err := fsys.Stat(path)
 	if err != nil {
 		t.Fatalf("stat embed: %v", err)
@@ -209,7 +209,7 @@ func TestFS_Stat_EmbedOnly(t *testing.T) {
 func TestFS_Stat_FallbackError(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, fstest.MapFS{})
-	path := filepath.Join(dir, ".claude", "missing.txt")
+	path := filepath.Join(dir, ".agents", "missing.txt")
 	if _, err := fsys.Stat(path); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("expected ErrNotExist, got %v", err)
 	}
@@ -218,7 +218,7 @@ func TestFS_Stat_FallbackError(t *testing.T) {
 func TestFS_ReadDir_EmbedOnly(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, buildEmbedFS())
-	path := filepath.Join(dir, ".claude", "skills")
+	path := filepath.Join(dir, ".agents", "skills")
 	entries, err := fsys.ReadDir(path)
 	if err != nil {
 		t.Fatalf("readdir embed: %v", err)
@@ -237,7 +237,7 @@ func TestFS_ReadDir_EmbedOnly(t *testing.T) {
 func TestFS_ReadDir_FallbackError(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, fstest.MapFS{})
-	path := filepath.Join(dir, ".claude", "missing")
+	path := filepath.Join(dir, ".agents", "missing")
 	if _, err := fsys.ReadDir(path); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("expected ErrNotExist, got %v", err)
 	}
@@ -246,7 +246,7 @@ func TestFS_ReadDir_FallbackError(t *testing.T) {
 func TestFS_WalkDir_EmbedOnly(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, buildEmbedFS())
-	root := filepath.Join(dir, ".claude", "walk")
+	root := filepath.Join(dir, ".agents", "walk")
 	visited := map[string]struct{}{}
 	if err := fsys.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -271,7 +271,7 @@ func TestFS_WalkDir_EmbedOnly(t *testing.T) {
 func TestFS_WalkDir_FallbackError(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, fstest.MapFS{})
-	root := filepath.Join(dir, ".claude", "missing")
+	root := filepath.Join(dir, ".agents", "missing")
 	if err := fsys.WalkDir(root, func(_ string, _ fs.DirEntry, walkErr error) error {
 		return walkErr
 	}); err == nil || !errors.Is(err, fs.ErrNotExist) {
@@ -281,7 +281,7 @@ func TestFS_WalkDir_FallbackError(t *testing.T) {
 
 func TestFS_WalkDir_NoProjectRoot(t *testing.T) {
 	dir := t.TempDir()
-	root := filepath.Join(dir, ".claude", "walk")
+	root := filepath.Join(dir, ".agents", "walk")
 	key := strings.TrimLeft(filepath.ToSlash(root), "/")
 	embed := fstest.MapFS{
 		key:               &fstest.MapFile{Mode: fs.ModeDir},
@@ -325,7 +325,7 @@ func TestFS_WalkDir_EmbedRootFallback(t *testing.T) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if strings.Contains(filepath.ToSlash(path), ".claude") {
+		if strings.Contains(filepath.ToSlash(path), ".agents") {
 			visited = true
 		}
 		return nil
@@ -338,7 +338,7 @@ func TestFS_WalkDir_EmbedRootFallback(t *testing.T) {
 }
 func TestFS_ReadFile_OSOverridesEmbed(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".claude", "settings.json")
+	path := filepath.Join(dir, ".agents", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestFS_toEmbedPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	cwdRelative := strings.TrimLeft(filepath.ToSlash(filepath.Join(cwd, ".claude", "file.json")), "/")
+	cwdRelative := strings.TrimLeft(filepath.ToSlash(filepath.Join(cwd, ".agents", "file.json")), "/")
 	uncFS := &FS{projectRoot: `\\server\share`}
 
 	tests := []struct {
@@ -378,26 +378,26 @@ func TestFS_toEmbedPath(t *testing.T) {
 		{
 			name: "absolute path",
 			fs:   defaultFS,
-			path: filepath.Join(dir, ".claude", "settings.json"),
-			want: ".claude/settings.json",
+			path: filepath.Join(dir, ".agents", "settings.json"),
+			want: ".agents/settings.json",
 		},
 		{
 			name: "relative path anchored to root",
 			fs:   defaultFS,
-			path: filepath.Join(".claude", "settings.local.json"),
-			want: ".claude/settings.local.json",
+			path: filepath.Join(".agents", "settings.local.json"),
+			want: ".agents/settings.local.json",
 		},
 		{
 			name: "windows separators normalized",
 			fs:   windowsFS,
-			path: `C:\project\.claude\settings.json`,
-			want: ".claude/settings.json",
+			path: `C:\project\.agents\settings.json`,
+			want: ".agents/settings.json",
 		},
 		{
-			name: ".claude subpath retained",
+			name: ".agents subpath retained",
 			fs:   defaultFS,
-			path: filepath.Join(dir, ".claude", "skills", "demo"),
-			want: ".claude/skills/demo",
+			path: filepath.Join(dir, ".agents", "skills", "demo"),
+			want: ".agents/skills/demo",
 		},
 		{
 			name: "outside project root",
@@ -426,14 +426,14 @@ func TestFS_toEmbedPath(t *testing.T) {
 		{
 			name: "no project root uses cwd",
 			fs:   noRootFS,
-			path: filepath.Join(".claude", "file.json"),
+			path: filepath.Join(".agents", "file.json"),
 			want: cwdRelative,
 		},
 		{
 			name: "windows UNC path",
 			fs:   uncFS,
-			path: `\\server\share\.claude\settings.json`,
-			want: ".claude/settings.json",
+			path: `\\server\share\.agents\settings.json`,
+			want: ".agents/settings.json",
 		},
 	}
 
@@ -450,7 +450,7 @@ func TestFS_toEmbedPath(t *testing.T) {
 func TestFS_FileNotFound(t *testing.T) {
 	dir := t.TempDir()
 	fsys := NewFS(dir, buildEmbedFS())
-	path := filepath.Join(dir, ".claude", "missing.json")
+	path := filepath.Join(dir, ".agents", "missing.json")
 	_, err := fsys.ReadFile(path)
 	if err == nil {
 		t.Fatalf("expected error for missing file")
@@ -517,15 +517,15 @@ func TestIsWindowsAbs(t *testing.T) {
 
 func buildEmbedFS() fstest.MapFS {
 	return fstest.MapFS{
-		".claude":                       &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/settings.json":         &fstest.MapFile{Data: []byte(`{"source":"embed"}`)},
-		".claude/skills":                &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/skills/alpha":          &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/skills/alpha/SKILL.md": &fstest.MapFile{Data: []byte("alpha")},
-		".claude/skills/beta":           &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/skills/beta/SKILL.md":  &fstest.MapFile{Data: []byte("beta")},
-		".claude/walk":                  &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/walk/inner":            &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/walk/inner/file.txt":   &fstest.MapFile{Data: []byte("walk")},
+		".agents":                       &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/settings.json":         &fstest.MapFile{Data: []byte(`{"source":"embed"}`)},
+		".agents/skills":                &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/skills/alpha":          &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/skills/alpha/SKILL.md": &fstest.MapFile{Data: []byte("alpha")},
+		".agents/skills/beta":           &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/skills/beta/SKILL.md":  &fstest.MapFile{Data: []byte("beta")},
+		".agents/walk":                  &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/walk/inner":            &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/walk/inner/file.txt":   &fstest.MapFile{Data: []byte("walk")},
 	}
 }

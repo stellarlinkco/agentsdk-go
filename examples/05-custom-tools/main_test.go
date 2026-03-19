@@ -8,59 +8,42 @@ import (
 	"testing"
 
 	"github.com/stellarlinkco/agentsdk-go/pkg/api"
-	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
-type customToolsBlankModel struct{}
+type stubRuntime struct {
+	run func(context.Context, api.Request) (*api.Response, error)
+}
 
-func (customToolsBlankModel) Complete(ctx context.Context, _ modelpkg.Request) (*modelpkg.Response, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+func (s stubRuntime) Run(ctx context.Context, req api.Request) (*api.Response, error) {
+	if s.run == nil {
+		return &api.Response{Result: &api.Result{Output: "ok"}}, nil
 	}
-	return &modelpkg.Response{Message: modelpkg.Message{Role: "assistant", Content: " "}, StopReason: "stop"}, nil
+	return s.run(ctx, req)
 }
 
-func (m customToolsBlankModel) CompleteStream(ctx context.Context, req modelpkg.Request, cb modelpkg.StreamHandler) error {
-	if cb == nil {
-		return nil
-	}
-	resp, err := m.Complete(ctx, req)
-	if err != nil {
-		return err
-	}
-	return cb(modelpkg.StreamResult{Final: true, Response: resp})
-}
+func (stubRuntime) Close() error { return nil }
 
-type customToolsErrModel struct{ err error }
-
-func (m customToolsErrModel) Complete(_ context.Context, _ modelpkg.Request) (*modelpkg.Response, error) {
-	return nil, m.err
-}
-
-func (m customToolsErrModel) CompleteStream(_ context.Context, _ modelpkg.Request, _ modelpkg.StreamHandler) error {
-	return m.err
-}
-
-func TestRun_OfflineDefault(t *testing.T) {
+func TestRun_RequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	var out bytes.Buffer
-	if err := run(context.Background(), nil, &out); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if out.Len() == 0 {
-		t.Fatalf("expected output")
+	if err := run(context.Background(), nil, &out); err == nil {
+		t.Fatalf("expected error")
 	}
 }
 
 func TestRun_NoOutput_PrintsPlaceholder(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := customToolsOfflineModel
-	customToolsOfflineModel = customToolsBlankModel{}
-	t.Cleanup(func() { customToolsOfflineModel = old })
+	old := customToolsNewRuntime
+	customToolsNewRuntime = func(context.Context, api.Options) (customToolsRuntime, error) {
+		return stubRuntime{run: func(context.Context, api.Request) (*api.Response, error) {
+			return &api.Response{Result: &api.Result{Output: " "}}, nil
+		}}, nil
+	}
+	t.Cleanup(func() { customToolsNewRuntime = old })
 
 	var out bytes.Buffer
 	if err := run(context.Background(), nil, &out); err != nil {
@@ -72,12 +55,16 @@ func TestRun_NoOutput_PrintsPlaceholder(t *testing.T) {
 }
 
 func TestRun_ModelError(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := customToolsOfflineModel
-	customToolsOfflineModel = customToolsErrModel{err: errors.New("boom")}
-	t.Cleanup(func() { customToolsOfflineModel = old })
+	old := customToolsNewRuntime
+	customToolsNewRuntime = func(context.Context, api.Options) (customToolsRuntime, error) {
+		return stubRuntime{run: func(context.Context, api.Request) (*api.Response, error) {
+			return nil, errors.New("boom")
+		}}, nil
+	}
+	t.Cleanup(func() { customToolsNewRuntime = old })
 
 	var out bytes.Buffer
 	if err := run(context.Background(), nil, &out); err == nil {
@@ -87,7 +74,7 @@ func TestRun_ModelError(t *testing.T) {
 
 func TestRun_NewRuntimeError(t *testing.T) {
 	old := customToolsNewRuntime
-	customToolsNewRuntime = func(_ context.Context, _ api.Options) (*api.Runtime, error) {
+	customToolsNewRuntime = func(_ context.Context, _ api.Options) (customToolsRuntime, error) {
 		return nil, errors.New("new boom")
 	}
 	t.Cleanup(func() { customToolsNewRuntime = old })
@@ -98,33 +85,23 @@ func TestRun_NewRuntimeError(t *testing.T) {
 	}
 }
 
-func TestRun_OnlineRequiresKey(t *testing.T) {
+func TestBuildOptions_RequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-
-	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--online"}, &out); err == nil {
+	if _, err := buildOptions(nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
-func TestBuildOptions_OnlineRequiresKey(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-	if _, err := buildOptions([]string{"--online"}); err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestBuildOptions_OnlineWithKey(t *testing.T) {
+func TestBuildOptions_WithKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	opts, err := buildOptions([]string{"--online"})
+	opts, err := buildOptions(nil)
 	if err != nil {
 		t.Fatalf("buildOptions: %v", err)
 	}
-	if opts.ModelFactory == nil || opts.Model != nil {
+	if opts.ModelFactory == nil {
 		t.Fatalf("unexpected options: %+v", opts)
 	}
 }
@@ -143,19 +120,14 @@ func TestEchoTool_SchemaAndExecute(t *testing.T) {
 	}
 }
 
-func TestHasArg_EdgeCases(t *testing.T) {
-	if hasArg([]string{"--online"}, "") {
-		t.Fatalf("expected hasArg=false for empty want")
-	}
-	if !hasArg([]string{"  --online "}, "--online") {
-		t.Fatalf("expected hasArg=true with trimming")
-	}
-	if hasArg([]string{"--offline"}, "--online") {
-		t.Fatalf("expected hasArg=false when missing")
-	}
-}
-
 func TestMain_OfflineDoesNotFatal(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	oldNew := customToolsNewRuntime
+	customToolsNewRuntime = func(context.Context, api.Options) (customToolsRuntime, error) { return stubRuntime{}, nil }
+	t.Cleanup(func() { customToolsNewRuntime = oldNew })
+
 	oldFatal := customToolsFatal
 	customToolsFatal = func(_ ...any) { t.Fatalf("unexpected fatal") }
 	t.Cleanup(func() { customToolsFatal = oldFatal })
@@ -178,7 +150,7 @@ func TestMain_FatalsOnRunError(t *testing.T) {
 
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"05-custom-tools", "--online"}
+	os.Args = []string{"05-custom-tools"}
 
 	main()
 	if !called {

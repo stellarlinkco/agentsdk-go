@@ -8,59 +8,42 @@ import (
 	"testing"
 
 	"github.com/stellarlinkco/agentsdk-go/pkg/api"
-	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
-type basicBlankModel struct{}
+type stubRuntime struct {
+	run func(context.Context, api.Request) (*api.Response, error)
+}
 
-func (basicBlankModel) Complete(ctx context.Context, _ modelpkg.Request) (*modelpkg.Response, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+func (s stubRuntime) Run(ctx context.Context, req api.Request) (*api.Response, error) {
+	if s.run == nil {
+		return &api.Response{Result: &api.Result{Output: "ok"}}, nil
 	}
-	return &modelpkg.Response{Message: modelpkg.Message{Role: "assistant", Content: "   "}, StopReason: "stop"}, nil
+	return s.run(ctx, req)
 }
 
-func (m basicBlankModel) CompleteStream(ctx context.Context, req modelpkg.Request, cb modelpkg.StreamHandler) error {
-	if cb == nil {
-		return nil
-	}
-	resp, err := m.Complete(ctx, req)
-	if err != nil {
-		return err
-	}
-	return cb(modelpkg.StreamResult{Final: true, Response: resp})
-}
+func (stubRuntime) Close() error { return nil }
 
-type basicErrModel struct{ err error }
-
-func (m basicErrModel) Complete(_ context.Context, _ modelpkg.Request) (*modelpkg.Response, error) {
-	return nil, m.err
-}
-
-func (m basicErrModel) CompleteStream(_ context.Context, _ modelpkg.Request, _ modelpkg.StreamHandler) error {
-	return m.err
-}
-
-func TestRun_OfflineDefault(t *testing.T) {
+func TestRun_RequiresAPIKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	var out bytes.Buffer
-	if err := run(context.Background(), nil, &out, t.TempDir()); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if got := out.String(); got == "" {
-		t.Fatalf("expected output")
+	if err := run(context.Background(), nil, &out, t.TempDir()); err == nil {
+		t.Fatalf("expected error")
 	}
 }
 
 func TestRun_NoOutput_PrintsPlaceholder(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := basicOfflineModel
-	basicOfflineModel = basicBlankModel{}
-	t.Cleanup(func() { basicOfflineModel = old })
+	old := basicNewRuntime
+	basicNewRuntime = func(context.Context, api.Options) (basicRuntime, error) {
+		return stubRuntime{run: func(context.Context, api.Request) (*api.Response, error) {
+			return &api.Response{Result: &api.Result{Output: "   "}}, nil
+		}}, nil
+	}
+	t.Cleanup(func() { basicNewRuntime = old })
 
 	var out bytes.Buffer
 	if err := run(context.Background(), nil, &out, t.TempDir()); err != nil {
@@ -72,12 +55,16 @@ func TestRun_NoOutput_PrintsPlaceholder(t *testing.T) {
 }
 
 func TestRun_ModelError(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := basicOfflineModel
-	basicOfflineModel = basicErrModel{err: errors.New("boom")}
-	t.Cleanup(func() { basicOfflineModel = old })
+	old := basicNewRuntime
+	basicNewRuntime = func(context.Context, api.Options) (basicRuntime, error) {
+		return stubRuntime{run: func(context.Context, api.Request) (*api.Response, error) {
+			return nil, errors.New("boom")
+		}}, nil
+	}
+	t.Cleanup(func() { basicNewRuntime = old })
 
 	var out bytes.Buffer
 	if err := run(context.Background(), nil, &out, t.TempDir()); err == nil {
@@ -87,7 +74,7 @@ func TestRun_ModelError(t *testing.T) {
 
 func TestRun_NewRuntimeError(t *testing.T) {
 	old := basicNewRuntime
-	basicNewRuntime = func(_ context.Context, _ api.Options) (*api.Runtime, error) {
+	basicNewRuntime = func(_ context.Context, _ api.Options) (basicRuntime, error) {
 		return nil, errors.New("new boom")
 	}
 	t.Cleanup(func() { basicNewRuntime = old })
@@ -98,26 +85,20 @@ func TestRun_NewRuntimeError(t *testing.T) {
 	}
 }
 
-func TestBuildOptions_OnlineRequiresKey(t *testing.T) {
+func TestBuildOptions_RequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	var out bytes.Buffer
-	if _, err := buildOptions([]string{"--online"}, &out, ".trace"); err == nil {
+	if _, err := buildOptions(nil, &out, ".trace"); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
-func TestHasArg_EmptyWantFalse(t *testing.T) {
-	if hasArg([]string{"--online"}, "") {
-		t.Fatalf("expected false")
-	}
-}
-
-func TestBuildOptions_OnlineWithKey(t *testing.T) {
+func TestBuildOptions_WithKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	var out bytes.Buffer
-	opts, err := buildOptions([]string{"--online"}, &out, ".trace")
+	opts, err := buildOptions(nil, &out, ".trace")
 	if err != nil {
 		t.Fatalf("buildOptions: %v", err)
 	}
@@ -126,13 +107,14 @@ func TestBuildOptions_OnlineWithKey(t *testing.T) {
 	}
 }
 
-func TestHasArg_Match(t *testing.T) {
-	if !hasArg([]string{"a", " --online "}, "--online") {
-		t.Fatalf("expected match")
-	}
-}
-
 func TestMain_Smoke(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	oldNew := basicNewRuntime
+	basicNewRuntime = func(context.Context, api.Options) (basicRuntime, error) { return stubRuntime{}, nil }
+	t.Cleanup(func() { basicNewRuntime = oldNew })
+
 	oldArgs := os.Args
 	oldWD, _ := os.Getwd()
 	t.Cleanup(func() { os.Args = oldArgs })
@@ -158,7 +140,7 @@ func TestMain_FatalsOnRunError(t *testing.T) {
 
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"01-basic", "--online"}
+	os.Args = []string{"01-basic"}
 
 	main()
 	if !called {

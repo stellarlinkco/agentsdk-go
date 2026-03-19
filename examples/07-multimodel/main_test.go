@@ -23,7 +23,21 @@ func (m multimodelErrModel) CompleteStream(_ context.Context, _ modelpkg.Request
 	return m.err
 }
 
-func TestRun_OfflineDefault(t *testing.T) {
+func requireAPIKey(t *testing.T) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+}
+
+func TestRun_Default(t *testing.T) {
+	requireAPIKey(t)
+
+	old := multimodelAnthropicModelFactory
+	multimodelAnthropicModelFactory = func(_ context.Context, _, _ string) (modelpkg.Model, error) {
+		return &demomodel.EchoModel{Prefix: "ok"}, nil
+	}
+	t.Cleanup(func() { multimodelAnthropicModelFactory = old })
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -32,13 +46,20 @@ func TestRun_OfflineDefault(t *testing.T) {
 	}
 }
 
-func TestRun_OfflineMidModelError(t *testing.T) {
+func TestRun_MidModelError(t *testing.T) {
+	requireAPIKey(t)
+
+	old := multimodelAnthropicModelFactory
+	multimodelAnthropicModelFactory = func(_ context.Context, _, modelName string) (modelpkg.Model, error) {
+		if modelName == "claude-sonnet-4-20250514" {
+			return multimodelErrModel{err: errors.New("boom")}, nil
+		}
+		return &demomodel.EchoModel{Prefix: "ok"}, nil
+	}
+	t.Cleanup(func() { multimodelAnthropicModelFactory = old })
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
-	oldMid := multimodelOfflineModelMid
-	multimodelOfflineModelMid = multimodelErrModel{err: errors.New("boom")}
-	t.Cleanup(func() { multimodelOfflineModelMid = oldMid })
 
 	err := run(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "run:") {
@@ -47,12 +68,19 @@ func TestRun_OfflineMidModelError(t *testing.T) {
 }
 
 func TestRun_OverrideLowTierError(t *testing.T) {
+	requireAPIKey(t)
+
+	old := multimodelAnthropicModelFactory
+	multimodelAnthropicModelFactory = func(_ context.Context, _, modelName string) (modelpkg.Model, error) {
+		if modelName == "claude-3-5-haiku-20241022" {
+			return multimodelErrModel{err: errors.New("boom")}, nil
+		}
+		return &demomodel.EchoModel{Prefix: "ok"}, nil
+	}
+	t.Cleanup(func() { multimodelAnthropicModelFactory = old })
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
-	oldLow := multimodelOfflineModelLow
-	multimodelOfflineModelLow = multimodelErrModel{err: errors.New("boom")}
-	t.Cleanup(func() { multimodelOfflineModelLow = oldLow })
 
 	err := run(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "run override:") {
@@ -61,12 +89,19 @@ func TestRun_OverrideLowTierError(t *testing.T) {
 }
 
 func TestRun_BuildRuntimeErrorIsWrapped(t *testing.T) {
+	requireAPIKey(t)
+
+	old := multimodelAnthropicModelFactory
+	multimodelAnthropicModelFactory = func(_ context.Context, _, modelName string) (modelpkg.Model, error) {
+		if modelName == "claude-sonnet-4-20250514" {
+			return nil, nil
+		}
+		return &demomodel.EchoModel{Prefix: "ok"}, nil
+	}
+	t.Cleanup(func() { multimodelAnthropicModelFactory = old })
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
-	oldMid := multimodelOfflineModelMid
-	multimodelOfflineModelMid = nil
-	t.Cleanup(func() { multimodelOfflineModelMid = oldMid })
 
 	err := run(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "build runtime:") {
@@ -74,19 +109,27 @@ func TestRun_BuildRuntimeErrorIsWrapped(t *testing.T) {
 	}
 }
 
-func TestRun_OnlineRequiresKey(t *testing.T) {
+func TestRun_RequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	if err := run(ctx, []string{"--online"}); err == nil {
+	if err := run(ctx, nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
-func TestBuildOptions_OfflineDefaults(t *testing.T) {
+func TestBuildOptions_Defaults(t *testing.T) {
+	requireAPIKey(t)
+
+	old := multimodelAnthropicModelFactory
+	multimodelAnthropicModelFactory = func(_ context.Context, _, _ string) (modelpkg.Model, error) {
+		return &demomodel.EchoModel{Prefix: "ok"}, nil
+	}
+	t.Cleanup(func() { multimodelAnthropicModelFactory = old })
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -103,19 +146,22 @@ func TestBuildOptions_OfflineDefaults(t *testing.T) {
 	if opts.ModelPool[api.ModelTierLow] == nil || opts.ModelPool[api.ModelTierMid] == nil || opts.ModelPool[api.ModelTierHigh] == nil {
 		t.Fatalf("missing tiers: %+v", opts.ModelPool)
 	}
+	if opts.ModelPool[api.ModelTierMid] != opts.Model {
+		t.Fatalf("expected Model == mid tier")
+	}
 	if opts.SubagentModelMapping["plan"] != api.ModelTierHigh {
 		t.Fatalf("unexpected mapping: %+v", opts.SubagentModelMapping)
 	}
 }
 
-func TestBuildOptions_OnlineBuildsProvidersWithoutNetwork(t *testing.T) {
+func TestBuildOptions_BuildsProvidersWithoutNetwork(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	opts, err := buildOptions(ctx, []string{"--online"})
+	opts, err := buildOptions(ctx, nil)
 	if err != nil {
 		t.Fatalf("buildOptions: %v", err)
 	}
@@ -146,7 +192,7 @@ func TestBuildOptions_Online_ModelFactoryError_Haiku(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	_, err := buildOptions(ctx, []string{"--online"})
+	_, err := buildOptions(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "create haiku model:") {
 		t.Fatalf("err=%v", err)
 	}
@@ -170,7 +216,7 @@ func TestBuildOptions_Online_ModelFactoryError_Sonnet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	_, err := buildOptions(ctx, []string{"--online"})
+	_, err := buildOptions(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "create sonnet model:") {
 		t.Fatalf("err=%v", err)
 	}
@@ -194,13 +240,21 @@ func TestBuildOptions_Online_ModelFactoryError_Opus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	_, err := buildOptions(ctx, []string{"--online"})
+	_, err := buildOptions(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "create opus model:") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestMain_OfflineDoesNotFatal(t *testing.T) {
+	requireAPIKey(t)
+
+	oldFactory := multimodelAnthropicModelFactory
+	multimodelAnthropicModelFactory = func(_ context.Context, _, _ string) (modelpkg.Model, error) {
+		return &demomodel.EchoModel{Prefix: "ok"}, nil
+	}
+	t.Cleanup(func() { multimodelAnthropicModelFactory = oldFactory })
+
 	oldFatal := multimodelFatal
 	multimodelFatal = func(_ ...any) { t.Fatalf("unexpected fatal") }
 	t.Cleanup(func() { multimodelFatal = oldFatal })
@@ -223,7 +277,7 @@ func TestMain_FatalsOnError(t *testing.T) {
 
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"07-multimodel", "--online"}
+	os.Args = []string{"07-multimodel"}
 
 	main()
 	if !called {

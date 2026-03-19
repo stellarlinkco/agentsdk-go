@@ -32,7 +32,7 @@ rt, _ := api.New(ctx, api.Options{
 })
 ```
 
-### 方式二：配置文件 (.claude/settings.json)
+### 方式二：配置文件 (.agents/settings.json)
 
 ```json
 {

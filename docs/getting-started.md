@@ -273,7 +273,7 @@ Built-ins (`pkg/tool/builtin/`):
 - `edit` — edit files (string replacement)
 - `grep` — content search
 - `glob` — file globbing
-- `skill` — execute `.claude/skills/`
+- `skill` — execute `.agents/skills/`
 
 ### Middleware
 
@@ -288,10 +288,10 @@ Middleware offers 4 interception points to inject custom logic (`pkg/middleware/
 
 ### Directory Layout
 
-Configuration lives under `.claude/`:
+Configuration lives under `.agents/`:
 
 ```
-.claude/
+.agents/
 ├── settings.json         # main config
 ├── settings.local.json   # local overrides (gitignored)
 ├── rules/                # rules (markdown)
@@ -302,11 +302,13 @@ Configuration lives under `.claude/`:
 ### Precedence (high → low)
 
 1. Runtime overrides (CLI flags / API options)
-2. `.claude/settings.local.json`
-3. `.claude/settings.json`
-4. SDK defaults
+2. `<project>/.agents/settings.local.json`
+3. `<project>/.agents/settings.json`
+4. `~/.agents/settings.local.json`
+5. `~/.agents/settings.json`
+6. SDK defaults
 
-`~/.claude/` is no longer read—keep config in the project.
+Global settings under `~/.agents/` are optional and act as a low-priority baseline; keep project config under `<project>/.agents/`.
 
 ### settings.json Example
 
@@ -479,13 +481,14 @@ func min(a, b int) int {
 ### CLI
 
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...
 go run ./examples/02-cli --session-id demo --prompt "你好"
 ```
 
 Flags:
 
 - `--session-id` — session ID (defaults to `SESSION_ID` env or `demo-session`)
-- `--claude` — optional path to `.claude` directory (defaults to `<project>/.claude`)
+- `--project-root` — project root directory (defaults to `.`; config lives under `<project>/.agents/`)
 
 ### HTTP Server
 

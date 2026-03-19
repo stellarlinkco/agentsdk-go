@@ -1,5 +1,4 @@
 // Package main demonstrates multi-model support with subagent-level model binding.
-// This example is offline-safe by default; pass --online to use Anthropic.
 package main
 
 import (
@@ -16,11 +15,8 @@ import (
 )
 
 var (
-	multimodelFatal                                = log.Fatal
-	multimodelOfflineModelMid       modelpkg.Model = &demomodel.EchoModel{Prefix: "offline(mid)"}
-	multimodelOfflineModelLow       modelpkg.Model = &demomodel.EchoModel{Prefix: "offline(low)"}
-	multimodelOfflineModelHigh      modelpkg.Model = &demomodel.EchoModel{Prefix: "offline(high)"}
-	multimodelAnthropicModelFactory                = func(ctx context.Context, apiKey, modelName string) (modelpkg.Model, error) {
+	multimodelFatal                 = log.Fatal
+	multimodelAnthropicModelFactory = func(ctx context.Context, apiKey, modelName string) (modelpkg.Model, error) {
 		return (&modelpkg.AnthropicProvider{
 			APIKey:    apiKey,
 			BaseURL:   demomodel.AnthropicBaseURL(),
@@ -76,23 +72,9 @@ func run(ctx context.Context, args []string) error {
 }
 
 func buildOptions(ctx context.Context, args []string) (api.Options, error) {
-	online := false
-	for _, arg := range args {
-		if strings.TrimSpace(arg) == "--online" {
-			online = true
-		}
-	}
-
-	modelPool := map[api.ModelTier]modelpkg.Model{
-		api.ModelTierLow:  multimodelOfflineModelLow,
-		api.ModelTierMid:  multimodelOfflineModelMid,
-		api.ModelTierHigh: multimodelOfflineModelHigh,
-	}
-
+	_ = args
 	opts := api.Options{
 		ProjectRoot: ".",
-		Model:       multimodelOfflineModelMid,
-		ModelPool:   modelPool,
 		SubagentModelMapping: map[string]api.ModelTier{
 			"plan":            api.ModelTierHigh,
 			"explore":         api.ModelTierMid,
@@ -102,31 +84,29 @@ func buildOptions(ctx context.Context, args []string) (api.Options, error) {
 		Timeout:       10 * time.Second,
 	}
 
-	if online {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return api.Options{}, fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return api.Options{}, fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
 
-		haiku, err := multimodelAnthropicModelFactory(ctx, apiKey, "claude-3-5-haiku-20241022")
-		if err != nil {
-			return api.Options{}, fmt.Errorf("create haiku model: %w", err)
-		}
-		sonnet, err := multimodelAnthropicModelFactory(ctx, apiKey, "claude-sonnet-4-20250514")
-		if err != nil {
-			return api.Options{}, fmt.Errorf("create sonnet model: %w", err)
-		}
-		opus, err := multimodelAnthropicModelFactory(ctx, apiKey, "claude-sonnet-4-20250514")
-		if err != nil {
-			return api.Options{}, fmt.Errorf("create opus model: %w", err)
-		}
+	haiku, err := multimodelAnthropicModelFactory(ctx, apiKey, "claude-3-5-haiku-20241022")
+	if err != nil {
+		return api.Options{}, fmt.Errorf("create haiku model: %w", err)
+	}
+	sonnet, err := multimodelAnthropicModelFactory(ctx, apiKey, "claude-sonnet-4-20250514")
+	if err != nil {
+		return api.Options{}, fmt.Errorf("create sonnet model: %w", err)
+	}
+	opus, err := multimodelAnthropicModelFactory(ctx, apiKey, "claude-sonnet-4-20250514")
+	if err != nil {
+		return api.Options{}, fmt.Errorf("create opus model: %w", err)
+	}
 
-		opts.Model = sonnet
-		opts.ModelPool = map[api.ModelTier]modelpkg.Model{
-			api.ModelTierLow:  haiku,
-			api.ModelTierMid:  sonnet,
-			api.ModelTierHigh: opus,
-		}
+	opts.Model = sonnet
+	opts.ModelPool = map[api.ModelTier]modelpkg.Model{
+		api.ModelTierLow:  haiku,
+		api.ModelTierMid:  sonnet,
+		api.ModelTierHigh: opus,
 	}
 
 	return opts, nil

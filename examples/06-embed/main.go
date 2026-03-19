@@ -15,10 +15,17 @@ import (
 )
 
 var (
-	embedFatal                    = log.Fatal
-	embedNewRuntime               = api.New
-	embedOfflineModel model.Model = &demomodel.EchoModel{Prefix: "offline"}
+	embedFatal = log.Fatal
 )
+
+type embedRuntime interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	Close() error
+}
+
+var embedNewRuntime = func(ctx context.Context, opts api.Options) (embedRuntime, error) {
+	return api.New(ctx, opts)
+}
 
 //go:embed .agents
 var agentsFS embed.FS
@@ -58,31 +65,17 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 }
 
 func buildOptions(args []string) (api.Options, error) {
-	opts := api.Options{ProjectRoot: "."}
-	if hasArg(args, "--online") {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return api.Options{}, fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
-		opts.ModelFactory = &model.AnthropicProvider{
+	_ = args
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return api.Options{}, fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
+	return api.Options{
+		ProjectRoot: ".",
+		ModelFactory: &model.AnthropicProvider{
 			APIKey:    apiKey,
 			BaseURL:   demomodel.AnthropicBaseURL(),
 			ModelName: "claude-sonnet-4-5-20250929",
-		}
-		return opts, nil
-	}
-	opts.Model = embedOfflineModel
-	return opts, nil
-}
-
-func hasArg(args []string, want string) bool {
-	if strings.TrimSpace(want) == "" {
-		return false
-	}
-	for _, arg := range args {
-		if strings.TrimSpace(arg) == want {
-			return true
-		}
-	}
-	return false
+		},
+	}, nil
 }

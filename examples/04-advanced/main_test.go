@@ -5,9 +5,17 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
 )
 
 func TestRunOfflineMinimal(t *testing.T) {
+	requireAPIKey(t)
+
+	oldNew := newAPIRuntime
+	newAPIRuntime = func(context.Context, api.Options) (advancedRuntime, error) { return stubRuntime{}, nil }
+	t.Cleanup(func() { newAPIRuntime = oldNew })
+
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)

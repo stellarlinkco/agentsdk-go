@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-func TestRun_OfflineSelfTestExits(t *testing.T) {
+func TestRun_SelfTestExits(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -30,7 +33,10 @@ func TestRun_OfflineSelfTestExits(t *testing.T) {
 	}
 }
 
-func TestRun_OfflineServeStopsOnCancel(t *testing.T) {
+func TestRun_ServeStopsOnCancel(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -53,19 +59,6 @@ func TestRun_OfflineServeStopsOnCancel(t *testing.T) {
 	}
 }
 
-func TestBuildConfigAndOptions_OnlineRequiresKey(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	var out bytes.Buffer
-	if _, _, err := buildConfigAndOptions(ctx, []string{"--online"}, &out); err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
 func TestBuildConfigAndOptions_ParseError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -76,7 +69,10 @@ func TestBuildConfigAndOptions_ParseError(t *testing.T) {
 	}
 }
 
-func TestBuildConfigAndOptions_OfflineWithProjectRootAndStaticDir(t *testing.T) {
+func TestBuildConfigAndOptions_WithProjectRootAndStaticDir(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -100,23 +96,6 @@ func TestBuildConfigAndOptions_OfflineWithProjectRootAndStaticDir(t *testing.T) 
 	}
 	if got := opts.ProjectRoot; got != root {
 		t.Fatalf("opts.ProjectRoot=%q", got)
-	}
-	if opts.Model == nil {
-		t.Fatalf("expected offline Model")
-	}
-}
-
-func TestBuildConfigAndOptions_OnlineWithKey(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "dummy")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	var out bytes.Buffer
-	_, opts, err := buildConfigAndOptions(ctx, []string{"--online", "--project-root", t.TempDir()}, &out)
-	if err != nil {
-		t.Fatalf("buildConfigAndOptions: %v", err)
 	}
 	if opts.ModelFactory == nil {
 		t.Fatalf("expected ModelFactory")
@@ -147,6 +126,9 @@ func TestEnvOr(t *testing.T) {
 }
 
 func TestMain_OfflineDoesNotFatal(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	oldFatal := httpFatal
 	oldArgs := os.Args
 	oldStdout := os.Stdout
@@ -236,21 +218,6 @@ func TestMain_FatalsOnError(t *testing.T) {
 	}
 }
 
-func TestRun_BuildRuntimeError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	old := offlineModel
-	t.Cleanup(func() { offlineModel = old })
-	offlineModel = nil
-
-	var out bytes.Buffer
-	err := run(ctx, []string{"--project-root", t.TempDir(), "--addr=127.0.0.1:0"}, &out)
-	if err == nil || !strings.Contains(err.Error(), "build runtime:") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
 type stubAddr string
 
 func (a stubAddr) Network() string { return "stub" }
@@ -265,6 +232,9 @@ func (l stubListener) Close() error              { return nil }
 func (l stubListener) Addr() net.Addr            { return l.addr }
 
 func TestRun_SelfTestHealthError(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -282,6 +252,9 @@ func TestRun_SelfTestHealthError(t *testing.T) {
 }
 
 func TestRun_ServeUnexpectedStop(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -299,6 +272,9 @@ func TestRun_ServeUnexpectedStop(t *testing.T) {
 }
 
 func TestRun_ServeClosedListenerUnexpectedStop(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -337,6 +313,9 @@ func (l lyingListener) Close() error              { return l.inner.Close() }
 func (l lyingListener) Addr() net.Addr            { return l.advertised }
 
 func TestRun_SelfTestHealthUnexpectedStatus(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 

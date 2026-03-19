@@ -1,6 +1,6 @@
 # 嵌入文件系统示例
 
-此示例演示如何使用 `embed.FS` 将 `.claude` 目录嵌入到二进制文件中。
+此示例演示如何使用 `embed.FS` 将 `.agents` 目录嵌入到二进制文件中。
 
 ## 功能特性
 
@@ -35,11 +35,11 @@ go build -o embed-demo main.go
 ### 嵌入文件系统
 
 ```go
-//go:embed .claude
-var claudeFS embed.FS
+//go:embed .agents
+var agentsFS embed.FS
 ```
 
-这行代码将整个 `.claude` 目录嵌入到编译后的二进制文件中。
+这行代码将整个 `.agents` 目录嵌入到编译后的二进制文件中。
 
 ### 传递给 Runtime
 
@@ -47,13 +47,13 @@ var claudeFS embed.FS
 runtime, err := api.New(context.Background(), api.Options{
     ProjectRoot:  ".",
     ModelFactory: provider,
-    EmbedFS:      claudeFS,  // 传入嵌入的文件系统
+    EmbedFS:      agentsFS,  // 传入嵌入的文件系统
 })
 ```
 
 ### 加载优先级
 
-1. **OS 文件系统优先**：如果本地存在 `.claude/settings.json`，优先使用
+1. **OS 文件系统优先**：如果本地存在 `.agents/settings.json`，优先使用
 2. **嵌入 FS 回退**：如果本地不存在，使用嵌入的版本
 
 这意味着你可以：
@@ -66,8 +66,8 @@ runtime, err := api.New(context.Background(), api.Options{
 
 ```bash
 # 创建本地覆盖配置
-mkdir -p .claude
-cat > .claude/settings.local.json <<EOF
+mkdir -p .agents
+cat > .agents/settings.local.json <<EOF
 {
   "permissions": {
     "allow": ["Bash(*:*)"]
@@ -92,7 +92,7 @@ EOF
 ```
 examples/06-embed/
 ├── main.go                    # 示例代码
-├── .claude/
+├── .agents/
 │   ├── settings.json          # 嵌入的默认配置
 │   └── skills/
 │       └── demo/

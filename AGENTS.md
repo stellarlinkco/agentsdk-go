@@ -36,7 +36,7 @@ go build ./...
 
 ## Examples
 
-Examples are offline-runnable by default (no API key; no network). Use `--online` only when you want real model calls.
+Examples require API keys (no offline mode).
 
 ```bash
 go run ./examples/01-basic
@@ -52,7 +52,7 @@ Online (Anthropic-compatible) endpoints can be configured via env vars:
 ```bash
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 export ANTHROPIC_API_KEY=...
-go run ./examples/03-http --serve --online --model deepseek-chat
+go run ./examples/03-http --serve --model deepseek-chat
 ```
 
 ## Configuration
@@ -67,7 +67,7 @@ go run ./examples/03-http --serve --online --model deepseek-chat
 ```
 
 Notes:
-- Settings are loaded from `~/.agents/` and `./.agents/` (no `.claude/` fallback).
+- Settings are loaded from `~/.agents/` and `./.agents/` (no legacy config-dir fallback).
 - Use `settings.permissions.additionalDirectories` to widen filesystem roots for sandboxed tools.
 - Use `settings.disallowedTools` to disable built-in tools by name.
 

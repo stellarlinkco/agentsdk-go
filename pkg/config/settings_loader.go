@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+var filepathAbs = filepath.Abs
+
 // SettingsLoader composes settings using the simplified precedence model.
 // Higher-priority layers override lower ones while preserving unspecified fields.
 // Order (low -> high): defaults < project < local < runtime overrides.
@@ -27,9 +29,11 @@ func (l *SettingsLoader) Load() (*Settings, error) {
 	}
 
 	root := l.ProjectRoot
-	if abs, err := filepath.Abs(root); err == nil {
-		root = abs
+	abs, err := filepathAbs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve project root: %w", err)
 	}
+	root = abs
 
 	merged := GetDefaultSettings()
 

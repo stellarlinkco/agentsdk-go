@@ -6,12 +6,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
 	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
 	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
 func TestRun_AllFeaturesEnabled(t *testing.T) {
+	requireAPIKey(t)
+
+	oldNew := newAPIRuntime
+	newAPIRuntime = func(context.Context, api.Options) (advancedRuntime, error) { return stubRuntime{}, nil }
+	t.Cleanup(func() { newAPIRuntime = oldNew })
+
 	wd := t.TempDir()
 	traceDir := t.TempDir()
 

@@ -13,7 +13,7 @@ This example wires every advanced capability into one runnable binary. Each feat
 ## Run
 ```bash
 cd examples/04-advanced
-# set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN only if you swap in a real provider; demo model is offline-safe
+# requires ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
 go run . --prompt "生成一份安全巡检摘要" --enable-mcp=false
 ```
 
@@ -36,4 +36,4 @@ Useful flags:
 - `skills.go` skill registry definitions.
 - `subagents.go` subagent definitions and handlers.
 - `model.go` demo model + tool implementation.
-- `.claude/settings.json` basic env/permissions.
+- `.agents/settings.json` basic env/permissions.

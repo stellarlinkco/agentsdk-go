@@ -15,10 +15,17 @@ import (
 )
 
 var (
-	customToolsFatal                    = log.Fatal
-	customToolsNewRuntime               = api.New
-	customToolsOfflineModel model.Model = &demomodel.EchoModel{Prefix: "offline"}
+	customToolsFatal = log.Fatal
 )
+
+type customToolsRuntime interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	Close() error
+}
+
+var customToolsNewRuntime = func(ctx context.Context, opts api.Options) (customToolsRuntime, error) {
+	return api.New(ctx, opts)
+}
 
 // EchoTool is a simple custom tool used for demonstration.
 type EchoTool struct{}
@@ -74,36 +81,20 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 }
 
 func buildOptions(args []string) (api.Options, error) {
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return api.Options{}, fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
+
 	opts := api.Options{
 		ProjectRoot:         ".",
 		EnabledBuiltinTools: []string{"bash", "read"},
 		CustomTools:         []tool.Tool{&EchoTool{}},
-	}
-
-	if hasArg(args, "--online") {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return api.Options{}, fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
-		opts.ModelFactory = &model.AnthropicProvider{
+		ModelFactory: &model.AnthropicProvider{
 			APIKey:    apiKey,
 			BaseURL:   demomodel.AnthropicBaseURL(),
 			ModelName: "claude-sonnet-4-5-20250929",
-		}
-		return opts, nil
+		},
 	}
-	opts.Model = customToolsOfflineModel
 	return opts, nil
-}
-
-func hasArg(args []string, want string) bool {
-	if strings.TrimSpace(want) == "" {
-		return false
-	}
-	for _, arg := range args {
-		if strings.TrimSpace(arg) == want {
-			return true
-		}
-	}
-	return false
 }

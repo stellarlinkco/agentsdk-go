@@ -11,15 +11,14 @@ import (
 	"time"
 
 	"github.com/stellarlinkco/agentsdk-go/pkg/api"
-	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
-type multimodalSeqModel struct {
+type stubRuntime struct {
 	failAt int
 	calls  int
 }
 
-func (m *multimodalSeqModel) Complete(ctx context.Context, _ modelpkg.Request) (*modelpkg.Response, error) {
+func (m *stubRuntime) Run(ctx context.Context, _ api.Request) (*api.Response, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -27,44 +26,29 @@ func (m *multimodalSeqModel) Complete(ctx context.Context, _ modelpkg.Request) (
 	if m.failAt > 0 && m.calls == m.failAt {
 		return nil, errors.New("boom")
 	}
-	return &modelpkg.Response{Message: modelpkg.Message{Role: "assistant", Content: "ok"}, StopReason: "stop"}, nil
+	return &api.Response{Result: &api.Result{Output: "ok"}}, nil
 }
 
-func (m *multimodalSeqModel) CompleteStream(ctx context.Context, req modelpkg.Request, cb modelpkg.StreamHandler) error {
-	if cb == nil {
-		return nil
-	}
-	resp, err := m.Complete(ctx, req)
-	if err != nil {
-		return err
-	}
-	return cb(modelpkg.StreamResult{Final: true, Response: resp})
-}
+func (*stubRuntime) Close() error { return nil }
 
-func TestRunOffline(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := run(ctx, nil); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-}
-
-func TestRunOnlineRequiresKey(t *testing.T) {
+func TestRunRequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := run(ctx, []string{"--online"}); err == nil {
+	if err := run(ctx, nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
 func TestRun_BuildRuntimeErrorIsWrapped(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	old := multimodalNewRuntime
-	multimodalNewRuntime = func(_ context.Context, _ api.Options) (*api.Runtime, error) {
+	multimodalNewRuntime = func(_ context.Context, _ api.Options) (multimodalRuntime, error) {
 		return nil, errors.New("boom")
 	}
 	t.Cleanup(func() { multimodalNewRuntime = old })
@@ -78,29 +62,15 @@ func TestRun_BuildRuntimeErrorIsWrapped(t *testing.T) {
 	}
 }
 
-func TestRun_Online_BuildRuntimeErrorIsWrapped(t *testing.T) {
+func TestRun_Demo1ErrorIsWrapped(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := multimodalNewRuntime
-	multimodalNewRuntime = func(_ context.Context, _ api.Options) (*api.Runtime, error) {
-		return nil, errors.New("boom")
+	oldNew := multimodalNewRuntime
+	multimodalNewRuntime = func(context.Context, api.Options) (multimodalRuntime, error) {
+		return &stubRuntime{failAt: 1}, nil
 	}
-	t.Cleanup(func() { multimodalNewRuntime = old })
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	err := run(ctx, []string{"--online"})
-	if err == nil || !strings.Contains(err.Error(), "build runtime:") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-func TestRun_Demo1ErrorIsWrapped(t *testing.T) {
-	old := multimodalOfflineModel
-	multimodalOfflineModel = &multimodalSeqModel{failAt: 1}
-	t.Cleanup(func() { multimodalOfflineModel = old })
+	t.Cleanup(func() { multimodalNewRuntime = oldNew })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -112,9 +82,14 @@ func TestRun_Demo1ErrorIsWrapped(t *testing.T) {
 }
 
 func TestRun_Demo2ErrorIsWrapped(t *testing.T) {
-	old := multimodalOfflineModel
-	multimodalOfflineModel = &multimodalSeqModel{failAt: 2}
-	t.Cleanup(func() { multimodalOfflineModel = old })
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	oldNew := multimodalNewRuntime
+	multimodalNewRuntime = func(context.Context, api.Options) (multimodalRuntime, error) {
+		return &stubRuntime{failAt: 2}, nil
+	}
+	t.Cleanup(func() { multimodalNewRuntime = oldNew })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -126,9 +101,14 @@ func TestRun_Demo2ErrorIsWrapped(t *testing.T) {
 }
 
 func TestRun_Demo3ErrorIsWrapped(t *testing.T) {
-	old := multimodalOfflineModel
-	multimodalOfflineModel = &multimodalSeqModel{failAt: 3}
-	t.Cleanup(func() { multimodalOfflineModel = old })
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	oldNew := multimodalNewRuntime
+	multimodalNewRuntime = func(context.Context, api.Options) (multimodalRuntime, error) {
+		return &stubRuntime{failAt: 3}, nil
+	}
+	t.Cleanup(func() { multimodalNewRuntime = oldNew })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -140,9 +120,14 @@ func TestRun_Demo3ErrorIsWrapped(t *testing.T) {
 }
 
 func TestRun_GeneratePNGErrorIsWrapped(t *testing.T) {
-	oldModel := multimodalOfflineModel
-	multimodalOfflineModel = &multimodalSeqModel{}
-	t.Cleanup(func() { multimodalOfflineModel = oldModel })
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	oldNew := multimodalNewRuntime
+	multimodalNewRuntime = func(context.Context, api.Options) (multimodalRuntime, error) {
+		return &stubRuntime{}, nil
+	}
+	t.Cleanup(func() { multimodalNewRuntime = oldNew })
 
 	oldEncode := multimodalPNGEncode
 	multimodalPNGEncode = func(_ io.Writer, _ image.Image) error { return errors.New("encode boom") }
@@ -167,7 +152,14 @@ func TestGenerateTestPNG_EncodeError(t *testing.T) {
 	}
 }
 
-func TestMain_OfflineDoesNotFatal(t *testing.T) {
+func TestMain_DoesNotFatal(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	oldNew := multimodalNewRuntime
+	multimodalNewRuntime = func(context.Context, api.Options) (multimodalRuntime, error) { return &stubRuntime{}, nil }
+	t.Cleanup(func() { multimodalNewRuntime = oldNew })
+
 	oldFatal := multimodalFatal
 	multimodalFatal = func(_ ...any) { t.Fatalf("unexpected fatal") }
 	t.Cleanup(func() { multimodalFatal = oldFatal })
@@ -190,7 +182,7 @@ func TestMain_FatalsOnError(t *testing.T) {
 
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"12-multimodal", "--online"}
+	os.Args = []string{"12-multimodal"}
 
 	main()
 	if !called {

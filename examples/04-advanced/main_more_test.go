@@ -20,6 +20,8 @@ import (
 )
 
 func TestRun_ResolveWorkingDirError(t *testing.T) {
+	requireAPIKey(t)
+
 	old := osGetwd
 	t.Cleanup(func() { osGetwd = old })
 	osGetwd = func() (string, error) { return "", errors.New("wd boom") }
@@ -31,6 +33,8 @@ func TestRun_ResolveWorkingDirError(t *testing.T) {
 }
 
 func TestRun_ProjectRootAbsError(t *testing.T) {
+	requireAPIKey(t)
+
 	old := filepathAbs
 	t.Cleanup(func() { filepathAbs = old })
 	filepathAbs = func(string) (string, error) { return "", errors.New("abs boom") }
@@ -42,6 +46,8 @@ func TestRun_ProjectRootAbsError(t *testing.T) {
 }
 
 func TestRun_DefaultProjectRootUsesGetwd(t *testing.T) {
+	requireAPIKey(t)
+
 	oldGetwd := osGetwd
 	oldNew := newAPIRuntime
 	t.Cleanup(func() {
@@ -49,7 +55,7 @@ func TestRun_DefaultProjectRootUsesGetwd(t *testing.T) {
 		newAPIRuntime = oldNew
 	})
 	osGetwd = func() (string, error) { return t.TempDir(), nil }
-	newAPIRuntime = func(context.Context, api.Options) (*api.Runtime, error) { return nil, errors.New("new boom") }
+	newAPIRuntime = func(context.Context, api.Options) (advancedRuntime, error) { return nil, errors.New("new boom") }
 
 	err := run(context.Background(), runConfig{projectRoot: "", prompt: "x"})
 	if err == nil || !strings.Contains(err.Error(), "build runtime:") {
@@ -58,9 +64,11 @@ func TestRun_DefaultProjectRootUsesGetwd(t *testing.T) {
 }
 
 func TestRun_BuildRuntimeError(t *testing.T) {
+	requireAPIKey(t)
+
 	old := newAPIRuntime
 	t.Cleanup(func() { newAPIRuntime = old })
-	newAPIRuntime = func(context.Context, api.Options) (*api.Runtime, error) { return nil, errors.New("new boom") }
+	newAPIRuntime = func(context.Context, api.Options) (advancedRuntime, error) { return nil, errors.New("new boom") }
 
 	err := run(context.Background(), runConfig{projectRoot: t.TempDir(), prompt: "x"})
 	if err == nil || !strings.Contains(err.Error(), "build runtime:") {
@@ -69,6 +77,16 @@ func TestRun_BuildRuntimeError(t *testing.T) {
 }
 
 func TestRun_RunAgentError(t *testing.T) {
+	requireAPIKey(t)
+
+	oldNew := newAPIRuntime
+	newAPIRuntime = func(context.Context, api.Options) (advancedRuntime, error) {
+		return stubRuntime{run: func(context.Context, api.Request) (*api.Response, error) {
+			return nil, errors.New("run boom")
+		}}, nil
+	}
+	t.Cleanup(func() { newAPIRuntime = oldNew })
+
 	cfg := runConfig{
 		prompt:            "x",
 		sessionID:         "s",
@@ -76,12 +94,12 @@ func TestRun_RunAgentError(t *testing.T) {
 		projectRoot:       t.TempDir(),
 		enableHooks:       false,
 		enableMCP:         false,
-			enableSandbox:     false,
-			enableSkills:      false,
-			enableSubagents:   false,
-			enableTrace:       false,
-			traceDir:          t.TempDir(),
-			slowThreshold:     time.Second,
+		enableSandbox:     false,
+		enableSkills:      false,
+		enableSubagents:   false,
+		enableTrace:       false,
+		traceDir:          t.TempDir(),
+		slowThreshold:     time.Second,
 		toolLatency:       0,
 		runTimeout:        10 * time.Second,
 		middlewareTimeout: time.Second,
@@ -100,6 +118,8 @@ func TestRun_RunAgentError(t *testing.T) {
 }
 
 func TestMain_FatalsOnRunError(t *testing.T) {
+	requireAPIKey(t)
+
 	origArgs := os.Args
 	origFS := flag.CommandLine
 	oldFatal := advancedFatal
@@ -151,26 +171,26 @@ func TestPrintSummary_ExercisesBranches(t *testing.T) {
 		settings.Env = map[string]string{}
 	}
 	settings.Env["ADVANCED_EXAMPLE"] = "true"
-		resp := &api.Response{
-			Result: &api.Result{
-				Output: "ok",
-				ToolCalls: []modelpkg.ToolCall{
-					{Name: "observe_logs", Arguments: map[string]any{"query": "x"}},
-				},
+	resp := &api.Response{
+		Result: &api.Result{
+			Output: "ok",
+			ToolCalls: []modelpkg.ToolCall{
+				{Name: "observe_logs", Arguments: map[string]any{"query": "x"}},
 			},
-			SkillResults: []api.SkillExecution{
-				{Definition: skills.Definition{Name: "add-note"}, Result: skills.Result{Output: "note"}, Err: nil},
-			},
-			Subagent:   &subagents.Result{Subagent: "plan", Output: "plan-output"},
-			HookEvents: []hookspkg.Event{{Type: hookspkg.Stop}},
-			Settings:   &settings,
-		}
+		},
+		SkillResults: []api.SkillExecution{
+			{Definition: skills.Definition{Name: "add-note"}, Result: skills.Result{Output: "note"}, Err: nil},
+		},
+		Subagent:   &subagents.Result{Subagent: "plan", Output: "plan-output"},
+		HookEvents: []hookspkg.Event{{Type: hookspkg.Stop}},
+		Settings:   &settings,
+	}
 
-		cfg := runConfig{
-			enableSkills:    true,
-			enableSubagents: true,
-			enableHooks:     true,
-			enableSandbox:   true,
+	cfg := runConfig{
+		enableSkills:    true,
+		enableSubagents: true,
+		enableHooks:     true,
+		enableSandbox:   true,
 		enableTrace:     true,
 	}
 	mw.traceDir = "trace-out"

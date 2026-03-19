@@ -7,9 +7,8 @@ This example shows how to:
 
 ## Run
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...
 go run ./examples/05-custom-tools
-# Online mode (requires ANTHROPIC_API_KEY):
-# go run ./examples/05-custom-tools --online
 ```
 
 ## What happens

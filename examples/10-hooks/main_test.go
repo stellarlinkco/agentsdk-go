@@ -3,55 +3,48 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/stellarlinkco/agentsdk-go/examples/internal/demomodel"
-	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
 )
 
-func TestRun_OfflineDefault(t *testing.T) {
+type stubRuntime struct {
+	run func(context.Context, api.Request) (*api.Response, error)
+}
+
+func (s stubRuntime) Run(ctx context.Context, req api.Request) (*api.Response, error) {
+	if s.run == nil {
+		return &api.Response{Result: &api.Result{Output: "ok"}}, nil
+	}
+	return s.run(ctx, req)
+}
+
+func (stubRuntime) Close() error { return nil }
+
+func TestRun_RequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := run(ctx, nil); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-}
-
-func TestRun_OnlineRequiresKey(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := run(ctx, []string{"--online"}); err == nil {
+	if err := run(ctx, nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
-type fixedModel struct{ err error }
-
-func (m fixedModel) Complete(context.Context, modelpkg.Request) (*modelpkg.Response, error) {
-	return nil, m.err
-}
-
-func (m fixedModel) CompleteStream(ctx context.Context, req modelpkg.Request, cb modelpkg.StreamHandler) error {
-	_, err := m.Complete(ctx, req)
-	return err
-}
-
-func TestRun_OfflineModelError(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+func TestRun_RuntimeRunError(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := offlineModel
-	t.Cleanup(func() { offlineModel = old })
-	offlineModel = fixedModel{err: errors.New("boom")}
+	oldNew := hooksNewRuntime
+	hooksNewRuntime = func(context.Context, api.Options) (hooksRuntime, error) {
+		return stubRuntime{run: func(context.Context, api.Request) (*api.Response, error) {
+			return nil, errors.New("boom")
+		}}, nil
+	}
+	t.Cleanup(func() { hooksNewRuntime = oldNew })
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -60,48 +53,39 @@ func TestRun_OfflineModelError(t *testing.T) {
 	}
 }
 
-func TestRun_OnlineWithKey_ContextCanceled(t *testing.T) {
+func TestRun_ContextCanceled(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := run(ctx, []string{"--online"}); err == nil {
+	if err := run(ctx, nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
 
-func TestMain_OfflineDoesNotFatal(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+func TestMain_DoesNotFatal(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
 	oldFatal := hooksFatal
 	oldArgs := os.Args
 	oldStdout := os.Stdout
-	oldOffline := offlineModel
+	oldNew := hooksNewRuntime
 	t.Cleanup(func() {
 		hooksFatal = oldFatal
 		os.Args = oldArgs
 		os.Stdout = oldStdout
-		offlineModel = oldOffline
+		hooksNewRuntime = oldNew
 	})
 
 	called := false
 	hooksFatal = func(...any) { called = true }
-	offlineModel = &demomodel.EchoModel{Prefix: "offline"}
+	hooksNewRuntime = func(context.Context, api.Options) (hooksRuntime, error) { return stubRuntime{}, nil }
 
 	os.Args = []string{"10-hooks.test"}
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Pipe: %v", err)
-	}
-	os.Stdout = w
 
 	main()
-
-	_ = w.Close()
-	_, _ = io.ReadAll(r)
-	_ = r.Close()
 
 	if called {
 		t.Fatalf("unexpected fatal")
@@ -109,12 +93,12 @@ func TestMain_OfflineDoesNotFatal(t *testing.T) {
 }
 
 func TestRun_BuildRuntimeError(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 
-	old := offlineModel
-	t.Cleanup(func() { offlineModel = old })
-	offlineModel = nil
+	old := hooksNewRuntime
+	t.Cleanup(func() { hooksNewRuntime = old })
+	hooksNewRuntime = func(context.Context, api.Options) (hooksRuntime, error) { return nil, errors.New("boom") }
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -130,30 +114,21 @@ func TestMain_FatalsOnRunError(t *testing.T) {
 	oldFatal := hooksFatal
 	oldArgs := os.Args
 	oldStdout := os.Stdout
-	oldOffline := offlineModel
+	oldNew := hooksNewRuntime
 	t.Cleanup(func() {
 		hooksFatal = oldFatal
 		os.Args = oldArgs
 		os.Stdout = oldStdout
-		offlineModel = oldOffline
+		hooksNewRuntime = oldNew
 	})
 
 	called := false
 	hooksFatal = func(...any) { called = true }
-	offlineModel = fixedModel{err: errors.New("boom")}
+	hooksNewRuntime = func(context.Context, api.Options) (hooksRuntime, error) { return nil, errors.New("boom") }
 
 	os.Args = []string{"10-hooks.test"}
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Pipe: %v", err)
-	}
-	os.Stdout = w
 
 	main()
-
-	_ = w.Close()
-	_, _ = io.ReadAll(r)
-	_ = r.Close()
 
 	if !called {
 		t.Fatalf("expected fatal")

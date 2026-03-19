@@ -19,9 +19,8 @@ import (
 const defaultModel = "claude-sonnet-4-5-20250929"
 
 var (
-	cliFatal                    = log.Fatal
-	filepathAbs                 = filepath.Abs
-	offlineModel modelpkg.Model = &demomodel.EchoModel{Prefix: "offline"}
+	cliFatal    = log.Fatal
+	filepathAbs = filepath.Abs
 )
 
 type runConfig struct {
@@ -29,8 +28,16 @@ type runConfig struct {
 	projectRoot string
 	enableMCP   bool
 	interactive bool
-	online      bool
 	prompt      string
+}
+
+type runtimeRunner interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	Close() error
+}
+
+var cliNewRuntime = func(ctx context.Context, opts api.Options) (runtimeRunner, error) {
+	return api.New(ctx, opts)
 }
 
 func main() {
@@ -45,7 +52,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return err
 	}
 
-	rt, err := api.New(ctx, opts)
+	rt, err := cliNewRuntime(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("build runtime: %w", err)
 	}
@@ -113,7 +120,6 @@ func buildConfigAndOptions(args []string, out io.Writer) (runConfig, api.Options
 	fs.StringVar(&cfg.projectRoot, "project-root", ".", "project root directory (default: current directory)")
 	fs.BoolVar(&cfg.enableMCP, "enable-mcp", false, "enable MCP servers from .agents/settings.json (auto-loaded)")
 	fs.BoolVar(&cfg.interactive, "interactive", false, "run in interactive REPL mode (default: single prompt and exit)")
-	fs.BoolVar(&cfg.online, "online", false, "use real online model (requires ANTHROPIC_API_KEY)")
 	fs.StringVar(&cfg.prompt, "prompt", "你好", "single prompt used when not interactive")
 	if err := fs.Parse(args); err != nil {
 		return runConfig{}, api.Options{}, err
@@ -132,19 +138,16 @@ func buildConfigAndOptions(args []string, out io.Writer) (runConfig, api.Options
 		opts.MCPServers = []string{}
 	}
 
-	if cfg.online {
-		apiKey := demomodel.AnthropicAPIKey()
-		if strings.TrimSpace(apiKey) == "" {
-			return runConfig{}, api.Options{}, fmt.Errorf("--online requires ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)")
-		}
-		opts.ModelFactory = &modelpkg.AnthropicProvider{
-			APIKey:    apiKey,
-			BaseURL:   demomodel.AnthropicBaseURL(),
-			ModelName: defaultModel,
-		}
-	} else {
-		opts.Model = offlineModel
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return runConfig{}, api.Options{}, fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
 	}
+	opts.ModelFactory = &modelpkg.AnthropicProvider{
+		APIKey:    apiKey,
+		BaseURL:   demomodel.AnthropicBaseURL(),
+		ModelName: defaultModel,
+	}
+
 	return cfg, opts, nil
 }
 

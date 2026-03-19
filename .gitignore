@@ -27,13 +27,12 @@ examples/cli/cli
 examples/mcp/mcp
 examples/http/http
 
-# Global Claude artefacts (left ignored), but keep the HTTP example's tracked config
-.claude
-.claude-trace
-!examples/http/.claude/
-!examples/http/.claude/settings.json
-!examples/06-embed/.claude/
-!examples/06-embed/.claude/settings.json
+# Local agents config artifacts (any depth)
+**/.agents/settings.local.json
+**/.agents/history/
+**/.agents/state/
+**/.http-trace/
+**/.claude-trace/
 
 tools.json
 .gocache

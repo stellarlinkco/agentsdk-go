@@ -28,7 +28,7 @@ func newTestHTTPServer(t *testing.T) (*httptest.Server, func()) {
 	rt, err := api.New(context.Background(), api.Options{
 		EntryPoint:  api.EntryPointPlatform,
 		ProjectRoot: root,
-		Model:       &demomodel.EchoModel{Prefix: "offline"},
+		Model:       &demomodel.EchoModel{Prefix: "demo"},
 		Timeout:     5 * time.Second,
 	})
 	if err != nil {
@@ -362,7 +362,7 @@ func TestHTTPServer_Stream_RuntimeClosedIsBadGateway(t *testing.T) {
 	rt, err := api.New(context.Background(), api.Options{
 		EntryPoint:  api.EntryPointPlatform,
 		ProjectRoot: root,
-		Model:       &demomodel.EchoModel{Prefix: "offline"},
+		Model:       &demomodel.EchoModel{Prefix: "demo"},
 		Timeout:     2 * time.Second,
 	})
 	if err != nil {
@@ -387,7 +387,7 @@ func TestHTTPServer_Run_RuntimeClosedIsBadGateway(t *testing.T) {
 	rt, err := api.New(context.Background(), api.Options{
 		EntryPoint:  api.EntryPointPlatform,
 		ProjectRoot: root,
-		Model:       &demomodel.EchoModel{Prefix: "offline"},
+		Model:       &demomodel.EchoModel{Prefix: "demo"},
 		Timeout:     2 * time.Second,
 	})
 	if err != nil {

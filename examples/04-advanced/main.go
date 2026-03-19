@@ -9,11 +9,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/stellarlinkco/agentsdk-go/examples/internal/demomodel"
 	"github.com/stellarlinkco/agentsdk-go/pkg/api"
 	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
@@ -54,8 +57,16 @@ var (
 	advancedFatal = log.Fatal
 	osGetwd       = os.Getwd
 	filepathAbs   = filepath.Abs
-	newAPIRuntime = api.New
 )
+
+type advancedRuntime interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	Close() error
+}
+
+var newAPIRuntime = func(ctx context.Context, opts api.Options) (advancedRuntime, error) {
+	return api.New(ctx, opts)
+}
 
 func main() {
 	cfg := parseConfig()
@@ -70,6 +81,11 @@ func main() {
 
 func run(ctx context.Context, cfg runConfig) error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	apiKey := demomodel.AnthropicAPIKey()
+	if strings.TrimSpace(apiKey) == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
 
 	projectRoot := cfg.projectRoot
 	if projectRoot == "" {
@@ -95,7 +111,11 @@ func run(ctx context.Context, cfg runConfig) error {
 		ProjectRoot:       absRoot,
 		SettingsLoader:    &config.SettingsLoader{ProjectRoot: absRoot},
 		SettingsOverrides: settingsOverride,
-		Model:             newDemoModel(absRoot, cfg.owner, cfg.enableMCP, settingsOverride),
+		ModelFactory: &model.AnthropicProvider{
+			APIKey:    apiKey,
+			BaseURL:   demomodel.AnthropicBaseURL(),
+			ModelName: "claude-sonnet-4-5-20250929",
+		},
 		Tools:             []tool.Tool{newObserveLogsTool(cfg.toolLatency, logger, settingsOverride)},
 		Middleware:        mw.items,
 		MiddlewareTimeout: cfg.middlewareTimeout,

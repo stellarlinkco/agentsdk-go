@@ -34,19 +34,24 @@ func (m reasoningErrStreamModel) CompleteStream(_ context.Context, _ model.Reque
 	return m.streamErr
 }
 
-func TestRun_OfflineDefault(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err := run(ctx, nil); err != nil {
-		t.Fatalf("run: %v", err)
-	}
+type stubReasoningModel struct{}
+
+func (stubReasoningModel) Complete(context.Context, model.Request) (*model.Response, error) {
+	return &model.Response{
+		Message:    model.Message{Role: "assistant", Content: "ok", ReasoningContent: "reason"},
+		StopReason: "stop",
+	}, nil
 }
 
-func TestRun_OnlineRequiresKey(t *testing.T) {
+func (stubReasoningModel) CompleteStream(context.Context, model.Request, model.StreamHandler) error {
+	return nil
+}
+
+func TestRun_RequiresKey(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := run(ctx, []string{"--online"}); err == nil {
+	if err := run(ctx, nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -68,67 +73,6 @@ func TestParseProvider(t *testing.T) {
 		if got := parseProvider(tc.args); got != tc.want {
 			t.Fatalf("args=%v got=%q want=%q", tc.args, got, tc.want)
 		}
-	}
-}
-
-func TestOfflineReasoningModel_Complete_ContextCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	m := offlineReasoningModel{}
-	_, err := m.Complete(ctx, model.Request{
-		Messages: []model.Message{{Role: "user", Content: "hi"}},
-	})
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-}
-
-func TestOfflineReasoningModel_Complete_NoUserMessages(t *testing.T) {
-	m := offlineReasoningModel{}
-	resp, err := m.Complete(context.Background(), model.Request{
-		Messages: []model.Message{{Role: "assistant", Content: "x"}},
-	})
-	if err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-	if resp == nil || resp.Message.Content != "offline: " {
-		t.Fatalf("unexpected response: %+v", resp)
-	}
-}
-
-func TestOfflineReasoningModel_CompleteStream_NilCallback(t *testing.T) {
-	m := offlineReasoningModel{}
-	if err := m.CompleteStream(context.Background(), model.Request{}, nil); err != nil {
-		t.Fatalf("CompleteStream: %v", err)
-	}
-}
-
-func TestOfflineReasoningModel_CompleteStream_FinalCallbackErrorPropagates(t *testing.T) {
-	m := offlineReasoningModel{}
-	want := errors.New("final boom")
-	err := m.CompleteStream(context.Background(), model.Request{
-		Messages: []model.Message{{Role: "user", Content: "hi"}},
-	}, func(sr model.StreamResult) error {
-		if sr.Final {
-			return want
-		}
-		return nil
-	})
-	if !errors.Is(err, want) {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-func TestOfflineReasoningModel_CompleteStream_CompleteErrorPropagates(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	m := offlineReasoningModel{}
-	err := m.CompleteStream(ctx, model.Request{
-		Messages: []model.Message{{Role: "user", Content: "hi"}},
-	}, func(model.StreamResult) error { return nil })
-	if err == nil {
-		t.Fatalf("expected error")
 	}
 }
 
@@ -174,13 +118,13 @@ func TestRun_Online_UsesInjectedModel(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "dummy")
 
 	old := reasoningOnlineModel
-	reasoningOnlineModel = func(_ string, _ string) (model.Model, error) { return offlineReasoningModel{}, nil }
+	reasoningOnlineModel = func(_ string, _ string) (model.Model, error) { return stubReasoningModel{}, nil }
 	t.Cleanup(func() { reasoningOnlineModel = old })
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	if err := run(ctx, []string{"--online", "--provider=anthropic"}); err != nil {
+	if err := run(ctx, []string{"--provider=anthropic"}); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 }
@@ -195,7 +139,7 @@ func TestRun_Online_ModelFactoryErrorPropagates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	if err := run(ctx, []string{"--online"}); err == nil {
+	if err := run(ctx, nil); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -215,7 +159,7 @@ func TestRun_Online_CompleteErrorIsWrapped(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	err := run(ctx, []string{"--online"})
+	err := run(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "Complete:") {
 		t.Fatalf("err=%v", err)
 	}
@@ -235,13 +179,19 @@ func TestRun_Online_CompleteStreamErrorIsWrapped(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	err := run(ctx, []string{"--online"})
+	err := run(ctx, nil)
 	if err == nil || !strings.Contains(err.Error(), "CompleteStream:") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
-func TestMain_OfflineDoesNotFatal(t *testing.T) {
+func TestMain_DoesNotFatal(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "dummy")
+
+	oldModel := reasoningOnlineModel
+	reasoningOnlineModel = func(_ string, _ string) (model.Model, error) { return stubReasoningModel{}, nil }
+	t.Cleanup(func() { reasoningOnlineModel = oldModel })
+
 	oldFatal := reasoningFatal
 	reasoningFatal = func(_ ...any) { t.Fatalf("unexpected fatal") }
 	t.Cleanup(func() { reasoningFatal = oldFatal })
@@ -263,7 +213,7 @@ func TestMain_FatalsOnError(t *testing.T) {
 
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
-	os.Args = []string{"11-reasoning", "--online"}
+	os.Args = []string{"11-reasoning"}
 
 	main()
 	if !called {

@@ -35,6 +35,10 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return nil
 	}
 
+	if strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) == "" && strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")) == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN) is required")
+	}
+
 	command := "rm -rf /"
 
 	blockedOut, blockedToolRuns, err := runOnce(ctx, false, command)
@@ -103,7 +107,7 @@ type fakeBashTool struct {
 
 func (*fakeBashTool) Name() string { return "bash" }
 func (*fakeBashTool) Description() string {
-	return "Fake bash tool for offline safety-hook demo. Does not execute system commands."
+	return "Fake bash tool for safety-hook demo. Does not execute system commands."
 }
 func (*fakeBashTool) Schema() *tool.JSONSchema {
 	return &tool.JSONSchema{

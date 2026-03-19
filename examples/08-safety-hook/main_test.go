@@ -8,7 +8,10 @@ import (
 	"testing"
 )
 
-func TestRun_OfflineDefault(t *testing.T) {
+func TestRun_Default(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	var out bytes.Buffer
 	if err := run(context.Background(), nil, &out); err != nil {
 		t.Fatalf("run: %v", err)
@@ -19,7 +22,10 @@ func TestRun_OfflineDefault(t *testing.T) {
 	}
 }
 
-func TestMain_OfflineReturns(t *testing.T) {
+func TestMain_Returns(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })
 	os.Args = []string{"08-safety-hook"}
@@ -27,8 +33,18 @@ func TestMain_OfflineReturns(t *testing.T) {
 	main()
 }
 
+func TestRun_RequiresKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
+	var out bytes.Buffer
+	if err := run(context.Background(), nil, &out); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 func TestHasArg_EmptyWant(t *testing.T) {
-	if got := hasArg([]string{"--online"}, ""); got {
+	if got := hasArg([]string{"--help"}, ""); got {
 		t.Fatalf("expected false")
 	}
 }

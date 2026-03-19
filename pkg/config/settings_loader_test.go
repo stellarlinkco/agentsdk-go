@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,6 +34,18 @@ func loadSettings(t *testing.T, projectRoot string, runtimeOverrides *Settings) 
 	settings, err := loader.Load()
 	require.NoError(t, err)
 	return settings
+}
+
+func TestSettingsLoader_AbsFailure_ReturnsError(t *testing.T) {
+	old := filepathAbs
+	filepathAbs = func(string) (string, error) { return "", errors.New("abs boom") }
+	t.Cleanup(func() { filepathAbs = old })
+
+	loader := SettingsLoader{ProjectRoot: "x"}
+	_, loadErr := loader.Load()
+
+	require.Error(t, loadErr)
+	require.Contains(t, loadErr.Error(), "resolve project root:")
 }
 
 func TestSettingsLoader_SingleLayer(t *testing.T) {
