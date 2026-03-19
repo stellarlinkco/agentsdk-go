@@ -12,17 +12,26 @@ import (
 	"path/filepath"
 	"strings"
 
-	acpserver "github.com/cexll/agentsdk-go/pkg/acp"
-	"github.com/cexll/agentsdk-go/pkg/api"
-	modelpkg "github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	modelpkg "github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
-var serveACPStdio = acpserver.ServeStdio
+var osExit = os.Exit
+
+type runtimeRunner interface {
+	Run(context.Context, api.Request) (*api.Response, error)
+	RunStream(context.Context, api.Request) (<-chan api.StreamEvent, error)
+	Close() error
+}
+
+var newRuntime = func(ctx context.Context, options api.Options) (runtimeRunner, error) {
+	return api.New(ctx, options)
+}
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		osExit(1)
 	}
 }
 
@@ -32,14 +41,13 @@ func run(argv []string, stdout, stderr io.Writer) error {
 
 	entry := flags.String("entry", "cli", "Entry point type (cli/ci/platform)")
 	project := flags.String("project", ".", "Project root")
-	claudeDir := flags.String("claude", "", "Optional path to .claude directory")
+	agentsDir := flags.String("agents", "", "Optional path to .agents directory")
 	modelName := flags.String("model", "claude-3-5-sonnet-20241022", "Anthropic model name")
 	systemPrompt := flags.String("system-prompt", "", "System prompt override")
 	sessionID := flags.String("session", "", "Session identifier override")
 	promptFile := flags.String("prompt-file", "", "Read prompt from file (defaults to stdin/args)")
 	promptLiteral := flags.String("prompt", "", "Prompt literal (overrides stdin)")
 	stream := flags.Bool("stream", false, "Stream events instead of waiting for completion")
-	acpMode := flags.Bool("acp", false, "Run ACP server over stdio")
 
 	var mcpServers multiValue
 	flags.Var(&mcpServers, "mcp", "Register an MCP server (repeatable)")
@@ -56,8 +64,9 @@ func run(argv []string, stdout, stderr io.Writer) error {
 		System:    *systemPrompt,
 	}
 	settingsPath := ""
-	if strings.TrimSpace(*claudeDir) != "" {
-		settingsPath = filepath.Join(*claudeDir, "settings.json")
+	agentsDirValue := strings.TrimSpace(*agentsDir)
+	if agentsDirValue != "" {
+		settingsPath = filepath.Join(agentsDirValue, "settings.json")
 	}
 	options := api.Options{
 		EntryPoint:   api.EntryPoint(strings.ToLower(strings.TrimSpace(*entry))),
@@ -65,9 +74,6 @@ func run(argv []string, stdout, stderr io.Writer) error {
 		SettingsPath: settingsPath,
 		ModelFactory: provider,
 		MCPServers:   mcpServers,
-	}
-	if *acpMode {
-		return serveACPStdio(context.Background(), options, os.Stdin, stdout)
 	}
 
 	prompt, err := resolvePrompt(*promptLiteral, *promptFile, flags.Args())
@@ -78,7 +84,7 @@ func run(argv []string, stdout, stderr io.Writer) error {
 		return errors.New("prompt is empty")
 	}
 
-	runtime, err := api.New(context.Background(), options)
+	runtime, err := newRuntime(context.Background(), options)
 	if err != nil {
 		return fmt.Errorf("create runtime: %w", err)
 	}
@@ -87,15 +93,8 @@ func run(argv []string, stdout, stderr io.Writer) error {
 	req := api.Request{
 		Prompt:    prompt,
 		SessionID: strings.TrimSpace(*sessionID),
-		Mode: api.ModeContext{
-			EntryPoint: options.EntryPoint,
-			CLI: &api.CLIContext{
-				User:      os.Getenv("USER"),
-				Workspace: *project,
-				Args:      argv,
-			},
-		},
-		Tags: parseTags(tagFlags),
+		Mode:      api.ModeContext{EntryPoint: options.EntryPoint},
+		Tags:      parseTags(tagFlags),
 	}
 	if *stream {
 		return streamRun(runtime, req, stdout)
@@ -141,7 +140,7 @@ func resolvePrompt(literal, file string, tail []string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-func streamRun(rt *api.Runtime, req api.Request, out io.Writer) error {
+func streamRun(rt runtimeRunner, req api.Request, out io.Writer) error {
 	ch, err := rt.RunStream(context.Background(), req)
 	if err != nil {
 		return err

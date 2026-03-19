@@ -15,27 +15,26 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/cexll/agentsdk-go/pkg/api"
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/api"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
-//go:embed testdata/.claude/**
-var testClaudeFS embed.FS
+//go:embed testdata/.agents/**
+var testAgentsFS embed.FS
 
 const (
-	testSkillName   = "test-skill"
-	testCommandName = "test-cmd"
-	testAgentName   = "test-agent"
+	testSkillName = "test-skill"
+	testAgentName = "test-agent"
 )
 
 func TestEmbedFS_PureEmbedded(t *testing.T) {
 	t.Parallel()
 	projectRoot := t.TempDir()
-	if _, err := os.Stat(filepath.Join(projectRoot, ".claude")); !os.IsNotExist(err) {
-		t.Fatalf("expected no .claude directory on disk, got err=%v", err)
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agents")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .agents directory on disk, got err=%v", err)
 	}
 
-	rt, _ := newTestRuntime(t, projectRoot, embeddedClaudeFS(t))
+	rt, _ := newTestRuntime(t, projectRoot, embeddedAgentsFS(t))
 	resp := runRequest(t, rt, api.Request{
 		Prompt:      "diagnose embedded fs",
 		SessionID:   t.Name(),
@@ -63,14 +62,14 @@ func TestEmbedFS_PureEmbedded(t *testing.T) {
 func TestEmbedFS_OSOverridesEmbedded(t *testing.T) {
 	t.Parallel()
 	projectRoot := t.TempDir()
-	writeProjectFile(t, projectRoot, ".claude/settings.local.json", `{
+	writeProjectFile(t, projectRoot, ".agents/settings.local.json", `{
   "env": {
     "SOURCE": "local",
     "LOCAL_ONLY": "1"
   }
 }`)
 
-	rt, _ := newTestRuntime(t, projectRoot, embeddedClaudeFS(t))
+	rt, _ := newTestRuntime(t, projectRoot, embeddedAgentsFS(t))
 	resp := runRequest(t, rt, api.Request{
 		Prompt:      "os override",
 		SessionID:   t.Name(),
@@ -92,7 +91,7 @@ func TestEmbedFS_OSOverridesEmbedded(t *testing.T) {
 func TestEmbedFS_MixedSkills(t *testing.T) {
 	t.Parallel()
 	projectRoot := t.TempDir()
-	writeProjectFile(t, projectRoot, ".claude/skills/test-skill/SKILL.md", `---
+	writeProjectFile(t, projectRoot, ".agents/skills/test-skill/SKILL.md", `---
 name: test-skill
 description: local override skill
 allowed-tools: bash
@@ -102,7 +101,7 @@ allowed-tools: bash
 Only the local version should run.
 `)
 
-	rt, _ := newTestRuntime(t, projectRoot, embeddedClaudeFS(t))
+	rt, _ := newTestRuntime(t, projectRoot, embeddedAgentsFS(t))
 	resp := runRequest(t, rt, api.Request{
 		Prompt:      "mixed skills",
 		SessionID:   t.Name(),
@@ -121,7 +120,7 @@ Only the local version should run.
 		t.Fatalf("skill body not loaded from local override: %q", body)
 	}
 	source, _ := result.Result.Metadata["source"].(string)
-	if source == "" || !strings.Contains(source, filepath.Join(projectRoot, ".claude", "skills")) {
+	if source == "" || !strings.Contains(source, filepath.Join(projectRoot, ".agents", "skills")) {
 		t.Fatalf("skill source should point to project override, got %q", source)
 	}
 }
@@ -131,11 +130,11 @@ func TestEmbedFS_Priority(t *testing.T) {
 	projectRoot := t.TempDir()
 
 	embedMap := fstest.MapFS{
-		".claude":                   &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/settings.json":     &fstest.MapFile{Data: []byte(`{"env":{"SOURCE":"embed","EMBED_ONLY":"1"}}`)},
-		".claude/skills":            &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/skills/test-skill": &fstest.MapFile{Mode: fs.ModeDir},
-		".claude/skills/test-skill/SKILL.md": &fstest.MapFile{Data: []byte(`---
+		".agents":                   &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/settings.json":     &fstest.MapFile{Data: []byte(`{"env":{"SOURCE":"embed","EMBED_ONLY":"1"}}`)},
+		".agents/skills":            &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/skills/test-skill": &fstest.MapFile{Mode: fs.ModeDir},
+		".agents/skills/test-skill/SKILL.md": &fstest.MapFile{Data: []byte(`---
 name: test-skill
 description: embed version
 ---
@@ -143,14 +142,14 @@ Embedded priority skill
 `)},
 	}
 
-	writeProjectFile(t, projectRoot, ".claude/settings.json", `{
+	writeProjectFile(t, projectRoot, ".agents/settings.json", `{
   "env": {
     "SOURCE": "priority-local",
     "LOCAL_ONLY": "1"
   }
 }`)
 
-	writeProjectFile(t, projectRoot, ".claude/skills/test-skill/SKILL.md", `---
+	writeProjectFile(t, projectRoot, ".agents/skills/test-skill/SKILL.md", `---
 name: test-skill
 description: highest priority
 ---
@@ -186,8 +185,8 @@ Local priority skill wins
 func TestEmbedFS_NilEmbedFS(t *testing.T) {
 	t.Parallel()
 	projectRoot := t.TempDir()
-	writeProjectFile(t, projectRoot, ".claude/settings.json", `{"env":{"SOURCE":"disk-only"}}`)
-	writeProjectFile(t, projectRoot, ".claude/skills/test-skill/SKILL.md", `---
+	writeProjectFile(t, projectRoot, ".agents/settings.json", `{"env":{"SOURCE":"disk-only"}}`)
+	writeProjectFile(t, projectRoot, ".agents/skills/test-skill/SKILL.md", `---
 name: test-skill
 description: disk skill
 ---
@@ -226,9 +225,9 @@ func newTestRuntime(t *testing.T, projectRoot string, embed fs.FS) (*api.Runtime
 	return rt, model
 }
 
-func embeddedClaudeFS(t *testing.T) fs.FS {
+func embeddedAgentsFS(t *testing.T) fs.FS {
 	t.Helper()
-	fsys, err := fs.Sub(testClaudeFS, "testdata")
+	fsys, err := fs.Sub(testAgentsFS, "testdata")
 	if err != nil {
 		t.Fatalf("sub fs: %v", err)
 	}
@@ -305,29 +304,11 @@ func (m *recordingModel) LastRequest() model.Request {
 	return m.lastReq
 }
 
-func TestEmbedFS_Commands(t *testing.T) {
-	t.Parallel()
-	projectRoot := t.TempDir()
-
-	rt, _ := newTestRuntime(t, projectRoot, embeddedClaudeFS(t))
-	resp := runRequest(t, rt, api.Request{
-		Prompt:    "/test-cmd",
-		SessionID: t.Name(),
-	})
-
-	if len(resp.CommandResults) != 1 {
-		t.Fatalf("expected 1 command result, got %d", len(resp.CommandResults))
-	}
-	if resp.CommandResults[0].Definition.Name != testCommandName {
-		t.Fatalf("loaded command %q, want %s", resp.CommandResults[0].Definition.Name, testCommandName)
-	}
-}
-
 func TestEmbedFS_Subagents(t *testing.T) {
 	t.Parallel()
 	projectRoot := t.TempDir()
 
-	rt, _ := newTestRuntime(t, projectRoot, embeddedClaudeFS(t))
+	rt, _ := newTestRuntime(t, projectRoot, embeddedAgentsFS(t))
 	resp := runRequest(t, rt, api.Request{
 		Prompt:         "test",
 		SessionID:      t.Name(),

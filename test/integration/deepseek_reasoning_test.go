@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/model"
+	"github.com/stellarlinkco/agentsdk-go/pkg/model"
 )
 
 const (

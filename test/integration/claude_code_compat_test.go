@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/config"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
-	"github.com/cexll/agentsdk-go/pkg/runtime/subagents"
+	"github.com/stellarlinkco/agentsdk-go/pkg/config"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/subagents"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -26,7 +26,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestSettingsLoaderProjectLocalPrecedence(t *testing.T) {
 	projectRoot := t.TempDir()
 
-	writeFile(t, filepath.Join(projectRoot, ".claude", "settings.json"), `{
+	writeFile(t, filepath.Join(projectRoot, ".agents", "settings.json"), `{
         "model": "claude-3-opus-latest",
         "env": {
             "PROJECT_ONLY": "1",
@@ -38,7 +38,7 @@ func TestSettingsLoaderProjectLocalPrecedence(t *testing.T) {
         }
     }`)
 
-	writeFile(t, filepath.Join(projectRoot, ".claude", "settings.local.json"), `{
+	writeFile(t, filepath.Join(projectRoot, ".agents", "settings.local.json"), `{
         "model": "claude-3-haiku-latest",
         "env": {
             "SHARED": "local",
@@ -92,7 +92,7 @@ func TestSkillsLoadProjectOnly(t *testing.T) {
 	projectRoot := t.TempDir()
 	fakeHome := t.TempDir()
 
-	writeFile(t, filepath.Join(projectRoot, ".claude", "skills", "project-skill", "SKILL.md"), `---
+	writeFile(t, filepath.Join(projectRoot, ".agents", "skills", "project-skill", "SKILL.md"), `---
 name: project-skill
 description: project scoped skill
 allowed-tools: bash
@@ -100,7 +100,7 @@ allowed-tools: bash
 # skill body
 `)
 
-	writeFile(t, filepath.Join(fakeHome, ".claude", "skills", "user-skill", "SKILL.md"), `---
+	writeFile(t, filepath.Join(fakeHome, ".agents", "skills", "user-skill", "SKILL.md"), `---
 name: user-skill
 description: should be ignored
 allowed-tools: bash
@@ -130,7 +130,7 @@ func TestSubagentLoadProjectOnly(t *testing.T) {
 	projectRoot := t.TempDir()
 	fakeHome := t.TempDir()
 
-	writeFile(t, filepath.Join(projectRoot, ".claude", "agents", "project-agent.md"), `---
+	writeFile(t, filepath.Join(projectRoot, ".agents", "agents", "project-agent.md"), `---
 name: project-agent
 description: project scoped agent
 tools: bash
@@ -141,7 +141,7 @@ skills: helper
 # body
 `)
 
-	writeFile(t, filepath.Join(fakeHome, ".claude", "agents", "user-agent.md"), `---
+	writeFile(t, filepath.Join(fakeHome, ".agents", "agents", "user-agent.md"), `---
 name: user-agent
 description: should be ignored
 tools: bash

@@ -55,7 +55,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: agentctl
-          image: ghcr.io/cexll/agentsdk-go:latest
+          image: ghcr.io/stellarlinkco/agentsdk-go:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

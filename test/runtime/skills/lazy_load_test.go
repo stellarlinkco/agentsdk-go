@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
 )
 
 func TestLazyLoadViaRegistry(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "ext")
+	dir := filepath.Join(root, ".agents", "skills", "ext")
 
 	writeSkill(t, filepath.Join(dir, "SKILL.md"), "ext", "body from registry")
 
@@ -63,7 +63,7 @@ func TestLazyLoadViaRegistry(t *testing.T) {
 
 func TestLazyLoadErrorPropagates(t *testing.T) {
 	root := t.TempDir()
-	dir := filepath.Join(root, ".claude", "skills", "err")
+	dir := filepath.Join(root, ".agents", "skills", "err")
 	writeSkill(t, filepath.Join(dir, "SKILL.md"), "err", "body")
 
 	regs, errs := skills.LoadFromFS(skills.LoaderOptions{ProjectRoot: root})

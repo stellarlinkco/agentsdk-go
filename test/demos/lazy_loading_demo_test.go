@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cexll/agentsdk-go/pkg/middleware"
-	"github.com/cexll/agentsdk-go/pkg/runtime/skills"
+	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
+	"github.com/stellarlinkco/agentsdk-go/pkg/runtime/skills"
 )
 
 func TestSkillLazyLoadingDemo(t *testing.T) {
@@ -91,7 +91,7 @@ func TestSkillLazyLoadingDemo(t *testing.T) {
 
 func writeDemoSkill(t *testing.T, root, name, body string) {
 	t.Helper()
-	path := filepath.Join(root, ".claude", "skills", name, "SKILL.md")
+	path := filepath.Join(root, ".agents", "skills", name, "SKILL.md")
 	content := strings.Join([]string{
 		"---",
 		"name: " + name,
