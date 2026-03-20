@@ -8,6 +8,10 @@ An Agent SDK implemented in Go that implements core Claude Code-style runtime ca
 
 agentsdk-go is a modular agent development framework that implements core Claude Code-style runtime capabilities (Hooks, MCP, Sandbox, Skills, Subagents) and optionally exposes a four-point middleware interception mechanism. The SDK supports deployment scenarios across CLI, CI/CD, and enterprise platforms.
 
+## Upgrading
+
+Breaking changes for the v2 refactor are tracked in `docs/refactor/UPGRADING-v2.md`.
+
 ### Dependencies
 
 - External dependencies: anthropic-sdk-go, fsnotify, gopkg.in/yaml.v3, google/uuid, golang.org/x/mod, golang.org/x/net

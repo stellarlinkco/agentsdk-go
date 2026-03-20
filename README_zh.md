@@ -8,6 +8,10 @@
 
 agentsdk-go 是一个模块化的 Agent 开发框架，实现 Claude Code 风格的核心运行时能力（Hooks、MCP、Sandbox、Skills、Subagents），并在此基础上提供可选的 4 点 Middleware 拦截机制。该 SDK 支持 CLI、CI/CD 和企业平台等多种部署场景。
 
+## 升级说明
+
+v2 重构相关的不兼容变更与迁移清单见 `docs/refactor/UPGRADING-v2.md`。
+
 ### 依赖
 
 - 外部依赖：anthropic-sdk-go、fsnotify、gopkg.in/yaml.v3、google/uuid、golang.org/x/mod、golang.org/x/net
