@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -180,6 +181,7 @@ func (l *RulesLoader) watchChangesWith(
 	}
 
 	go func() {
+		var debounce *time.Timer
 		for {
 			select {
 			case event, ok := <-watcher.Events:
@@ -192,14 +194,21 @@ func (l *RulesLoader) watchChangesWith(
 				if strings.ToLower(filepath.Ext(event.Name)) != ".md" {
 					continue
 				}
-				rules, err := l.LoadRules()
-				if err != nil {
-					log.Printf("rules: reload failed: %v", err)
-					continue
+				// Debounce: os.WriteFile can emit truncate+write as two events;
+				// wait briefly so we read the final content, not the truncated file.
+				if debounce != nil {
+					debounce.Stop()
 				}
-				if callback != nil {
-					callback(rules)
-				}
+				debounce = time.AfterFunc(50*time.Millisecond, func() {
+					rules, err := l.LoadRules()
+					if err != nil {
+						log.Printf("rules: reload failed: %v", err)
+						return
+					}
+					if callback != nil {
+						callback(rules)
+					}
+				})
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
