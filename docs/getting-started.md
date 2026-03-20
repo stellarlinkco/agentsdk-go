@@ -9,7 +9,7 @@ This guide walks through the basic usage of agentsdk-go, including environment s
 - Go 1.24 or later
 - Git (to clone the repo)
  
-### Optional (online mode only)
+### Required (API calls / examples)
 
 - Anthropic API Key (`ANTHROPIC_API_KEY`)
 

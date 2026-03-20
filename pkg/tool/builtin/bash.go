@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 	"time"
+	"unicode"
 
 	"github.com/stellarlinkco/agentsdk-go/pkg/middleware"
 	"github.com/stellarlinkco/agentsdk-go/pkg/model"
@@ -28,12 +28,8 @@ const (
 	maxBashTimeout     = 60 * time.Minute
 	maxBashOutputLen   = 30000
 	bashDescript       = `
-	Execute a command via bash with an optional timeout.
-
-	Notes:
-	- Prefer dedicated tools for file operations: read/write/edit/glob/grep.
-	- Do not use shell metacharacters by default (pipes/redirects). CLI mode may enable them.
-	- Avoid multiline command strings; use '&&' for dependent steps.
+	Execute a bash command with a configurable timeout.
+	Prefer dedicated file tools (read/write/edit/glob/grep) over shell pipelines.
 	`
 )
 
@@ -52,11 +48,11 @@ var bashSchema = &tool.JSONSchema{
 	Properties: map[string]interface{}{
 		"command": map[string]interface{}{
 			"type":        "string",
-			"description": "Command string executed via bash without shell metacharacters.",
+			"description": "Command string to execute. Shell metacharacters are rejected by default unless explicitly enabled by the runtime.",
 		},
 		"timeout": map[string]interface{}{
 			"type":        "number",
-			"description": "Optional timeout in seconds (defaults to 30, caps at 120).",
+			"description": "Optional timeout in seconds (defaults to 600, caps at 3600).",
 		},
 		"workdir": map[string]interface{}{
 			"type":        "string",

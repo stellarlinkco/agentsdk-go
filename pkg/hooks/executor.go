@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// Default timeouts per Claude Code spec.
 const (
 	defaultCommandTimeout = 600 * time.Second
 	defaultPromptTimeout  = 30 * time.Second
@@ -22,9 +21,7 @@ const (
 	defaultHookTimeout    = defaultCommandTimeout
 )
 
-// Decision captures the permission outcome encoded in the hook exit code.
-// Claude Code spec: 0=success(parse JSON), 2=blocking error(stderr),
-// other=non-blocking(log stderr & continue).
+// Decision maps hook exit codes: 0=success(parse JSON), 2=blocking error, other=non-blocking.
 type Decision int
 
 const (
@@ -44,7 +41,7 @@ func (d Decision) String() string {
 	}
 }
 
-// HookOutput is the structured JSON output from hooks on exit 0.
+// HookOutput is parsed JSON stdout for exit code 0.
 type HookOutput struct {
 	Continue      *bool  `json:"continue,omitempty"`
 	StopReason    string `json:"stopReason,omitempty"`
@@ -55,7 +52,6 @@ type HookOutput struct {
 	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
 }
 
-// HookSpecificOutput carries event-specific fields from hook JSON output.
 type HookSpecificOutput struct {
 	HookEventName string `json:"hookEventName,omitempty"`
 
@@ -66,7 +62,6 @@ type HookSpecificOutput struct {
 	AdditionalContext        string         `json:"additionalContext,omitempty"`
 }
 
-// Result captures the full outcome of executing a shell hook.
 type Result struct {
 	Event    Event
 	Decision Decision
@@ -76,13 +71,12 @@ type Result struct {
 	Stderr   string
 }
 
-// Selector filters hooks by matcher target and/or payload pattern.
 type Selector struct {
 	ToolName *regexp.Regexp
 	Pattern  *regexp.Regexp
 }
 
-// NewSelector compiles optional regex patterns. Empty strings are treated as wildcards.
+// NewSelector compiles optional regex patterns; empty strings are wildcards.
 func NewSelector(toolPattern, payloadPattern string) (Selector, error) {
 	sel := Selector{}
 	if strings.TrimSpace(toolPattern) != "" {
@@ -102,7 +96,6 @@ func NewSelector(toolPattern, payloadPattern string) (Selector, error) {
 	return sel, nil
 }
 
-// Match returns true when the event satisfies all configured selectors.
 func (s Selector) Match(evt Event) bool {
 	if s.ToolName != nil {
 		target := extractMatcherTarget(evt.Type, evt.Payload)
@@ -122,7 +115,6 @@ func (s Selector) Match(evt Event) bool {
 	return true
 }
 
-// ShellHook describes a single shell command bound to an event type.
 type ShellHook struct {
 	Event         EventType
 	Command       string
@@ -135,7 +127,6 @@ type ShellHook struct {
 	StatusMessage string // status message shown during execution
 }
 
-// Executor executes hooks by spawning shell commands with JSON stdin payloads.
 type Executor struct {
 	hooks   []ShellHook
 	hooksMu sync.RWMutex
@@ -151,7 +142,6 @@ type Executor struct {
 	onceTracker sync.Map // key: "sessionID:hookName" -> struct{}
 }
 
-// ExecutorOption configures optional behaviour.
 type ExecutorOption func(*Executor)
 
 // WithMiddleware wraps execution with the provided middleware chain.
@@ -208,8 +198,7 @@ func (e *Executor) Register(hooks ...ShellHook) {
 	e.hooks = append(e.hooks, hooks...)
 }
 
-// Publish executes matching hooks for the event using a background context.
-// It preserves the previous API while delegating to Execute.
+// Publish executes hooks with a background context (compat wrapper around Execute).
 func (e *Executor) Publish(evt Event) error {
 	_, err := e.Execute(context.Background(), evt)
 	return err
@@ -238,10 +227,7 @@ func (e *Executor) Execute(ctx context.Context, evt Event) ([]Result, error) {
 	return results, nil
 }
 
-// Close is present for API parity; no resources are held.
-func (e *Executor) Close() {
-	_ = e
-}
+func (*Executor) Close() {}
 
 func (e *Executor) runHooks(ctx context.Context, evt Event) ([]Result, error) {
 	hooks := e.matchingHooks(evt)
@@ -391,8 +377,6 @@ func effectiveTimeout(hookTimeout, defaultTimeout time.Duration) time.Duration {
 	return defaultHookTimeout
 }
 
-// classifyExit maps process exit codes to Decision per Claude Code spec.
-// 0 = success (parse JSON), 2 = blocking error, other = non-blocking.
 func classifyExit(runErr error) (Decision, int) {
 	if runErr == nil {
 		return DecisionAllow, 0
@@ -539,8 +523,7 @@ func mergeEnv(base []string, extra map[string]string) []string {
 	return env
 }
 
-// extractMatcherTarget returns the string to match against the hook's selector
-// based on event type and payload.
+// extractMatcherTarget returns the selector target string based on event type and payload.
 func extractMatcherTarget(eventType EventType, payload any) string {
 	switch eventType {
 	case PreToolUse:

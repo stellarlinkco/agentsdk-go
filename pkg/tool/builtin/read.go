@@ -17,19 +17,13 @@ const (
 	readDefaultLineLimit = 2000
 	readMaxLineLength    = 2000
 	readDescription      = `Reads a text file from the local filesystem within the configured sandbox.
-If the User provides a path, assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
-
 Usage:
-- The file_path parameter can be absolute or relative to the sandbox root
-- By default, it reads up to 2000 lines starting from the beginning of the file
-- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
-- Any lines longer than 2000 characters will be truncated
-- Results are returned using cat -n format, with line numbers starting at 1
-- This tool reads text files only; it does not decode images, PDFs, or Jupyter notebooks.
-- If the target looks like a binary file, an error will be returned instead of garbage output.
-- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
-- You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
-- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.`
+- file_path can be absolute or relative to the sandbox root.
+- By default, reads up to 2000 lines from the beginning of the file.
+- offset/limit can be used for large files.
+- Lines longer than 2000 characters are truncated.
+- Text files only (no images/PDFs/notebooks); binary files error.
+- Directories are rejected.`
 )
 
 const is32Bit = ^uint(0)>>32 == 0
@@ -39,7 +33,7 @@ var readSchema = &tool.JSONSchema{
 	Properties: map[string]interface{}{
 		"file_path": map[string]interface{}{
 			"type":        "string",
-			"description": "The absolute path to the file to read",
+			"description": "Path to the file to read (absolute or relative to the sandbox root).",
 		},
 		"offset": map[string]interface{}{
 			"type":        "number",

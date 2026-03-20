@@ -13,7 +13,7 @@
 > **Primary Workflow**: New branch rewrite -> merge single Model interface -> consolidate packages -> prompt-compression compaction (strip tool I/O) -> reduce tools/events/middleware -> delete dead code -> rewrite key tests.
 > **Success Metric**: `go test ./...` passes; total non-test LOC in pkg/ <= 20K; package count <= 11; examples require API keys (no offline mode).
 > **Key Constraints**: Zero new dependencies; YOLO-default security with safety hook; must preserve gitignore matcher (grep/glob depend on it); message package kept as-is.
-> **Verification Path**: `wc -l` on non-test .go files; `go test ./...`; package count via `find pkg -type d`; manual example smoke test.
+> **Verification Path**: `wc -l` on non-test .go files; `go test ./...`; package count via `find pkg -maxdepth 1 -type d | tail -n +2 | wc -l`; manual example smoke test.
 > **Domain**: Go SDK, CLI/CI/enterprise agent runtime.
 
 ---

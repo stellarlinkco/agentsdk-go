@@ -11,22 +11,11 @@ import (
 	"github.com/stellarlinkco/agentsdk-go/pkg/tool"
 )
 
-const skillToolDescriptionHeader = `Execute a skill within the main conversation
+const skillToolDescriptionHeader = `Execute a skill.
 
 <skills_instructions>
-When users ask you to perform work, check if an available skill can help complete the job more effectively. Skills provide specialized capabilities and domain knowledge.
-
-How to use skills:
-- Invoke skills using this tool with the skill name only (no arguments)
-- The skill prompt expands with detailed instructions for the job
-- Examples:
-  - command: "pdf" - invoke the pdf skill
-  - command: "excel-parser" - invoke the excel-parser skill
-
-Important:
-- Only use skills listed in <available_skills> below
-- Do not invoke a skill that is already running
-- Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
+Call this tool with {"command":"<skill-name>"} (no arguments).
+Only use skills listed in <available_skills>. Do not invoke a skill that is already running.
 </skills_instructions>
 
 <available_skills>

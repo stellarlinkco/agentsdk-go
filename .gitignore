@@ -32,7 +32,6 @@ examples/http/http
 **/.agents/history/
 **/.agents/state/
 **/.http-trace/
-**/.claude-trace/
 
 tools.json
 .gocache
