@@ -163,7 +163,7 @@ type Options struct {
 	MaxTokensEscalation    MaxTokensEscalationConfig
 	MaxSessions            int
 	MaxConcurrentSubagents int
-	HistoryLoader          func(sessionID string) ([]message.Message, error) // loader for session history restoration
+	HistoryLoader          func(sessionID string) ([]message.Message, error) // restores persisted session history
 	Tools                  []tool.Tool
 	EnabledBuiltinTools    []string
 	DisallowedTools        []string
@@ -248,7 +248,7 @@ type SandboxReport struct {
 
 // WithHistoryLoader sets a function that is called when a new session is created.
 // The loader receives the session ID and should return previously persisted messages,
-// or nil/error if no history exists.
+// or nil, nil if no history exists.
 func WithHistoryLoader(loader func(string) ([]message.Message, error)) func(*Options) {
 	return func(o *Options) { o.HistoryLoader = loader }
 }

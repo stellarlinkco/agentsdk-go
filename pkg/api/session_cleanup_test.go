@@ -22,9 +22,13 @@ func TestSessionEvictionCleansToolOutputDir(t *testing.T) {
 		t.Fatalf("write dummy output: %v", err)
 	}
 
-	store.Get(sessionID)
+	if _, err := store.Get(sessionID); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 	time.Sleep(100 * time.Microsecond)
-	store.Get("session-to-keep")
+	if _, err := store.Get("session-to-keep"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 
 	ids := store.SessionIDs()
 	if len(ids) != 1 || ids[0] != "session-to-keep" {
@@ -43,9 +47,13 @@ func TestSessionEvictionInvokesCallbackWhenPresent(t *testing.T) {
 		evicted = append(evicted, id)
 	}
 
-	store.Get("session-to-evict")
+	if _, err := store.Get("session-to-evict"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 	time.Sleep(100 * time.Microsecond)
-	store.Get("session-to-keep")
+	if _, err := store.Get("session-to-keep"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 
 	if len(evicted) != 1 || evicted[0] != "session-to-evict" {
 		t.Fatalf("evicted=%v, want [session-to-evict]", evicted)
@@ -57,7 +65,9 @@ func TestRuntimeCloseCleansToolOutputDirs(t *testing.T) {
 
 	sessions := []string{"sess-a", "sess-b"}
 	for _, sessionID := range sessions {
-		rt.histories.Get(sessionID)
+		if _, err := rt.histories.Get(sessionID); err != nil {
+			t.Fatalf("Get: %v", err)
+		}
 		dir := toolOutputSessionDir(sessionID)
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 

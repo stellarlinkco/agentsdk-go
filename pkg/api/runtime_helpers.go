@@ -328,39 +328,52 @@ func newHistoryStore(maxSize int, loader func(string) ([]message.Message, error)
 	}
 }
 
-func (s *historyStore) Get(id string) *message.History {
+func (s *historyStore) Get(id string) (*message.History, error) {
 	if strings.TrimSpace(id) == "" {
 		id = defaultSessionID(defaultEntrypoint)
 	}
 	s.mu.Lock()
-	now := time.Now()
 	if hist, ok := s.data[id]; ok {
+		s.lastUsed[id] = time.Now()
+		s.mu.Unlock()
+		return hist, nil
+	}
+	loader := s.loader
+	s.mu.Unlock()
+
+	hist := message.NewHistory()
+	if loader != nil {
+		loaded, err := loader(id)
+		if err != nil {
+			return nil, fmt.Errorf("api: load history for session %q: %w", id, err)
+		}
+		if len(loaded) > 0 {
+			hist.Replace(loaded)
+		}
+	}
+
+	s.mu.Lock()
+	now := time.Now()
+	if existing, ok := s.data[id]; ok {
 		s.lastUsed[id] = now
 		s.mu.Unlock()
-		return hist
+		return existing, nil
 	}
-	hist := message.NewHistory()
 	s.data[id] = hist
 	s.lastUsed[id] = now
 	onEvict := s.onEvict
-	loader := s.loader
 	evicted := ""
 	if len(s.data) > s.maxSize {
 		evicted = s.evictOldest()
 	}
 	s.mu.Unlock()
-	if loader != nil {
-		if loaded, err := loader(id); err == nil && len(loaded) > 0 {
-			hist.Replace(loaded)
-		}
-	}
 	if evicted != "" {
 		cleanupToolOutputSessionDir(evicted) //nolint:errcheck
 		if onEvict != nil {
 			onEvict(evicted)
 		}
 	}
-	return hist
+	return hist, nil
 }
 
 func (s *historyStore) Loaded(id string) (*message.History, bool) {
@@ -378,6 +391,22 @@ func (s *historyStore) Loaded(id string) (*message.History, bool) {
 		s.lastUsed[id] = time.Now()
 	}
 	return hist, ok
+}
+
+func (s *historyStore) Snapshot(id string) ([]message.Message, bool) {
+	if s == nil {
+		return nil, false
+	}
+	if strings.TrimSpace(id) == "" {
+		id = defaultSessionID(defaultEntrypoint)
+	}
+	s.mu.Lock()
+	hist, ok := s.data[id]
+	s.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	return hist.All(), true
 }
 
 func (s *historyStore) evictOldest() string {

@@ -10,12 +10,15 @@ func TestRuntimePrepare_PrecheckCompactsHistory(t *testing.T) {
 	rt := newTestRuntime(t, staticModel{content: "ok"}, auto)
 
 	sessionID := "sess"
-	hist := rt.histories.Get(sessionID)
+	hist, err := rt.histories.Get(sessionID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 	for i := 0; i < 10; i++ {
 		hist.Append(msgWithTokens("user", 20))
 	}
 
-	_, err := rt.Run(context.Background(), Request{Prompt: "hello", SessionID: sessionID})
+	_, err = rt.Run(context.Background(), Request{Prompt: "hello", SessionID: sessionID})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

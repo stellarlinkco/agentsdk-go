@@ -359,12 +359,12 @@ func (rt *Runtime) Sandbox() *sandbox.Manager {
 	return rt.executor.Sandbox()
 }
 
-// SessionHistory returns the in-memory history for a session, or nil.
-func (rt *Runtime) SessionHistory(sessionID string) *message.History {
+// SessionHistory returns a cloned snapshot of an existing session history.
+func (rt *Runtime) SessionHistory(sessionID string) ([]message.Message, bool) {
 	if rt == nil || rt.histories == nil {
-		return nil
+		return nil, false
 	}
-	return rt.histories.Get(sessionID)
+	return rt.histories.Snapshot(sessionID)
 }
 
 // ----------------- internal helpers -----------------

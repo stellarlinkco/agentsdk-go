@@ -51,7 +51,10 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 		normalized.RequestID = uuid.New().String()
 	}
 
-	history := rt.histories.Get(normalized.SessionID)
+	history, err := rt.histories.Get(normalized.SessionID)
+	if err != nil {
+		return preparedRun{}, err
+	}
 	recorder := defaultHookRecorder()
 
 	activation := normalized.activationContext(prompt)
