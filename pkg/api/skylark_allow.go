@@ -56,6 +56,24 @@ func (s *skylarkAllowState) unlock(names []string) {
 	}
 }
 
+// updateWhitelist adds tool names to the requestWhitelist so that
+// subsequently unlocked tools are not filtered out by allowedMap().
+// Called after a skill execution returns allowed-tools.
+func (s *skylarkAllowState) updateWhitelist(tools []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.requestWhitelist == nil {
+		s.requestWhitelist = map[string]struct{}{}
+	}
+	for _, raw := range tools {
+		n := canonicalToolName(raw)
+		if n == "" {
+			continue
+		}
+		s.requestWhitelist[n] = struct{}{}
+	}
+}
+
 func (s *skylarkAllowState) isAllowed(name string) bool {
 	n := canonicalToolName(name)
 	if n == "" {

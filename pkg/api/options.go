@@ -149,6 +149,11 @@ type Options struct {
 	// When false (default), independent tool calls run concurrently after BeforeTool hooks.
 	DisableParallelToolCalls bool
 
+	// SkillsOnly restricts tool execution to only those defined in
+	// active skills' allowed-tools frontmatter. When no skill matches,
+	// only the "skill" tool is available (the model can only call skills).
+	SkillsOnly bool
+
 	// ReflectionEnabled enables the built-in structured reflection middleware.
 	// When nil, it defaults to enabled.
 	ReflectionEnabled *bool

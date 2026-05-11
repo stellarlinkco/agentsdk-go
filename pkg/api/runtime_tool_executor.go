@@ -332,6 +332,32 @@ func (t *runtimeToolExecutor) Execute(ctx context.Context, call model.ToolCall) 
 		}, prep.PreHookErr
 	}
 	result, err, content := t.invokeToolCall(ctx, call)
+	// After a skill tool call, propagate allowed-tools to the Skylark whitelist
+	// so that subsequent retrieve_capabilities unlock can expose MCP tools.
+	if call.Name == "skill" && t.skylark != nil && result != nil && result.Result != nil {
+		if data, _ := result.Result.Data.(map[string]any); data != nil {
+			if meta, _ := data["metadata"].(map[string]any); meta != nil {
+				if raw, ok := meta["allowed-tools"]; ok {
+					var names []string
+					switch v := raw.(type) {
+					case []string:
+						names = v
+					case string:
+						names = strings.Split(v, ",")
+					case []any:
+						for _, item := range v {
+							if s, _ := item.(string); s != "" {
+								names = append(names, s)
+							}
+						}
+					}
+					if len(names) > 0 {
+						t.skylark.updateWhitelist(names)
+					}
+				}
+			}
+		}
+	}
 	if finErr := t.finalizeToolCall(ctx, call, result, err, content, toolPreparation{}); finErr != nil {
 		return result, finErr
 	}

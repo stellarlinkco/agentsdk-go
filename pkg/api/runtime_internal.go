@@ -37,6 +37,31 @@ type runResult struct {
 	response *model.Response
 }
 
+// buildSkillsOnlyWhitelist restricts tools to only those allowed by matched
+// skills' allowed-tools frontmatter, plus always allowing the "skill" tool.
+// When no skills match, only "skill" is available.
+func buildSkillsOnlyWhitelist(skillRes []SkillExecution, existing map[string]struct{}) map[string]struct{} {
+	wl := map[string]struct{}{canonicalToolName("skill"): {}}
+	if existing != nil {
+		for name := range existing {
+			wl[name] = struct{}{}
+		}
+	}
+	for _, exec := range skillRes {
+		toolsStr, ok := exec.Definition.Metadata["allowed-tools"]
+		if !ok || toolsStr == "" {
+			continue
+		}
+		for _, tool := range strings.Split(toolsStr, ",") {
+			tool = strings.TrimSpace(tool)
+			if tool != "" {
+				wl[canonicalToolName(tool)] = struct{}{}
+			}
+		}
+	}
+	return wl
+}
+
 func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -86,6 +111,9 @@ func (rt *Runtime) prepare(ctx context.Context, req Request) (preparedRun, error
 	prompt = promptAfterSubagent
 	activation.Prompt = prompt
 	whitelist := combineToolWhitelists(normalized.ToolWhitelist, nil)
+	if rt.opts.SkillsOnly {
+		whitelist = buildSkillsOnlyWhitelist(skillRes, whitelist)
+	}
 	return preparedRun{
 		ctx:                ctx,
 		prompt:             prompt,
