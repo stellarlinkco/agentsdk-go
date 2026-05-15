@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/anthropics/anthropic-sdk-go v1.18.0
 	github.com/bmatcuk/doublestar/v4 v4.9.1
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.1.0
 	github.com/openai/openai-go v1.12.0
