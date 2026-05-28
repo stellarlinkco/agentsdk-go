@@ -26,6 +26,7 @@ type Message struct {
 	Content          string
 	ContentBlocks    []ContentBlock // Multimodal content; takes precedence over Content when non-empty
 	ToolCalls        []ToolCall
+	ToolCallID       string
 	ReasoningContent string
 	Metadata         map[string]any
 }
@@ -41,7 +42,7 @@ type ToolCall struct {
 // CloneMessage performs a deep clone of a model.Message, duplicating nested
 // maps to avoid mutation leaks between callers.
 func CloneMessage(msg Message) Message {
-	clone := Message{Role: msg.Role, Content: msg.Content, ReasoningContent: msg.ReasoningContent}
+	clone := Message{Role: msg.Role, Content: msg.Content, ToolCallID: msg.ToolCallID, ReasoningContent: msg.ReasoningContent}
 	clone.ContentBlocks = cloneContentBlocks(msg.ContentBlocks)
 	clone.ToolCalls = cloneToolCalls(msg.ToolCalls)
 	clone.Metadata = cloneMap(msg.Metadata)
