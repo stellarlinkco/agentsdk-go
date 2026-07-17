@@ -32,7 +32,7 @@ jobs:
         run: make tidy-check
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v1.64.2
           args: --timeout=5m
