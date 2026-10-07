@@ -61,12 +61,12 @@ func run(ctx context.Context, args []string, out io.Writer, endpoint string) err
 	name := "parallel__web_search"
 	params := map[string]any{
 		"objective":      "Find reliable sources for: " + *query,
-		"search_queries": []string{*query},
+		"search_queries": []any{*query},
 		"session_id":     *sessionID,
 	}
 	if strings.TrimSpace(*pageURL) != "" {
 		name = "parallel__web_fetch"
-		params = map[string]any{"urls": []string{*pageURL}, "session_id": *sessionID}
+		params = map[string]any{"urls": []any{*pageURL}, "session_id": *sessionID}
 	}
 	result, err := registry.Execute(ctx, name, params)
 	if err != nil {

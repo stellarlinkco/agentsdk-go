@@ -33,7 +33,16 @@ func TestRunSearchAndFetch(t *testing.T) {
 			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fixture", Version: "1"}, nil)
 			var called atomic.Bool
 			for _, name := range []string{"web_search", "web_fetch"} {
-				server.AddTool(&mcpsdk.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+				properties := map[string]any{"session_id": map[string]any{"type": "string"}}
+				required := []string{"urls"}
+				properties["urls"] = map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+				if name == "web_search" {
+					delete(properties, "urls")
+					properties["objective"] = map[string]any{"type": "string"}
+					properties["search_queries"] = map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+					required = []string{"objective", "search_queries"}
+				}
+				server.AddTool(&mcpsdk.Tool{Name: name, InputSchema: map[string]any{"type": "object", "properties": properties, "required": required}}, func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 					if req.Params.Name != tc.tool {
 						t.Errorf("tool = %s, want %s", req.Params.Name, tc.tool)
 					}
