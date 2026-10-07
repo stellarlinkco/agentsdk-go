@@ -2,7 +2,7 @@
 
 # agentsdk-go Examples
 
-Thirteen examples. Run everything from the repo root.
+Fourteen examples. Run everything from the repo root.
 
 **Environment Setup**
 
@@ -36,6 +36,8 @@ export ANTHROPIC_API_KEY=sk-ant-your-key-here
 - `11-reasoning` (~186 lines): reasoning model support (DeepSeek-R1 reasoning_content passthrough).
 - `12-multimodal` (~135 lines): multimodal content blocks (text + images).
 - `13-v21-features` (~500 lines): v2.1 feature demo: token budget, micro-compaction, tool concurrency, output limit, async subagent, SystemPromptBuilder, deferred tools.
+
+- `14-parallel-search`: keyless web search and page fetch through the MCP tool registry; see [usage](14-parallel-search/README.md).
 
 ## 01-basic — minimal entry
 - Purpose: fastest way to see the SDK loop in action with one request/response.
